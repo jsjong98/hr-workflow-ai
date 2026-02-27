@@ -1,0 +1,87 @@
+@echo off
+:: =====================================================
+::  HR Workflow Builder - One-click Launcher (Windows)
+::  PwC / Doosan HR AX
+:: =====================================================
+
+cd /d "%~dp0"
+
+echo.
+echo =====================================================
+echo   HR Workflow Builder
+echo   PwC / Doosan HR AX
+echo =====================================================
+echo.
+
+:: -- 0. Restore config files (Gmail-safe packaging) --
+if exist "postcss.config.mjs.txt" (
+    ren "postcss.config.mjs.txt" "postcss.config.mjs"
+    echo [OK] Restored postcss.config.mjs
+)
+if exist "eslint.config.mjs.txt" (
+    ren "eslint.config.mjs.txt" "eslint.config.mjs"
+    echo [OK] Restored eslint.config.mjs
+)
+
+:: -- 1. Check Node.js --
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Node.js is not installed.
+    echo.
+    echo Please install Node.js LTS from:
+    echo   https://nodejs.org
+    echo.
+    echo After installation, double-click this file again.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=*" %%i in ('node -v') do set NODE_VER=%%i
+echo [OK] Node.js: %NODE_VER%
+
+:: -- 2. Check .env.local (OpenAI API Key) --
+if not exist ".env.local" (
+    echo.
+    echo [NOTICE] .env.local file not found.
+    echo   AI workflow feature requires an OpenAI API Key.
+    echo.
+    set /p "API_KEY=Enter OpenAI API Key (or press Enter to skip): "
+    if defined API_KEY (
+        echo OPENAI_API_KEY="%API_KEY%"> .env.local
+        echo [OK] .env.local created.
+    ) else (
+        echo OPENAI_API_KEY=""> .env.local
+        echo [SKIP] Continuing without API Key. AI features will be disabled.
+    )
+) else (
+    echo [OK] .env.local found
+)
+
+:: -- 3. Install packages --
+if not exist "node_modules" (
+    echo.
+    echo [INSTALL] Installing packages... (first time only, 2-3 min)
+    call npm install --legacy-peer-deps
+    if %errorlevel% neq 0 (
+        echo [ERROR] Package installation failed.
+        pause
+        exit /b 1
+    )
+    echo [OK] Packages installed.
+) else (
+    echo [OK] Packages already installed
+)
+
+:: -- 4. Start server --
+echo.
+echo =====================================================
+echo   Starting server...
+echo   Open browser: http://localhost:3000
+echo   Press Ctrl+C to stop
+echo =====================================================
+echo.
+
+:: Open browser after 3 seconds
+start "" cmd /c "timeout /t 3 /nobreak >nul & start http://localhost:3000"
+
+call npm run dev
