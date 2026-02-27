@@ -341,12 +341,12 @@ export function buildFlowFromL3(
  * CSV 텍스트를 파싱하여 CsvRow[]로 변환
  */
 export function parseCsv(text: string): CsvRow[] {
-  // BOM 제거
-  const clean = text.replace(/^\uFEFF/, "");
+  // BOM 제거 + 줄바꿈 통일 (\r\n, \r → \n)
+  const clean = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = clean.split("\n");
   if (lines.length < 2) return [];
 
-  const headers = parseCSVLine(lines[0]);
+  const headers = parseCSVLine(lines[0]).map((h) => h.trim());
   const rows: CsvRow[] = [];
 
   // Multi-line CSV 처리
@@ -365,7 +365,7 @@ export function parseCsv(text: string): CsvRow[] {
     const values = parseCSVLine(line);
     const row: Record<string, string> = {};
     for (let h = 0; h < headers.length; h++) {
-      row[headers[h]] = (values[h] ?? "").trim();
+      row[headers[h].trim()] = (values[h] ?? "").trim();
     }
     rows.push(row as unknown as CsvRow);
   }
