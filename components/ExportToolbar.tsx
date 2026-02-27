@@ -145,17 +145,27 @@ export default function ExportToolbar({
       pptx.subject = "As-is 프로세스 워크플로우";
       pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
 
-      /* ── Level style config (L2:#A62121 → L3:#D95578 → L4:#F2A0AF → L5:#F2DCE0) ── */
-      const LS: Record<string, { bg: string; border: string; text: string; badge: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
-        L2: { bg: "A62121", border: "D95578", text: "FFFFFF", badge: "F2A0AF", fontSize: 11, pxW: 300, pxH: 76, pptW: 2.3, pptH: 0.6 },
-        L3: { bg: "D95578", border: "F2A0AF", text: "FFFFFF", badge: "F2DCE0", fontSize: 10.5, pxW: 260, pxH: 68, pptW: 2.1, pptH: 0.55 },
-        L4: { bg: "F2A0AF", border: "D95578", text: "3B0716", badge: "A62121", fontSize: 10, pxW: 235, pxH: 60, pptW: 1.9, pptH: 0.5 },
-        L5: { bg: "F2DCE0", border: "F2A0AF", text: "3B0716", badge: "D95578", fontSize: 9, pxW: 200, pxH: 50, pptW: 1.6, pptH: 0.45 },
+      /* ── Level style config ── */
+      /* L3: 해당색 채우기+흰글씨 | L4: light gray 채우기 | L5: 흰바탕+light gray 윤곽 */
+      const LIGHT_GRAY = "DEDEDE";
+      const FONT_FACE = "Noto Sans KR";
+      const FONT_SIZE = 14;
+
+      const LS: Record<string, { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
+        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 300, pxH: 76, pptW: 2.3, pptH: 0.55 },
+        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 260, pxH: 68, pptW: 2.3, pptH: 0.55 },
+        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 235, pxH: 60, pptW: 2.3, pptH: 0.55 },
+        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 200, pxH: 50, pptW: 2.3, pptH: 0.55 },
       };
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
       const getId = (n: Node) => (n.data as Record<string, string>).id || n.id;
+      /* Format ID: strip level prefix, show only number (e.g. "L4-1.2.3" → "1.2.3") */
+      const getDisplayId = (n: Node) => {
+        const raw = getId(n);
+        return raw.replace(/^[Ll]\d[-_.\s]*/g, "").trim() || raw;
+      };
       const getDesc = (n: Node) => (n.data as Record<string, string>).description || "";
       const getMeta = (n: Node) => {
         const d = n.data as Record<string, string>;
@@ -177,21 +187,21 @@ export default function ExportToolbar({
       s1.background = { color: "0F172A" };
       s1.addText("HR Workflow", {
         x: 1, y: 1.8, w: 11.33, h: 1.2,
-        fontSize: 44, fontFace: "Arial", color: "FFFFFF", bold: true, align: "center",
+        fontSize: 44, fontFace: FONT_FACE, color: "FFFFFF", bold: true, align: "center",
       });
       s1.addText("PwC · 두산 HR AX", {
         x: 1, y: 3.2, w: 11.33, h: 0.6,
-        fontSize: 18, fontFace: "Arial", color: "94A3B8", align: "center",
+        fontSize: 18, fontFace: FONT_FACE, color: "94A3B8", align: "center",
       });
       s1.addText(
         `노드 ${nodes.length}개  ·  연결 ${edges.length}개  ·  ${new Date().toLocaleDateString("ko-KR")}`,
-        { x: 1, y: 4.0, w: 11.33, h: 0.5, fontSize: 13, fontFace: "Arial", color: "64748B", align: "center" },
+        { x: 1, y: 4.0, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
       );
       // Level legend on title
       let lx = 3.2;
       for (const [lvl, cfg] of Object.entries(LS)) {
-        s1.addShape("roundRect", { x: lx, y: 5.2, w: 1.3, h: 0.38, fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 }, rectRadius: 0.06 });
-        s1.addText(lvl, { x: lx, y: 5.2, w: 1.3, h: 0.38, fontSize: 11, fontFace: "Arial", color: cfg.text, bold: true, align: "center", valign: "middle" });
+        s1.addShape("rect", { x: lx, y: 5.2, w: 1.3, h: 0.38, fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 } });
+        s1.addText(lvl, { x: lx, y: 5.2, w: 1.3, h: 0.38, fontSize: 11, fontFace: FONT_FACE, color: cfg.text, bold: true, align: "center", valign: "middle" });
         lx += 1.7;
       }
 
@@ -202,7 +212,7 @@ export default function ExportToolbar({
       s2.background = { color: "F8FAFC" };
       s2.addText("워크플로우 다이어그램", {
         x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: "Arial", bold: true, color: "1E293B",
+        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
 
       // ── Coordinate mapping: RF center → PPT center ──
@@ -237,25 +247,19 @@ export default function ExportToolbar({
         const box = { x: cx - s.pptW / 2, y: cy - s.pptH / 2, w: s.pptW, h: s.pptH };
         nodeBoxes[nd.id] = box;
 
-        s2.addShape("roundRect", {
+        s2.addShape("rect", {
           x: box.x, y: box.y, w: box.w, h: box.h,
-          fill: { color: s.bg }, line: { color: s.border, width: 1.5 }, rectRadius: 0.08,
-          shadow: { type: "outer", blur: 3, offset: 1, color: "000000", opacity: 0.12 },
+          fill: { color: s.bg },
+          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
         });
-        s2.addText([
-          { text: `${level} · ${getId(nd)}  `, options: { fontSize: 7, bold: true, color: s.badge, fontFace: "Arial" } },
-          { text: getLabel(nd), options: { fontSize: s.fontSize, bold: true, color: s.text, fontFace: "Arial" } },
-        ], { x: box.x + 0.08, y: box.y + 0.02, w: box.w - 0.16, h: box.h - 0.04, valign: "middle", align: "center" });
+        s2.addText(getDisplayId(nd), {
+          x: box.x, y: box.y, w: box.w, h: box.h,
+          fontSize: s.fontSize, bold: true, color: s.text,
+          fontFace: FONT_FACE, valign: "middle", align: "center",
+        });
       }
 
-      // Draw edges (arrows) — supports bidirectional + connection points
-      const colorMap: Record<string, string> = {
-        "#a62121": "A62121", "#d95578": "D95578", "#f2a0af": "F2A0AF",
-        "#f2dce0": "F2DCE0", "#dedede": "DEDEDE",
-        "#6366f1": "D95578", "#3b82f6": "D95578", "#10b981": "D95578",
-        "#f97316": "F2A0AF", "#d1d5db": "DEDEDE",
-      };
-
+      // Draw edges (arrows) — solid light gray lines with fixed arrows
       /* Helper: find the best anchor point pair (edge of source/target box) */
       const getAnchorPoints = (src: typeof nodeBoxes[string], tgt: typeof nodeBoxes[string]) => {
         const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
@@ -309,8 +313,6 @@ export default function ExportToolbar({
 
         const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchorPoints(src, tgt);
 
-        const rawColor = ((edge.style as Record<string, unknown>)?.stroke as string) || "#d95578";
-        const lineColor = colorMap[rawColor] || rawColor.replace("#", "").toUpperCase() || "D95578";
         const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
 
         s2.addShape("line", {
@@ -318,33 +320,24 @@ export default function ExportToolbar({
           w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
           flipH: endX < startX, flipV: endY < startY,
           line: {
-            color: lineColor,
-            width: 1.5,
+            color: LIGHT_GRAY,
+            width: 1.0,
             endArrowType: "triangle",
             beginArrowType: isBidi ? "triangle" : undefined,
-            dashType: edge.animated ? "dash" : "solid",
+            dashType: "solid",
           },
         });
-
-        if (edge.label) {
-          const midX = (startX + endX) / 2, midY = (startY + endY) / 2;
-          s2.addText(String(edge.label), {
-            x: midX - 0.5, y: midY - 0.15, w: 1.0, h: 0.3,
-            fontSize: 7, color: lineColor, fontFace: "Arial", align: "center", valign: "middle",
-            fill: { color: "F8FAFC" },
-          });
-        }
       }
 
       // Slide 2 legend bar
       let lg2x = 0.4;
       for (const [lvl, cfg] of Object.entries(LS)) {
-        s2.addShape("roundRect", { x: lg2x, y: 7.05, w: 0.22, h: 0.22, fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 }, rectRadius: 0.03 });
-        s2.addText(lvl, { x: lg2x + 0.28, y: 7.05, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: "Arial", valign: "middle" });
+        s2.addShape("rect", { x: lg2x, y: 7.05, w: 0.22, h: 0.22, fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 } });
+        s2.addText(lvl, { x: lg2x + 0.28, y: 7.05, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
         lg2x += 0.9;
       }
-      s2.addText("── 실선: 고정 흐름  - - - 점선: 동적 흐름  ▶ 화살표: 진행 방향", {
-        x: 4.5, y: 7.05, w: 6, h: 0.22, fontSize: 7, color: "94A3B8", fontFace: "Arial", valign: "middle",
+      s2.addText("── 실선  ▶ 화살표: 진행 방향", {
+        x: 4.5, y: 7.05, w: 6, h: 0.22, fontSize: 7, color: "94A3B8", fontFace: FONT_FACE, valign: "middle",
       });
 
       /* ═══════════════════════════════════════════
@@ -385,10 +378,10 @@ export default function ExportToolbar({
       s3.background = { color: "FFFFFF" };
       s3.addText("프로세스 흐름 순서", {
         x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: "Arial", bold: true, color: "1E293B",
+        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       s3.addText("토폴로지 정렬 기반 실행 순서 · 번호는 선후행 관계를 반영합니다", {
-        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: "Arial", color: "94A3B8",
+        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
       });
 
       // Serpentine flow layout
@@ -407,22 +400,18 @@ export default function ExportToolbar({
         const bx = SX + col * (BW + GX);
         const by = SY + row * (BH + GY);
 
-        // Step box
-        s3.addShape("roundRect", {
+        // Step box (직사각형)
+        s3.addShape("rect", {
           x: bx, y: by, w: BW, h: BH,
-          fill: { color: s.bg }, line: { color: s.border, width: 1.2 }, rectRadius: 0.06,
+          fill: { color: s.bg },
+          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
         });
-        // Step number circle
-        s3.addShape("ellipse", { x: bx + 0.06, y: by + 0.07, w: 0.36, h: 0.36, fill: { color: s.border } });
-        s3.addText(String(i + 1), {
-          x: bx + 0.06, y: by + 0.07, w: 0.36, h: 0.36,
-          fontSize: 9, fontFace: "Arial", bold: true, color: "FFFFFF", align: "center", valign: "middle",
+        // Step number + ID
+        s3.addText(`${i + 1}. ${getDisplayId(nd)}`, {
+          x: bx, y: by, w: BW, h: BH,
+          fontSize: 11, fontFace: FONT_FACE, bold: true, color: s.text,
+          align: "center", valign: "middle",
         });
-        // Label
-        s3.addText([
-          { text: `[${level}] `, options: { fontSize: 8, bold: true, color: s.badge, fontFace: "Arial" } },
-          { text: getLabel(nd), options: { fontSize: 9.5, bold: true, color: s.text, fontFace: "Arial" } },
-        ], { x: bx + 0.46, y: by, w: BW - 0.56, h: BH, valign: "middle", align: "left" });
 
         // Arrow to next step
         if (i < maxSteps - 1) {
@@ -436,20 +425,20 @@ export default function ExportToolbar({
             if (!isRev) {
               s3.addShape("line", {
                 x: bx + BW, y: by + BH / 2, w: GX, h: 0.01,
-                line: { color: "94A3B8", width: 1.5, endArrowType: "triangle" },
+                line: { color: LIGHT_GRAY, width: 1.0, endArrowType: "triangle" },
               });
             } else {
               const nBx = SX + nCol * (BW + GX);
               s3.addShape("line", {
                 x: nBx + BW, y: by + BH / 2, w: GX, h: 0.01, flipH: true,
-                line: { color: "94A3B8", width: 1.5, endArrowType: "triangle" },
+                line: { color: LIGHT_GRAY, width: 1.0, endArrowType: "triangle" },
               });
             }
           } else {
             // Row transition: vertical down arrow
             s3.addShape("line", {
               x: bx + BW / 2, y: by + BH, w: 0.01, h: GY,
-              line: { color: "94A3B8", width: 1.5, endArrowType: "triangle" },
+              line: { color: LIGHT_GRAY, width: 1.0, endArrowType: "triangle" },
             });
           }
         }
@@ -458,7 +447,7 @@ export default function ExportToolbar({
         const lastRow = Math.ceil(maxSteps / COLS);
         s3.addText(`... 외 ${sorted.length - maxSteps}개 단계`, {
           x: SX, y: SY + lastRow * (BH + GY), w: 5, h: 0.35,
-          fontSize: 10, color: "94A3B8", fontFace: "Arial",
+          fontSize: 10, color: "94A3B8", fontFace: FONT_FACE,
         });
       }
 
@@ -469,10 +458,10 @@ export default function ExportToolbar({
       s4.background = { color: "FFFFFF" };
       s4.addText("연결 관계 (화살표) 목록", {
         x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: "Arial", bold: true, color: "1E293B",
+        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       s4.addText(`총 ${edges.length}개의 연결 화살표`, {
-        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: "Arial", color: "94A3B8",
+        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
       });
 
       const hdrOpts = { bold: true as const, color: "FFFFFF", fill: { color: "1E293B" }, fontSize: 9 };
@@ -493,10 +482,10 @@ export default function ExportToolbar({
         connRows.push([
           { text: String(idx + 1), options: { fontSize: 8, align: "center" as const, color: "64748B" } },
           { text: sn ? getLabel(sn) : edge.source, options: { fontSize: 8, bold: true as const } },
-          { text: sl, options: { fontSize: 8, align: "center" as const, color: "FFFFFF", fill: { color: ss.bg } } },
+          { text: sl, options: { fontSize: 8, align: "center" as const, color: ss.text, fill: { color: ss.bg }, bold: true as const } },
           { text: isBidi ? "⇄" : "→", options: { fontSize: 10, align: "center" as const, bold: true as const, color: isBidi ? "A62121" : "D95578" } },
           { text: tn ? getLabel(tn) : edge.target, options: { fontSize: 8, bold: true as const } },
-          { text: tl, options: { fontSize: 8, align: "center" as const, color: "FFFFFF", fill: { color: ts.bg } } },
+          { text: tl, options: { fontSize: 8, align: "center" as const, color: ts.text, fill: { color: ts.bg }, bold: true as const } },
           { text: edge.label ? String(edge.label) : "", options: { fontSize: 8, color: "64748B", italic: true as const } },
         ]);
       });
@@ -514,7 +503,7 @@ export default function ExportToolbar({
       s5.background = { color: "FFFFFF" };
       s5.addText("노드 상세 목록", {
         x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: "Arial", bold: true, color: "1E293B",
+        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       const nhdr = { bold: true as const, color: "FFFFFF", fill: { color: "1E293B" }, fontSize: 9 };
       const nodeRows: PptxGenJS.TableRow[] = [[
@@ -534,7 +523,7 @@ export default function ExportToolbar({
         const inE = edges.filter((e) => e.target === nd.id).length;
         const outE = edges.filter((e) => e.source === nd.id).length;
         nodeRows.push([
-          { text: level, options: { fontSize: 9, color: "FFFFFF", fill: { color: s.bg }, align: "center" as const, bold: true as const } },
+          { text: level, options: { fontSize: 9, color: s.text, fill: { color: s.bg }, align: "center" as const, bold: true as const } },
           { text: getId(nd), options: { fontSize: 8, color: "374151" } },
           { text: getLabel(nd), options: { fontSize: 9, bold: true as const } },
           { text: getDesc(nd), options: { fontSize: 8, color: "6B7280" } },
@@ -560,10 +549,10 @@ export default function ExportToolbar({
         s6.background = { color: "FFFFFF" };
         s6.addText("노드 메타 정보 (메모 · 수행주체 · Input/Output · 시스템)", {
           x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-          fontSize: 16, fontFace: "Arial", bold: true, color: "1E293B",
+          fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
         });
         s6.addText(`메타데이터가 입력된 ${nodesWithMeta.length}개 노드`, {
-          x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: "Arial", color: "94A3B8",
+          x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
         });
 
         const mhdr = { bold: true as const, color: "FFFFFF", fill: { color: "A62121" }, fontSize: 8 };
@@ -581,7 +570,7 @@ export default function ExportToolbar({
           const s = LS[level] || DEF;
           const m = getMeta(nd);
           metaRows.push([
-            { text: level, options: { fontSize: 8, color: "FFFFFF", fill: { color: s.bg }, align: "center" as const, bold: true as const } },
+            { text: level, options: { fontSize: 8, color: s.text, fill: { color: s.bg }, align: "center" as const, bold: true as const } },
             { text: getLabel(nd), options: { fontSize: 8, bold: true as const } },
             { text: m.role, options: { fontSize: 8, color: "374151", align: "center" as const } },
             { text: m.inputData, options: { fontSize: 7.5, color: "059669" } },
