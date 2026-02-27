@@ -789,8 +789,9 @@ export default function Home() {
                   </Panel>
                 )}
 
-                <Controls position="bottom-right" />
+                <Controls key="controls" position="bottom-right" />
                 <MiniMap
+                  key="minimap"
                   nodeColor={(node) => {
                     switch (node.type) {
                       case "l2":
@@ -808,7 +809,7 @@ export default function Home() {
                   maskColor="rgba(0,0,0,0.08)"
                   position="bottom-left"
                 />
-                <Panel position="top-right">
+                <Panel key="info" position="top-right">
                   <div className="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-gray-200 px-3 py-2 text-[10px] text-gray-500 space-y-0.5">
                     <div>
                       {"📦 노드: " +
