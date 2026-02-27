@@ -18,7 +18,7 @@
 #### 방법 A: Git Clone (권장)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/hr-workflow-ai.git
+git clone https://github.com/jsjong98/hr-workflow-ai.git
 cd hr-workflow-ai
 ```
 
