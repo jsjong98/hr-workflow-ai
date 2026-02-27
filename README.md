@@ -112,4 +112,4 @@ OPENAI_API_KEY=sk-xxxx...
 
 ---
 
-*PwC · 두산 HR AX · 2026*
+*2026*
