@@ -21,6 +21,8 @@ import { L2Node, L3Node, L4Node, L5Node } from "@/components/LevelNode";
 import ChatPanel from "@/components/ChatPanel";
 import ExportToolbar from "@/components/ExportToolbar";
 import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
+import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBar";
+import SwimLaneOverlay from "@/components/SwimLaneOverlay";
 import {
   parseCsv,
   extractL2List,
@@ -36,6 +38,12 @@ import {
   type L4Item,
   type L5Item,
 } from "@/lib/csvToFlow";
+
+/* ═══ Sheet data store (nodes + edges per sheet) ═══ */
+interface SheetData {
+  nodes: Node[];
+  edges: Edge[];
+}
 
 /* ═══════════════════════════════════════════════ */
 export default function Home() {
@@ -60,6 +68,127 @@ export default function Home() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const nodeCountRef = useRef(0);
+
+  /* ── Sheet (multi-tab) State ───────────────── */
+  const [sheets, setSheets] = useState<Sheet[]>([
+    { id: "sheet-1", name: "시트 1", type: "blank" },
+  ]);
+  const [activeSheetId, setActiveSheetId] = useState("sheet-1");
+  const sheetDataRef = useRef<Record<string, SheetData>>({});
+  const sheetCountRef = useRef(1);
+
+  /* Save current nodes/edges into sheetDataRef for the current sheet */
+  const saveCurrentSheet = useCallback(() => {
+    sheetDataRef.current[activeSheetId] = { nodes: [...nodes], edges: [...edges] };
+  }, [activeSheetId, nodes, edges]);
+
+  /* Switch to a different sheet */
+  const handleSelectSheet = useCallback(
+    (id: string) => {
+      if (id === activeSheetId) return;
+      // Save current sheet data
+      sheetDataRef.current[activeSheetId] = { nodes, edges };
+      // Load new sheet data
+      const data = sheetDataRef.current[id] || { nodes: [], edges: [] };
+      setNodes(data.nodes);
+      setEdges(data.edges);
+      nodeCountRef.current = data.nodes.length;
+      setActiveSheetId(id);
+      setSelectedNode(null);
+    },
+    [activeSheetId, nodes, edges, setNodes, setEdges]
+  );
+
+  /* Add a new sheet */
+  const handleAddSheet = useCallback(
+    (type: SheetType) => {
+      // Save current sheet first
+      sheetDataRef.current[activeSheetId] = { nodes, edges };
+      // Create new
+      sheetCountRef.current++;
+      const newId = `sheet-${Date.now()}`;
+      const label = type === "swimlane" ? "4분할 시트" : "빈 시트";
+      const newSheet: Sheet = {
+        id: newId,
+        name: `${label} ${sheetCountRef.current}`,
+        type,
+        ...(type === "swimlane" ? { lanes: ["임원", "팀장", "HR 담당자", "구성원"] } : {}),
+      };
+      setSheets((prev) => [...prev, newSheet]);
+      sheetDataRef.current[newId] = { nodes: [], edges: [] };
+      // Switch to new
+      setNodes([]);
+      setEdges([]);
+      nodeCountRef.current = 0;
+      setActiveSheetId(newId);
+      setSelectedNode(null);
+    },
+    [activeSheetId, nodes, edges, setNodes, setEdges]
+  );
+
+  /* Delete a sheet */
+  const handleDeleteSheet = useCallback(
+    (id: string) => {
+      if (sheets.length <= 1) return;
+      const remaining = sheets.filter((s) => s.id !== id);
+      delete sheetDataRef.current[id];
+      setSheets(remaining);
+      if (activeSheetId === id) {
+        const nextId = remaining[0].id;
+        const data = sheetDataRef.current[nextId] || { nodes: [], edges: [] };
+        setNodes(data.nodes);
+        setEdges(data.edges);
+        nodeCountRef.current = data.nodes.length;
+        setActiveSheetId(nextId);
+      }
+    },
+    [sheets, activeSheetId, setNodes, setEdges]
+  );
+
+  /* Rename a sheet */
+  const handleRenameSheet = useCallback(
+    (id: string, name: string) => {
+      setSheets((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
+    },
+    []
+  );
+
+  /* Duplicate a sheet */
+  const handleDuplicateSheet = useCallback(
+    (id: string) => {
+      // Save current first
+      sheetDataRef.current[activeSheetId] = { nodes, edges };
+      const src = sheets.find((s) => s.id === id);
+      if (!src) return;
+      sheetCountRef.current++;
+      const newId = `sheet-${Date.now()}`;
+      const newSheet: Sheet = { ...src, id: newId, name: `${src.name} (복사)` };
+      const srcData = sheetDataRef.current[id] || { nodes: [], edges: [] };
+      // Deep copy nodes/edges with new IDs to avoid conflicts
+      const newNodes = srcData.nodes.map((n) => ({ ...n }));
+      const newEdges = srcData.edges.map((e) => ({ ...e }));
+      sheetDataRef.current[newId] = { nodes: newNodes, edges: newEdges };
+      setSheets((prev) => [...prev, newSheet]);
+      // Switch to copy
+      setNodes(newNodes);
+      setEdges(newEdges);
+      nodeCountRef.current = newNodes.length;
+      setActiveSheetId(newId);
+    },
+    [activeSheetId, sheets, nodes, edges, setNodes, setEdges]
+  );
+
+  /* Get current active sheet object */
+  const activeSheet = useMemo(
+    () => sheets.find((s) => s.id === activeSheetId) || sheets[0],
+    [sheets, activeSheetId]
+  );
+
+  /* Get sheet data for a specific sheet (used by ExportToolbar JSON save) */
+  const getSheetData = useCallback(
+    (id: string) => sheetDataRef.current[id] || { nodes: [], edges: [] },
+    []
+  );
 
   /* ── Chat Panel ────────────────────────────── */
   const [chatOpen, setChatOpen] = useState(false);
@@ -273,7 +402,26 @@ export default function Home() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.nodes && detail?.edges) {
+      if (detail?.sheets && Array.isArray(detail.sheets)) {
+        /* ── Multi-sheet JSON format ── */
+        const loadedSheets: Sheet[] = detail.sheets.map((s: { id: string; name: string; type: SheetType; lanes?: string[] }) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type || "blank",
+          lanes: s.lanes,
+        }));
+        setSheets(loadedSheets);
+        for (const sd of detail.sheets as { id: string; nodes: Node[]; edges: Edge[] }[]) {
+          sheetDataRef.current[sd.id] = { nodes: sd.nodes || [], edges: sd.edges || [] };
+        }
+        const firstId = loadedSheets[0].id;
+        const firstData = sheetDataRef.current[firstId] || { nodes: [], edges: [] };
+        setNodes(firstData.nodes);
+        setEdges(firstData.edges);
+        nodeCountRef.current = firstData.nodes.length;
+        setActiveSheetId(firstId);
+      } else if (detail?.nodes && detail?.edges) {
+        /* ── Legacy single-sheet JSON format ── */
         setNodes(detail.nodes);
         setEdges(detail.edges);
         nodeCountRef.current = detail.nodes.length;
@@ -493,6 +641,9 @@ export default function Home() {
                   nodes={nodes}
                   edges={edges}
                   reactFlowWrapper={reactFlowWrapper}
+                  sheets={sheets}
+                  getSheetData={getSheetData}
+                  activeSheetId={activeSheetId}
                 />
               </div>
               <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -566,6 +717,9 @@ export default function Home() {
                     nodes={nodes}
                     edges={edges}
                     reactFlowWrapper={reactFlowWrapper}
+                    sheets={sheets}
+                    getSheetData={getSheetData}
+                    activeSheetId={activeSheetId}
                   />
                 </div>
               )}
@@ -578,106 +732,121 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ═══════════ RIGHT PANEL — CANVAS + CHAT ═══════════ */}
+      {/* ═══════════ RIGHT PANEL — CANVAS + TABS + CHAT ═══════════ */}
       <div className="flex-1 flex relative">
-        {/* Canvas area */}
-        <div className="flex-1 relative" ref={reactFlowWrapper}>
-          {csvRows.length === 0 ? (
-            <div
-              className="flex items-center justify-center h-full text-gray-400"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-            >
-              <div className="text-center">
-                <div className="text-6xl mb-4">📂</div>
-                <p className="text-lg font-medium">CSV 파일을 업로드하세요</p>
-                <p className="text-sm mt-1 text-gray-300">
-                  좌측 패널 또는 이 영역에 파일을 드래그하세요
-                </p>
-              </div>
-            </div>
-          ) : nodes.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-gray-400">
-              <div className="text-center max-w-xs">
-                <div className="text-5xl mb-4">🔍</div>
-                <p className="text-lg font-medium">캔버스가 비어있습니다</p>
-                <p className="text-sm mt-2 text-gray-300 leading-relaxed">
-                  좌측에서 <strong>L2/L3/L4/L5</strong>의 [+] 버튼으로 추가하거나
-                  <br />
-                  <strong>🌳 전체 트리</strong> ·{" "}
-                  <strong>🤖 AI Workflow</strong> 버튼 사용
-                </p>
-              </div>
-            </div>
-          ) : (
-            <>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onEdgeContextMenu={onEdgeContextMenu}
-              onNodeDoubleClick={onNodeDoubleClick}
-              nodeTypes={nodeTypes}
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
-              minZoom={0.05}
-              maxZoom={2.5}
-              connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
-              defaultEdgeOptions={{
-                type: "smoothstep",
-                animated: true,
-                style: { stroke: "#d95578", strokeWidth: 2 },
-              }}
-              deleteKeyCode={["Backspace", "Delete"]}
-            >
-              <Background color="#e2e8f0" gap={20} size={1} />
-              <Controls position="bottom-right" />
-              <MiniMap
-                nodeColor={(node) => {
-                  switch (node.type) {
-                    case "l2":
-                      return "#A62121";
-                    case "l3":
-                      return "#D95578";
-                    case "l4":
-                      return "#F2A0AF";
-                    case "l5":
-                      return "#F2DCE0";
-                    default:
-                      return "#d1d5db";
-                  }
-                }}
-                maskColor="rgba(0,0,0,0.08)"
-                position="bottom-left"
-              />
-              <Panel position="top-right">
-                <div className="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-gray-200 px-3 py-2 text-[10px] text-gray-500 space-y-0.5">
-                  <div>
-                    {"📦 노드: " +
-                      nodes.length +
-                      " · 🔗 엣지: " +
-                      edges.length}
-                  </div>
-                  <div>💡 Handle 드래그 → 화살표 연결</div>
-                  <div>🖱️ 노드 더블클릭 → 메모/메타 편집</div>
-                  <div>🔄 화살표 우클릭 → 양방향 전환</div>
-                  <div>⌫ Delete 키로 선택 항목 삭제</div>
+        {/* Canvas area + SheetTabBar */}
+        <div className="flex-1 flex flex-col relative">
+          {/* Canvas */}
+          <div className="flex-1 relative" ref={reactFlowWrapper}>
+            {csvRows.length === 0 ? (
+              <div
+                className="flex items-center justify-center h-full text-gray-400"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+              >
+                <div className="text-center">
+                  <div className="text-6xl mb-4">📂</div>
+                  <p className="text-lg font-medium">CSV 파일을 업로드하세요</p>
+                  <p className="text-sm mt-1 text-gray-300">
+                    좌측 패널 또는 이 영역에 파일을 드래그하세요
+                  </p>
                 </div>
-              </Panel>
-            </ReactFlow>
+              </div>
+            ) : (
+              <>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onEdgeContextMenu={onEdgeContextMenu}
+                onNodeDoubleClick={onNodeDoubleClick}
+                nodeTypes={nodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+                minZoom={0.05}
+                maxZoom={2.5}
+                connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
+                defaultEdgeOptions={{
+                  type: "smoothstep",
+                  animated: true,
+                  style: { stroke: "#d95578", strokeWidth: 2 },
+                }}
+                deleteKeyCode={["Backspace", "Delete"]}
+              >
+                {/* Background: grid for blank, dots for swimlane */}
+                {activeSheet.type === "swimlane" ? (
+                  <Background color="#f1f5f9" gap={40} size={0.5} />
+                ) : (
+                  <Background color="#e2e8f0" gap={20} size={1} />
+                )}
 
-            {/* Node Detail Panel (overlay) */}
-            {selectedNode && (
-              <NodeDetailPanel
-                node={selectedNode}
-                onClose={() => setSelectedNode(null)}
-                onUpdate={updateNodeMeta}
-              />
+                {/* Swimlane overlay (inside RF viewport so it zooms/pans) */}
+                {activeSheet.type === "swimlane" && (
+                  <SwimLaneOverlay lanes={activeSheet.lanes} />
+                )}
+
+                <Controls position="bottom-right" />
+                <MiniMap
+                  nodeColor={(node) => {
+                    switch (node.type) {
+                      case "l2":
+                        return "#A62121";
+                      case "l3":
+                        return "#D95578";
+                      case "l4":
+                        return "#F2A0AF";
+                      case "l5":
+                        return "#F2DCE0";
+                      default:
+                        return "#d1d5db";
+                    }
+                  }}
+                  maskColor="rgba(0,0,0,0.08)"
+                  position="bottom-left"
+                />
+                <Panel position="top-right">
+                  <div className="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-gray-200 px-3 py-2 text-[10px] text-gray-500 space-y-0.5">
+                    <div>
+                      {"📦 노드: " +
+                        nodes.length +
+                        " · 🔗 엣지: " +
+                        edges.length}
+                    </div>
+                    <div>
+                      {"📋 시트: " + activeSheet.name + (activeSheet.type === "swimlane" ? " (4분할)" : " (격자)")}
+                    </div>
+                    <div>💡 Handle 드래그 → 화살표 연결</div>
+                    <div>🖱️ 노드 더블클릭 → 메모/메타 편집</div>
+                    <div>🔄 화살표 우클릭 → 양방향 전환</div>
+                    <div>⌫ Delete 키로 선택 항목 삭제</div>
+                  </div>
+                </Panel>
+              </ReactFlow>
+
+              {/* Node Detail Panel (overlay) */}
+              {selectedNode && (
+                <NodeDetailPanel
+                  node={selectedNode}
+                  onClose={() => setSelectedNode(null)}
+                  onUpdate={updateNodeMeta}
+                />
+              )}
+              </>
             )}
-            </>
-          )}
+          </div>
+
+          {/* ═══ Sheet Tab Bar (bottom of canvas) ═══ */}
+          <SheetTabBar
+            sheets={sheets}
+            activeSheetId={activeSheetId}
+            onSelect={handleSelectSheet}
+            onAdd={handleAddSheet}
+            onDelete={handleDeleteSheet}
+            onRename={handleRenameSheet}
+            onDuplicate={handleDuplicateSheet}
+          />
         </div>
 
         {/* Chat Panel */}

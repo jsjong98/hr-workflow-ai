@@ -5,17 +5,27 @@ import { toPng, toSvg } from "html-to-image";
 import { saveAs } from "file-saver";
 import PptxGenJS from "pptxgenjs";
 import type { Node, Edge } from "@xyflow/react";
+import type { Sheet } from "./SheetTabBar";
 
 interface ExportToolbarProps {
   nodes: Node[];
   edges: Edge[];
   reactFlowWrapper: React.RefObject<HTMLDivElement | null>;
+  /** Optional: all sheets for multi-sheet JSON save */
+  sheets?: Sheet[];
+  /** Get sheet data (nodes+edges) by sheet id */
+  getSheetData?: (id: string) => { nodes: Node[]; edges: Edge[] };
+  /** Current nodes/edges (for saving current active sheet) */
+  activeSheetId?: string;
 }
 
 export default function ExportToolbar({
   nodes,
   edges,
   reactFlowWrapper,
+  sheets,
+  getSheetData,
+  activeSheetId,
 }: ExportToolbarProps) {
   const isExporting = useRef(false);
 
@@ -88,19 +98,33 @@ export default function ExportToolbar({
     }
   }, [reactFlowWrapper]);
 
-  /* ═══ JSON Save ═══ */
+  /* ═══ JSON Save (multi-sheet aware) ═══ */
   const handleSaveJSON = useCallback(() => {
-    const data = {
-      version: "1.0",
-      exportedAt: new Date().toISOString(),
-      nodes,
-      edges,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
-    saveAs(blob, `hr-workflow-${Date.now()}.json`);
-  }, [nodes, edges]);
+    if (sheets && getSheetData && activeSheetId) {
+      /* Multi-sheet format */
+      const sheetPayloads = sheets.map((s) => {
+        const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
+        return { id: s.id, name: s.name, type: s.type, lanes: s.lanes, nodes: sd.nodes, edges: sd.edges };
+      });
+      const data = {
+        version: "2.0",
+        exportedAt: new Date().toISOString(),
+        sheets: sheetPayloads,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      saveAs(blob, `hr-workflow-${Date.now()}.json`);
+    } else {
+      /* Legacy single-sheet format */
+      const data = {
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+        nodes,
+        edges,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      saveAs(blob, `hr-workflow-${Date.now()}.json`);
+    }
+  }, [nodes, edges, sheets, getSheetData, activeSheetId]);
 
   /* ═══ JSON Load ═══ */
   const handleLoadJSON = useCallback(() => {
