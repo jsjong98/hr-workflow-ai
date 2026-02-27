@@ -136,30 +136,36 @@ export default function SheetTabBar({
         >
           +
         </button>
-        {addMenuOpen && (
-          <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 z-50">
-            <button
-              className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-              onClick={() => { onAdd("blank"); setAddMenuOpen(false); }}
+        {addMenuOpen && addBtnRef.current && (() => {
+          const rect = addBtnRef.current!.getBoundingClientRect();
+          return (
+            <div
+              className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 z-[9999]"
+              style={{ left: rect.left, bottom: window.innerHeight - rect.top + 4 }}
             >
-              <span>📄</span>
-              <div>
-                <div className="font-semibold text-gray-700">빈 시트 (격자)</div>
-                <div className="text-[9px] text-gray-400">흰 도화지 + 격자선</div>
-              </div>
-            </button>
-            <button
-              className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-              onClick={() => { onAdd("swimlane"); setAddMenuOpen(false); }}
-            >
-              <span>🏊</span>
-              <div>
-                <div className="font-semibold text-gray-700">4분할 시트</div>
-                <div className="text-[9px] text-gray-400">임원 · 팀장 · HR 담당자 · 구성원</div>
-              </div>
-            </button>
-          </div>
-        )}
+              <button
+                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                onClick={() => { onAdd("blank"); setAddMenuOpen(false); }}
+              >
+                <span>📄</span>
+                <div>
+                  <div className="font-semibold text-gray-700">빈 시트 (격자)</div>
+                  <div className="text-[9px] text-gray-400">흰 도화지 + 격자선</div>
+                </div>
+              </button>
+              <button
+                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                onClick={() => { onAdd("swimlane"); setAddMenuOpen(false); }}
+              >
+                <span>🏊</span>
+                <div>
+                  <div className="font-semibold text-gray-700">4분할 시트</div>
+                  <div className="text-[9px] text-gray-400">임원 · 팀장 · HR 담당자 · 구성원</div>
+                </div>
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Context Menu */}

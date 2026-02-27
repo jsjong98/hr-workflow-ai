@@ -753,7 +753,7 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <>
+              <div className="w-full h-full relative">
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -777,14 +777,16 @@ export default function Home() {
               >
                 {/* Background: grid for blank, dots for swimlane */}
                 {activeSheet.type === "swimlane" ? (
-                  <Background color="#f1f5f9" gap={40} size={0.5} />
+                  <Background key="bg" color="#f1f5f9" gap={40} size={0.5} />
                 ) : (
-                  <Background color="#e2e8f0" gap={20} size={1} />
+                  <Background key="bg" color="#e2e8f0" gap={20} size={1} />
                 )}
 
                 {/* Swimlane overlay (inside RF viewport so it zooms/pans) */}
                 {activeSheet.type === "swimlane" && (
-                  <SwimLaneOverlay lanes={activeSheet.lanes} />
+                  <Panel key="swimlane" position="top-left" style={{ margin: 0, padding: 0, pointerEvents: "none" }}>
+                    <SwimLaneOverlay lanes={activeSheet.lanes} />
+                  </Panel>
                 )}
 
                 <Controls position="bottom-right" />
@@ -833,7 +835,7 @@ export default function Home() {
                   onUpdate={updateNodeMeta}
                 />
               )}
-              </>
+              </div>
             )}
           </div>
 
