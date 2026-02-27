@@ -782,11 +782,9 @@ export default function Home() {
                   <Background key="bg" color="#e2e8f0" gap={20} size={1} />
                 )}
 
-                {/* Swimlane overlay (inside RF viewport so it zooms/pans) */}
+                {/* Swimlane overlay — uses useViewport(), must be inside ReactFlow */}
                 {activeSheet.type === "swimlane" && (
-                  <Panel key="swimlane" position="top-left" style={{ margin: 0, padding: 0, pointerEvents: "none" }}>
-                    <SwimLaneOverlay lanes={activeSheet.lanes} />
-                  </Panel>
+                  <SwimLaneOverlay key="swimlane" lanes={activeSheet.lanes} />
                 )}
 
                 <Controls key="controls" position="bottom-right" />
