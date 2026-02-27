@@ -339,14 +339,29 @@ export function buildFlowFromL3(
 
 /**
  * CSV 텍스트를 파싱하여 CsvRow[]로 변환
+ * 
+ * 헤더 순서 기반 매핑 (인덱스 0~9):
+ *   0: L2_ID, 1: 두산 L2, 2: L3_ID, 3: L3_Name,
+ *   4: L4_ID, 5: L4_Name, 6: L4_Description,
+ *   7: L5_ID, 8: L5_Name, 9: L5_Description
  */
+const FIELD_KEYS: (keyof CsvRow)[] = [
+  "L2_ID", "두산 L2", "L3_ID", "L3_Name",
+  "L4_ID", "L4_Name", "L4_Description",
+  "L5_ID", "L5_Name", "L5_Description",
+];
+
 export function parseCsv(text: string): CsvRow[] {
-  // BOM 제거 + 줄바꿈 통일 (\r\n, \r → \n)
-  const clean = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // BOM 제거 + 줄바꿈 통일 (\r\n, \r → \n) + 보이지 않는 문자 제거
+  const clean = text
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
   const lines = clean.split("\n");
   if (lines.length < 2) return [];
 
-  const headers = parseCSVLine(lines[0]).map((h) => h.trim());
+  // 헤더 라인 파싱 (실제 헤더 이름은 무시하고, 인덱스 순서로 매핑)
+  const headerCount = parseCSVLine(lines[0]).length;
   const rows: CsvRow[] = [];
 
   // Multi-line CSV 처리
@@ -364,8 +379,9 @@ export function parseCsv(text: string): CsvRow[] {
 
     const values = parseCSVLine(line);
     const row: Record<string, string> = {};
-    for (let h = 0; h < headers.length; h++) {
-      row[headers[h].trim()] = (values[h] ?? "").trim();
+    const len = Math.min(headerCount, FIELD_KEYS.length, values.length);
+    for (let h = 0; h < len; h++) {
+      row[FIELD_KEYS[h]] = (values[h] ?? "").trim();
     }
     rows.push(row as unknown as CsvRow);
   }
