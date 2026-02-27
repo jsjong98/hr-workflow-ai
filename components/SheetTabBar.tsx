@@ -38,6 +38,7 @@ export default function SheetTabBar({
   const menuRef = useRef<HTMLDivElement>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addBtnRef = useRef<HTMLButtonElement>(null);
+  const addMenuDivRef = useRef<HTMLDivElement>(null);
 
   /* Close context menu on outside click */
   useEffect(() => {
@@ -51,7 +52,13 @@ export default function SheetTabBar({
   /* Close add menu on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (addBtnRef.current && !addBtnRef.current.contains(e.target as HTMLElement)) setAddMenuOpen(false);
+      const t = e.target as HTMLElement;
+      if (
+        addBtnRef.current && !addBtnRef.current.contains(t) &&
+        addMenuDivRef.current && !addMenuDivRef.current.contains(t)
+      ) {
+        setAddMenuOpen(false);
+      }
     };
     if (addMenuOpen) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -140,6 +147,7 @@ export default function SheetTabBar({
           const rect = addBtnRef.current!.getBoundingClientRect();
           return (
             <div
+              ref={addMenuDivRef}
               className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 z-[9999]"
               style={{ left: rect.left, bottom: window.innerHeight - rect.top + 4 }}
             >
