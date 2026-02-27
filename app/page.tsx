@@ -100,12 +100,7 @@ export default function Home() {
     [setNodes, setEdges]
   );
 
-  useEffect(() => {
-    fetch("/hr-process.csv")
-      .then((r) => r.text())
-      .then((text) => loadCsvText(text, "hr-process.csv"))
-      .catch(() => {});
-  }, [loadCsvText]);
+  /* CSV 자동 로드 제거 — 사용자가 직접 업로드해야 함 */
 
   /* ── File Upload ───────────────────────────── */
   const handleFileUpload = useCallback(
