@@ -224,8 +224,12 @@ export default function ExportToolbar({
       // Level legend on title
       let lx = 3.2;
       for (const [lvl, cfg] of Object.entries(LS)) {
-        s1.addShape("rect", { x: lx, y: 5.2, w: 1.3, h: 0.38, fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 } });
-        s1.addText(lvl, { x: lx, y: 5.2, w: 1.3, h: 0.38, fontSize: 11, fontFace: FONT_FACE, color: cfg.text, bold: true, align: "center", valign: "middle" });
+        s1.addText(lvl, {
+          x: lx, y: 5.2, w: 1.3, h: 0.38,
+          shape: pptx.ShapeType.rect,
+          fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 },
+          fontSize: 11, fontFace: FONT_FACE, color: cfg.text, bold: true, align: "center", valign: "middle",
+        });
         lx += 1.7;
       }
 
@@ -271,13 +275,11 @@ export default function ExportToolbar({
         const box = { x: cx - s.pptW / 2, y: cy - s.pptH / 2, w: s.pptW, h: s.pptH };
         nodeBoxes[nd.id] = box;
 
-        s2.addShape("rect", {
-          x: box.x, y: box.y, w: box.w, h: box.h,
-          fill: { color: s.bg },
-          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-        });
         s2.addText(getDisplayId(nd), {
           x: box.x, y: box.y, w: box.w, h: box.h,
+          shape: pptx.ShapeType.rect,
+          fill: { color: s.bg },
+          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
           fontSize: s.fontSize, bold: true, color: s.text,
           fontFace: FONT_FACE, valign: "middle", align: "center",
         });
@@ -356,7 +358,11 @@ export default function ExportToolbar({
       // Slide 2 legend bar
       let lg2x = 0.4;
       for (const [lvl, cfg] of Object.entries(LS)) {
-        s2.addShape("rect", { x: lg2x, y: 7.05, w: 0.22, h: 0.22, fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 } });
+        s2.addText("", {
+          x: lg2x, y: 7.05, w: 0.22, h: 0.22,
+          shape: pptx.ShapeType.rect,
+          fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
+        });
         s2.addText(lvl, { x: lg2x + 0.28, y: 7.05, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
         lg2x += 0.9;
       }
@@ -424,15 +430,12 @@ export default function ExportToolbar({
         const bx = SX + col * (BW + GX);
         const by = SY + row * (BH + GY);
 
-        // Step box (직사각형)
-        s3.addShape("rect", {
-          x: bx, y: by, w: BW, h: BH,
-          fill: { color: s.bg },
-          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-        });
-        // Step number + ID
+        // Step box with text inside (single object)
         s3.addText(`${i + 1}. ${getDisplayId(nd)}`, {
           x: bx, y: by, w: BW, h: BH,
+          shape: pptx.ShapeType.rect,
+          fill: { color: s.bg },
+          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
           fontSize: 11, fontFace: FONT_FACE, bold: true, color: s.text,
           align: "center", valign: "middle",
         });
