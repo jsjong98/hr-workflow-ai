@@ -796,9 +796,12 @@ export default function Home() {
                 nodeTypes={nodeTypes}
                 onInit={(instance) => {
                   rfInstanceRef.current = instance;
-                  // fitView only once on initial mount
-                  setTimeout(() => instance.fitView({ padding: 0.05, maxZoom: 1.5, duration: 200 }), 50);
+                  // fitView only when there are existing nodes (not when canvas is empty)
+                  if (nodes.length > 0) {
+                    setTimeout(() => instance.fitView({ padding: 0.05, maxZoom: 1.5, duration: 200 }), 50);
+                  }
                 }}
+                defaultViewport={{ x: 0, y: 0, zoom: 0.5 }}
                 minZoom={0.02}
                 maxZoom={3}
                 connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
