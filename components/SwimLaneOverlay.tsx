@@ -94,33 +94,39 @@ export default function SwimLaneOverlay({
               key={"lbl-" + i}
               style={{
                 position: "absolute",
-                left: 24,
-                top: ly + 18,
+                left: 40,
+                top: ly + laneH / 2,
+                transform: "translateY(-50%)",
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: 18,
+                background: ls.labelBg,
+                borderRadius: 18,
+                padding: "14px 36px 14px 28px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
               }}
             >
               {/* Color dot */}
               <div
                 style={{
-                  width: 10,
-                  height: 10,
+                  width: 28,
+                  height: 28,
                   borderRadius: "50%",
-                  backgroundColor: ls.labelBg,
+                  backgroundColor: "#fff",
+                  opacity: 0.35,
                   flexShrink: 0,
                 }}
               />
               {/* Label text */}
               <span
                 style={{
-                  fontSize: 16,
-                  fontWeight: 700,
+                  fontSize: 54,
+                  fontWeight: 800,
                   fontFamily: "'Noto Sans KR', sans-serif",
-                  color: "#1E293B",
+                  color: ls.labelColor,
                   whiteSpace: "nowrap",
-                  lineHeight: 1.4,
-                  textShadow: "0 1px 3px rgba(255,255,255,0.9)",
+                  lineHeight: 1.2,
+                  letterSpacing: "0.03em",
                 }}
               >
                 {label}

@@ -14,6 +14,7 @@ import {
   type Node,
   type Edge,
   type Connection,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -76,6 +77,7 @@ export default function Home() {
   const [activeSheetId, setActiveSheetId] = useState("sheet-1");
   const sheetDataRef = useRef<Record<string, SheetData>>({});
   const sheetCountRef = useRef(1);
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
 
   /* Save current nodes/edges into sheetDataRef for the current sheet */
   const saveCurrentSheet = useCallback(() => {
@@ -122,6 +124,10 @@ export default function Home() {
       nodeCountRef.current = 0;
       setActiveSheetId(newId);
       setSelectedNode(null);
+      // Center the view on the new sheet after React renders
+      setTimeout(() => {
+        rfInstanceRef.current?.fitView({ padding: 0.5, duration: 300 });
+      }, 100);
     },
     [activeSheetId, nodes, edges, setNodes, setEdges]
   );
@@ -763,6 +769,7 @@ export default function Home() {
                 onEdgeContextMenu={onEdgeContextMenu}
                 onNodeDoubleClick={onNodeDoubleClick}
                 nodeTypes={nodeTypes}
+                onInit={(instance) => { rfInstanceRef.current = instance; }}
                 fitView
                 fitViewOptions={{ padding: 0.2 }}
                 minZoom={0.05}
@@ -806,6 +813,14 @@ export default function Home() {
                   }}
                   maskColor="rgba(0,0,0,0.08)"
                   position="bottom-left"
+                  style={
+                    activeSheet.type === "swimlane"
+                      ? {
+                          background:
+                            "linear-gradient(to bottom, rgba(166,33,33,0.15) 0% 25%, rgba(217,85,120,0.12) 25% 50%, rgba(242,160,175,0.12) 50% 75%, rgba(242,220,224,0.15) 75% 100%)",
+                        }
+                      : undefined
+                  }
                 />
                 <Panel key="info" position="top-right">
                   <div className="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-gray-200 px-3 py-2 text-[10px] text-gray-500 space-y-0.5">

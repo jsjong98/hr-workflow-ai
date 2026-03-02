@@ -243,6 +243,41 @@ export default function ExportToolbar({
         fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
 
+      /* ── SwimLane background bands (if active sheet is swimlane) ── */
+      const currentSheet = sheets?.find((s) => s.id === activeSheetId);
+      const isSwimLane = currentSheet?.type === "swimlane";
+      const swimLanes = currentSheet?.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
+      const SWIM_COLORS = [
+        { fill: "F5DBDB", border: "A6212138", labelBg: "A62121", labelColor: "FFFFFF" },
+        { fill: "FCEEF2", border: "D9557838", labelBg: "D95578", labelColor: "FFFFFF" },
+        { fill: "FDF5F7", border: "F2A0AF45", labelBg: "F2A0AF", labelColor: "333333" },
+        { fill: "F9F5F6", border: "DEDEDE55", labelBg: "DEDEDE", labelColor: "333333" },
+      ];
+      if (isSwimLane) {
+        const bandTop = 0.7;
+        const bandBottom = 7.0;
+        const bandH = (bandBottom - bandTop) / swimLanes.length;
+        for (let i = 0; i < swimLanes.length; i++) {
+          const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
+          const by = bandTop + i * bandH;
+          // Band background
+          s2.addShape("rect", {
+            x: 0, y: by, w: 13.33, h: bandH,
+            fill: { color: sc2.fill },
+            line: { color: sc2.border, width: 0.3, dashType: "dash" },
+          });
+          // Lane label (left side pill)
+          s2.addText(swimLanes[i], {
+            x: 0.08, y: by + bandH / 2 - 0.15, w: 1.1, h: 0.30,
+            shape: pptx.ShapeType.roundRect,
+            rectRadius: 0.05,
+            fill: { color: sc2.labelBg },
+            fontSize: 8, fontFace: FONT_FACE, bold: true, color: sc2.labelColor,
+            align: "center", valign: "middle",
+          });
+        }
+      }
+
       // ── Coordinate mapping: RF center → PPT center ──
       const rfCenters = nodes.map((nd) => {
         const s = LS[getLevel(nd)] || DEF;
