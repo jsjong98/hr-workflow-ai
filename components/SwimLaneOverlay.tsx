@@ -3,17 +3,16 @@
 /**
  * SwimLaneOverlay — 4-partition horizontal swimlane overlay
  *
- * Uses useViewport() from @xyflow/react so it zooms/pans with the canvas.
- * Must be rendered as a child of <ReactFlow> (or inside ReactFlowProvider).
+ * Rendered inside <ReactFlow> as a child. We use the useReactFlow + internal
+ * viewport transform by placing our content inside the viewport layer via
+ * a custom Panel-like wrapper that hooks into the viewport.
+ *
+ * Approach: We render an SVG in flow-coordinate space (not screen space).
+ * By using `useViewport()` and applying the transform ourselves on an
+ * absolutely positioned overlay, the lanes move with the canvas.
  */
 
-import { useViewport } from "@xyflow/react";
-
-interface Lane {
-  label: string;
-  color: string;
-  borderColor: string;
-}
+import { useEffect, useRef } from "react";
 
 interface Props {
   /** Lane labels, defaults to ["임원","팀장","HR 담당자","구성원"] */
@@ -26,64 +25,75 @@ interface Props {
 
 const DEFAULT_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
 
-const LANE_COLORS: Lane[] = [
-  { label: "임원", color: "rgba(166,33,33,0.06)", borderColor: "rgba(166,33,33,0.22)" },
-  { label: "팀장", color: "rgba(217,85,120,0.06)", borderColor: "rgba(217,85,120,0.22)" },
-  { label: "HR 담당자", color: "rgba(242,160,175,0.06)", borderColor: "rgba(242,160,175,0.28)" },
-  { label: "구성원", color: "rgba(242,220,224,0.08)", borderColor: "rgba(222,222,222,0.35)" },
+const LANE_STYLES = [
+  { color: "rgba(166,33,33,0.07)", border: "rgba(166,33,33,0.25)", labelColor: "#A62121" },
+  { color: "rgba(217,85,120,0.07)", border: "rgba(217,85,120,0.25)", labelColor: "#A62121" },
+  { color: "rgba(242,160,175,0.07)", border: "rgba(242,160,175,0.30)", labelColor: "#374151" },
+  { color: "rgba(242,220,224,0.09)", border: "rgba(222,222,222,0.40)", labelColor: "#374151" },
 ];
 
+/**
+ * This component injects its SVG directly into the `.react-flow__viewport`
+ * layer so it transforms automatically with zoom/pan — no manual viewport
+ * math needed.
+ */
 export default function SwimLaneOverlay({
   lanes = DEFAULT_LANES,
-  width = 4000,
-  height = 3000,
+  width = 6000,
+  height = 4000,
 }: Props) {
-  const { x, y, zoom } = useViewport();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Move our element into the react-flow__viewport layer on mount
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    // Find the closest ReactFlow wrapper, then its viewport layer
+    const rfWrapper = el.closest(".react-flow");
+    if (!rfWrapper) return;
+    const viewport = rfWrapper.querySelector(".react-flow__viewport") as HTMLElement;
+    if (!viewport) return;
+    // Insert at the beginning so it's behind nodes/edges
+    viewport.insertBefore(el, viewport.firstChild);
+    // Cleanup: move back to original parent on unmount (React expects it there)
+    return () => {
+      // Element might already be removed by React
+      try { if (el.parentNode === viewport) viewport.removeChild(el); } catch { /* */ }
+    };
+  }, []);
+
   const laneCount = lanes.length;
   const laneH = height / laneCount;
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-      style={{ zIndex: 0 }}
+      ref={containerRef}
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width,
+        height,
+        pointerEvents: "none",
+        zIndex: -1,
+      }}
     >
+      {/* SVG bands + divider lines */}
       <svg
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: width * zoom,
-          height: height * zoom,
-          transform: `translate(${x}px, ${y}px)`,
-          transformOrigin: "0 0",
-        }}
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
+        width={width}
+        height={height}
+        style={{ position: "absolute", left: 0, top: 0 }}
       >
         {lanes.map((label, i) => {
-          const laneY = i * laneH;
-          const lc = LANE_COLORS[i % LANE_COLORS.length];
-
+          const ly = i * laneH;
+          const ls = LANE_STYLES[i % LANE_STYLES.length];
           return (
             <g key={label + i}>
-              {/* Band fill */}
-              <rect
-                x={0}
-                y={laneY}
-                width={width}
-                height={laneH}
-                fill={lc.color}
-              />
-              {/* Divider line between lanes */}
+              <rect x={0} y={ly} width={width} height={laneH} fill={ls.color} />
               {i > 0 && (
                 <line
-                  x1={0}
-                  y1={laneY}
-                  x2={width}
-                  y2={laneY}
-                  stroke={lc.borderColor}
-                  strokeWidth={2}
-                  strokeDasharray="10 5"
+                  x1={0} y1={ly} x2={width} y2={ly}
+                  stroke={ls.border} strokeWidth={2} strokeDasharray="12 6"
                 />
               )}
             </g>
@@ -91,37 +101,33 @@ export default function SwimLaneOverlay({
         })}
         {/* Bottom border */}
         <line
-          x1={0}
-          y1={height}
-          x2={width}
-          y2={height}
-          stroke="rgba(222,222,222,0.35)"
-          strokeWidth={2}
-          strokeDasharray="10 5"
+          x1={0} y1={height} x2={width} y2={height}
+          stroke="rgba(222,222,222,0.4)" strokeWidth={2} strokeDasharray="12 6"
         />
       </svg>
 
-      {/* Label badges — HTML divs for crisp text at any zoom */}
+      {/* Label badges — positioned in flow coordinates */}
       {lanes.map((label, i) => {
-        const laneY = i * laneH;
-        const lc = LANE_COLORS[i % LANE_COLORS.length];
+        const ly = i * laneH;
+        const ls = LANE_STYLES[i % LANE_STYLES.length];
         return (
           <div
-            key={"label-" + i}
+            key={"lbl-" + i}
             style={{
               position: "absolute",
-              left: x + 12 * zoom,
-              top: y + (laneY + 10) * zoom,
-              background: "rgba(255,255,255,0.92)",
-              border: `1.5px solid ${lc.borderColor}`,
-              borderRadius: Math.max(3, 5 * zoom),
-              padding: `${Math.max(2, 3 * zoom)}px ${Math.max(5, 10 * zoom)}px`,
-              fontSize: Math.max(10, 13 * zoom),
+              left: 20,
+              top: ly + 16,
+              background: "rgba(255,255,255,0.94)",
+              border: `1.5px solid ${ls.border}`,
+              borderRadius: 6,
+              padding: "4px 14px",
+              fontSize: 14,
               fontWeight: 700,
               fontFamily: "'Noto Sans KR', sans-serif",
-              color: i < 2 ? "#A62121" : "#374151",
+              color: ls.labelColor,
               whiteSpace: "nowrap",
               lineHeight: 1.4,
+              pointerEvents: "none",
             }}
           >
             {label}

@@ -275,12 +275,15 @@ export default function ExportToolbar({
         const box = { x: cx - s.pptW / 2, y: cy - s.pptH / 2, w: s.pptW, h: s.pptH };
         nodeBoxes[nd.id] = box;
 
-        s2.addText(getDisplayId(nd), {
+        const dispLabel = getLabel(nd);
+        const dispId = getDisplayId(nd);
+        const boxText = dispLabel ? `${dispId}\n${dispLabel}` : dispId;
+        s2.addText(boxText, {
           x: box.x, y: box.y, w: box.w, h: box.h,
           shape: pptx.ShapeType.rect,
           fill: { color: s.bg },
           line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-          fontSize: s.fontSize, bold: true, color: s.text,
+          fontSize: s.fontSize > 10 ? s.fontSize - 2 : s.fontSize, bold: true, color: s.text,
           fontFace: FONT_FACE, valign: "middle", align: "center",
         });
       }
@@ -431,12 +434,14 @@ export default function ExportToolbar({
         const by = SY + row * (BH + GY);
 
         // Step box with text inside (single object)
-        s3.addText(`${i + 1}. ${getDisplayId(nd)}`, {
+        const stepLabel = getLabel(nd);
+        const stepText = stepLabel ? `${i + 1}. ${stepLabel}` : `${i + 1}. ${getDisplayId(nd)}`;
+        s3.addText(stepText, {
           x: bx, y: by, w: BW, h: BH,
           shape: pptx.ShapeType.rect,
           fill: { color: s.bg },
           line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-          fontSize: 11, fontFace: FONT_FACE, bold: true, color: s.text,
+          fontSize: 10, fontFace: FONT_FACE, bold: true, color: s.text,
           align: "center", valign: "middle",
         });
 
