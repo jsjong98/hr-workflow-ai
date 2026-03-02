@@ -466,7 +466,7 @@ export default function Home() {
         {/* Header + File Upload */}
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <PwcLogo width={56} height={42} />
+            <PwcLogo width={140} height={47} />
             <div>
               <h1 className="text-[15px] font-bold text-gray-900 leading-tight">
                 Workflow Builder
