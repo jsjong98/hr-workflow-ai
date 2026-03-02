@@ -128,7 +128,7 @@ export default function Home() {
       setSelectedNode(null);
       // Center the view on the new sheet after React renders
       setTimeout(() => {
-        rfInstanceRef.current?.fitView({ padding: 0.5, duration: 300 });
+        rfInstanceRef.current?.fitView({ padding: 0.1, maxZoom: 1.5, duration: 300 });
       }, 100);
     },
     [activeSheetId, nodes, edges, setNodes, setEdges]
@@ -283,18 +283,28 @@ export default function Home() {
     [csvRows]
   );
 
-  /* ═══ Add node to canvas (click) — supports ALL levels ═══ */
+  /* ═══ Add node to canvas (click) — place at viewport center ═══ */
   const addNodeToCanvas = useCallback(
     (
       level: "l2" | "l3" | "l4" | "l5",
       item: { id: string; name: string; description?: string }
     ) => {
       nodeCountRef.current++;
-      const colMap = { l2: 0, l3: 1, l4: 2, l5: 3 };
-      const col = colMap[level];
-      const row = nodeCountRef.current;
-      const x = 100 + col * 320 + Math.random() * 30;
-      const y = 60 + row * 90;
+      // Get current viewport center in flow coordinates
+      let x = 400, y = 300;
+      if (rfInstanceRef.current) {
+        const vp = rfInstanceRef.current.getViewport();
+        const wrapper = document.querySelector('.react-flow') as HTMLElement;
+        if (wrapper) {
+          const rect = wrapper.getBoundingClientRect();
+          // Convert screen center → flow coordinates
+          x = (rect.width / 2 - vp.x) / vp.zoom;
+          y = (rect.height / 2 - vp.y) / vp.zoom;
+        }
+      }
+      // Small random offset so stacked nodes don't overlap exactly
+      x += (Math.random() - 0.5) * 80;
+      y += (Math.random() - 0.5) * 60;
       const node = createNodeFromItem(level, item, { x, y });
       setNodes((nds) => [...nds, node]);
     },
@@ -393,7 +403,7 @@ export default function Home() {
     nodeCountRef.current = n.length;
     // fitView 후 뷰 조정
     setTimeout(() => {
-      rfInstanceRef.current?.fitView({ padding: 0.3, duration: 300 });
+      rfInstanceRef.current?.fitView({ padding: 0.05, maxZoom: 1.5, duration: 300 });
     }, 100);
   }, [csvRows, selectedL3, sheets, activeSheetId, setNodes, setEdges]);
 
@@ -786,9 +796,9 @@ export default function Home() {
                 nodeTypes={nodeTypes}
                 onInit={(instance) => { rfInstanceRef.current = instance; }}
                 fitView
-                fitViewOptions={{ padding: 0.2 }}
-                minZoom={0.05}
-                maxZoom={2.5}
+                fitViewOptions={{ padding: 0.05, maxZoom: 1.5 }}
+                minZoom={0.02}
+                maxZoom={3}
                 connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
                 defaultEdgeOptions={{
                   type: "smoothstep",

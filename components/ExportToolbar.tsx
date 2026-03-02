@@ -176,10 +176,10 @@ export default function ExportToolbar({
       const FONT_SIZE = 14;
 
       const LS: Record<string, { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
-        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 600, pxH: 140, pptW: 2.3, pptH: 0.55 },
-        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 520, pxH: 120, pptW: 2.3, pptH: 0.55 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 470, pxH: 105, pptW: 2.3, pptH: 0.55 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 410, pxH: 90, pptW: 2.3, pptH: 0.55 },
+        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 600, pxH: 140, pptW: 1.5, pptH: 0.5 },
+        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 520, pxH: 120, pptW: 1.5, pptH: 0.5 },
+        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 470, pxH: 105, pptW: 1.5, pptH: 0.5 },
+        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 410, pxH: 90, pptW: 1.5, pptH: 0.5 },
       };
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
@@ -253,6 +253,7 @@ export default function ExportToolbar({
         { fill: "FDF5F7", border: "F2A0AF45", labelBg: "F2A0AF", labelColor: "333333" },
         { fill: "F9F5F6", border: "DEDEDE55", labelBg: "DEDEDE", labelColor: "333333" },
       ];
+      const SWIM_LABEL_W = 0.45; // vertical label column width
       if (isSwimLane) {
         const bandTop = 0.7;
         const bandBottom = 7.0;
@@ -260,20 +261,21 @@ export default function ExportToolbar({
         for (let i = 0; i < swimLanes.length; i++) {
           const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
           const by = bandTop + i * bandH;
-          // Band background
+          // Band background (shifted right for label column)
           s2.addShape("rect", {
-            x: 0, y: by, w: 13.33, h: bandH,
+            x: SWIM_LABEL_W, y: by, w: 13.33 - SWIM_LABEL_W, h: bandH,
             fill: { color: sc2.fill },
             line: { color: sc2.border, width: 0.3, dashType: "dash" },
           });
-          // Lane label (left side pill)
+          // Vertical lane label box (left side, full band height)
           s2.addText(swimLanes[i], {
-            x: 0.08, y: by + bandH / 2 - 0.15, w: 1.1, h: 0.30,
-            shape: pptx.ShapeType.roundRect,
-            rectRadius: 0.05,
-            fill: { color: sc2.labelBg },
-            fontSize: 8, fontFace: FONT_FACE, bold: true, color: sc2.labelColor,
+            x: 0, y: by, w: SWIM_LABEL_W, h: bandH,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "4A4A5A" },
+            line: { color: "4A4A5A", width: 0.3 },
+            fontSize: 9, fontFace: FONT_FACE, bold: true, color: "FFFFFF",
             align: "center", valign: "middle",
+            rotate: 270,
           });
         }
       }
@@ -290,7 +292,7 @@ export default function ExportToolbar({
       }
       const cRangeX = (cMaxX - cMinX) || 1;
       const cRangeY = (cMaxY - cMinY) || 1;
-      const PAD_X = 0.5, PAD_TOP = 0.75, maxNW = 2.3, maxNH = 0.6;
+      const PAD_X = 0.5, PAD_TOP = 0.75, maxNW = 1.5, maxNH = 0.55;
       const pptAreaW = 13.33 - 2 * PAD_X - maxNW;
       const pptAreaH = 7.5 - PAD_TOP - 0.9 - maxNH;
       const sc = Math.min(pptAreaW / cRangeX, pptAreaH / cRangeY);
@@ -318,7 +320,7 @@ export default function ExportToolbar({
           shape: pptx.ShapeType.rect,
           fill: { color: s.bg },
           line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-          fontSize: s.fontSize > 10 ? s.fontSize - 2 : s.fontSize, bold: true, color: s.text,
+          fontSize: 10, bold: true, color: s.text,
           fontFace: FONT_FACE, valign: "middle", align: "center",
         });
       }
