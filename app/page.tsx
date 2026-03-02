@@ -24,6 +24,7 @@ import ExportToolbar from "@/components/ExportToolbar";
 import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
 import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBar";
 import SwimLaneOverlay from "@/components/SwimLaneOverlay";
+import PwcLogo from "@/components/PwcLogo";
 import {
   parseCsv,
   extractL2List,
@@ -464,12 +465,17 @@ export default function Home() {
       <div className="w-[340px] min-w-[300px] border-r border-gray-200 flex flex-col bg-white">
         {/* Header + File Upload */}
         <div className="p-4 border-b border-gray-100">
-          <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span className="text-xl">📋</span> PwC Workflow Builder
-          </h1>
-          <p className="text-[11px] text-gray-500 mt-0.5 font-medium">
-            As-Is Process Workflow Builder
-          </p>
+          <div className="flex items-center gap-3">
+            <PwcLogo width={64} height={26} />
+            <div>
+              <h1 className="text-[15px] font-bold text-gray-900 leading-tight">
+                Workflow Builder
+              </h1>
+              <p className="text-[10px] text-gray-400 leading-tight mt-0.5">
+                As-Is Process Workflow Builder
+              </p>
+            </div>
+          </div>
           <div
             className="mt-3 border-2 border-dashed border-gray-200 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
             onDragOver={(e) => e.preventDefault()}
