@@ -255,10 +255,10 @@ export function summarizeL3ForAI(rows: CsvRow[], l3Id: string): string {
  * 4) 전체 트리 자동 배치 (기존 buildFlowFromL3)
  * ═══════════════════════════════════════════════ */
 
-const COL_GAP = 320;
-const ROW_GAP = 90;
-const START_X = 60;
-const START_Y = 60;
+const COL_GAP = 500;
+const ROW_GAP = 160;
+const START_X = 80;
+const START_Y = 80;
 
 export function buildFlowFromL3(
   rows: CsvRow[],
@@ -368,7 +368,7 @@ export function buildFlowFromL3(
       nodes.push({
         id: l5NodeId,
         type: "l5",
-        position: { x: START_X + COL_GAP * 3, y: baseY + l5Index * 60 },
+        position: { x: START_X + COL_GAP * 3, y: baseY + l5Index * 130 },
         data: {
           label: r.L5_Name,
           level: "L5",
@@ -477,10 +477,10 @@ export function buildSwimLaneFlowFromL3(
   }
 
   // L4별로 L5를 수평 배치, 각 L5는 자신의 레인(Y좌표)에 배치
-  const L4_COL_WIDTH = 280;       // L4 그룹 간 X 간격
-  const NODE_X_GAP = 240;         // 같은 레인 내 L5 간 X 간격
-  const L4_START_X = 120;
-  const LANE_PAD_TOP = 80;        // 레인 상단 여백
+  const L4_COL_WIDTH = 450;       // L4 그룹 간 X 간격
+  const NODE_X_GAP = 420;         // 같은 레인 내 L5 간 X 간격
+  const L4_START_X = 200;
+  const LANE_PAD_TOP = 100;       // 레인 상단 여백
 
   // 레인별 다음 X 위치 추적
   const laneNextX: number[] = [L4_START_X, L4_START_X, L4_START_X, L4_START_X];
