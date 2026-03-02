@@ -1,85 +1,73 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════
-#  HR Workflow Builder — 원클릭 실행 스크립트 (Mac / Linux)
-#  PwC · 두산 HR AX
-# ═══════════════════════════════════════════════════════
+# =====================================================
+#  Strategy& Workflow Builder - Quick Start (macOS)
+# =====================================================
 
-# 스크립트가 있는 디렉토리로 이동
 cd "$(dirname "$0")"
 
 echo ""
-echo "═══════════════════════════════════════════════════"
-echo "  📋 HR Workflow Builder 실행 준비 중..."
-echo "  PwC · 두산 HR AX"
-echo "═══════════════════════════════════════════════════"
+echo "====================================================="
+echo "  Strategy& Workflow Builder - Starting..."
+echo "====================================================="
 echo ""
 
-# ── 0. Gmail 안전 패키징 복원 (.mjs.txt → .mjs) ──
-for f in *.mjs.txt; do
-    [ -e "$f" ] || continue
-    target="${f%.txt}"
-    mv "$f" "$target"
-    echo "🔧 복원: $f → $target"
-done
-
-# ── 1. Node.js 설치 확인 ──
+# -- 1. Check Node.js --
 if ! command -v node &> /dev/null; then
-    echo "❌ Node.js가 설치되어 있지 않습니다."
+    echo "[ERROR] Node.js is not installed."
     echo ""
-    echo "아래 링크에서 Node.js LTS를 설치해주세요:"
-    echo "👉 https://nodejs.org/ko"
-    echo ""
-    echo "설치 후 이 스크립트를 다시 실행하세요."
-    read -p "아무 키나 누르세요..."
+    echo "Install with Homebrew:  brew install node"
+    echo "Or download from:       https://nodejs.org/"
     exit 1
 fi
 
-NODE_VER=$(node -v)
-echo "✅ Node.js 확인: $NODE_VER"
+echo "[OK] Node.js $(node -v) detected."
 
-# ── 2. .env.local 파일 확인 (OpenAI API Key) ──
-if [ ! -f ".env.local" ]; then
-    echo ""
-    echo "⚠️  .env.local 파일이 없습니다."
-    echo "   AI 워크플로우 생성 기능을 사용하려면 OpenAI API Key가 필요합니다."
-    echo ""
-    read -p "OpenAI API Key를 입력하세요 (없으면 Enter로 건너뛰기): " API_KEY
-    if [ -n "$API_KEY" ]; then
-        echo "OPENAI_API_KEY=\"$API_KEY\"" > .env.local
-        echo "✅ .env.local 파일이 생성되었습니다."
-    else
-        echo "⏩ API Key 없이 진행합니다. (AI 기능은 사용 불가)"
-        echo "OPENAI_API_KEY=\"\"" > .env.local
-    fi
-else
-    echo "✅ .env.local 확인 완료"
+# -- 2. Check npm --
+if ! command -v npm &> /dev/null; then
+    echo "[ERROR] npm is not found. Please reinstall Node.js."
+    exit 1
 fi
 
-# ── 3. 패키지 설치 ──
+echo "[OK] npm v$(npm -v) detected."
+
+# -- 3. Install dependencies if needed --
 if [ ! -d "node_modules" ]; then
     echo ""
-    echo "📦 패키지 설치 중... (최초 1회, 2~3분 소요)"
-    npm install --legacy-peer-deps
+    echo "[INFO] Installing dependencies (first run)..."
+    echo "       This may take a few minutes..."
+    echo ""
+    npm install
     if [ $? -ne 0 ]; then
-        echo "❌ 패키지 설치에 실패했습니다."
-        read -p "아무 키나 누르세요..."
+        echo "[ERROR] npm install failed. Check your network connection."
         exit 1
     fi
-    echo "✅ 패키지 설치 완료"
+    echo ""
+    echo "[OK] Dependencies installed successfully."
 else
-    echo "✅ 패키지 이미 설치됨"
+    echo "[OK] Dependencies already installed."
 fi
 
-# ── 4. 서버 실행 ──
+# -- 4. Check .env.local --
+if [ ! -f ".env.local" ]; then
+    echo ""
+    echo "[WARNING] .env.local file not found."
+    echo "          AI Chat feature requires an OpenAI API key."
+    echo "          Create .env.local with:"
+    echo "            OPENAI_API_KEY=sk-your-key-here"
+    echo ""
+fi
+
+# -- 5. Start dev server --
 echo ""
-echo "═══════════════════════════════════════════════════"
-echo "  🚀 서버를 시작합니다..."
-echo "  브라우저에서 http://localhost:3000 으로 접속하세요"
-echo "  종료하려면 Ctrl+C 를 누르세요"
-echo "═══════════════════════════════════════════════════"
+echo "====================================================="
+echo "  Starting development server..."
+echo "  URL: http://localhost:3000"
+echo "====================================================="
+echo ""
+echo "  Press Ctrl+C to stop the server."
 echo ""
 
-# 브라우저 자동 열기 (2초 후)
+# Auto-open browser after 2 seconds
 (sleep 2 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null) &
 
-npm run dev
+npx next dev --turbopack -p 3000
