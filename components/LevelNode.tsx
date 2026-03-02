@@ -14,11 +14,11 @@ export const LEVEL_STYLES = {
     border: "border-[#D95578]",
     badge: "bg-[#F2A0AF]/40 text-white",
     shadow: "shadow-xl shadow-[#A62121]/30",
-    font: "text-2xl font-extrabold tracking-tight",
-    descFont: "text-sm",
-    minW: "min-w-[400px]",
-    maxW: "max-w-[520px]",
-    py: "py-7 px-8",
+    font: "text-3xl font-extrabold tracking-tight",
+    descFont: "text-base",
+    minW: "min-w-[530px]",
+    maxW: "max-w-[660px]",
+    py: "py-9 px-10",
     rounded: "rounded-2xl",
     handleTarget: "!bg-[#F2A0AF]",
     handleSource: "!bg-[#D95578]",
@@ -29,11 +29,11 @@ export const LEVEL_STYLES = {
     border: "border-[#F2A0AF]",
     badge: "bg-white/20 text-white",
     shadow: "shadow-lg shadow-[#D95578]/25",
-    font: "text-xl font-bold",
-    descFont: "text-sm",
-    minW: "min-w-[340px]",
-    maxW: "max-w-[460px]",
-    py: "py-6 px-7",
+    font: "text-2xl font-bold",
+    descFont: "text-base",
+    minW: "min-w-[460px]",
+    maxW: "max-w-[580px]",
+    py: "py-8 px-9",
     rounded: "rounded-xl",
     handleTarget: "!bg-[#F2DCE0]",
     handleSource: "!bg-[#F2A0AF]",
@@ -44,11 +44,11 @@ export const LEVEL_STYLES = {
     border: "border-[#D95578]",
     badge: "bg-[#A62121] text-white",
     shadow: "shadow-md shadow-[#F2A0AF]/30",
-    font: "text-lg font-bold",
-    descFont: "text-xs font-medium",
-    minW: "min-w-[300px]",
-    maxW: "max-w-[420px]",
-    py: "py-5 px-6",
+    font: "text-xl font-bold",
+    descFont: "text-sm font-medium",
+    minW: "min-w-[400px]",
+    maxW: "max-w-[530px]",
+    py: "py-7 px-8",
     rounded: "rounded-lg",
     handleTarget: "!bg-[#D95578]",
     handleSource: "!bg-[#A62121]",
@@ -59,11 +59,11 @@ export const LEVEL_STYLES = {
     border: "border-[#F2A0AF]",
     badge: "bg-[#D95578] text-white",
     shadow: "shadow-sm shadow-[#F2DCE0]/40",
-    font: "text-base font-bold",
-    descFont: "text-[11px] font-medium",
-    minW: "min-w-[260px]",
-    maxW: "max-w-[380px]",
-    py: "py-4 px-5",
+    font: "text-lg font-bold",
+    descFont: "text-sm font-medium",
+    minW: "min-w-[340px]",
+    maxW: "max-w-[480px]",
+    py: "py-6 px-7",
     rounded: "rounded-md",
     handleTarget: "!bg-[#D95578]",
     handleSource: "!bg-[#F2A0AF]",
@@ -106,25 +106,25 @@ function LevelNodeBase({ data }: { data: NodeData }) {
         type="target"
         position={Position.Top}
         id="t-top"
-        className="!w-4 !h-4 !bg-transparent !border-0 !-top-2"
+        className="!w-5 !h-5 !bg-transparent !border-0 !-top-2.5"
       />
       <Handle
         type="target"
         position={Position.Bottom}
         id="t-bottom"
-        className="!w-4 !h-4 !bg-transparent !border-0 !-bottom-2"
+        className="!w-5 !h-5 !bg-transparent !border-0 !-bottom-2.5"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="t-left"
-        className="!w-4 !h-4 !bg-transparent !border-0 !-left-2"
+        className="!w-5 !h-5 !bg-transparent !border-0 !-left-2.5"
       />
       <Handle
         type="target"
         position={Position.Right}
         id="t-right"
-        className="!w-4 !h-4 !bg-transparent !border-0 !-right-2"
+        className="!w-5 !h-5 !bg-transparent !border-0 !-right-2.5"
       />
 
       {/* ── Source handles (visible, rendered last = on top) ── */}
@@ -132,43 +132,43 @@ function LevelNodeBase({ data }: { data: NodeData }) {
         type="source"
         position={Position.Top}
         id="top"
-        className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-top-2 !z-10`}
+        className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-top-2.5 !z-10`}
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-bottom-2 !z-10`}
+        className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-bottom-2.5 !z-10`}
       />
       <Handle
         type="source"
         position={Position.Left}
         id="left"
-        className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-left-2 !z-10`}
+        className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`}
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-right-2 !z-10`}
+        className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`}
       />
 
       {/* Level badge + meta indicators */}
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-3 mb-3">
         <span
-          className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${s.badge}`}
+          className={`inline-block text-sm font-bold px-4 py-1.5 rounded-full ${s.badge}`}
         >
           {data.level}
           {data.id ? ` · ${data.id}` : ""}
         </span>
         {/* Meta icons */}
         {metaPresent && (
-          <div className="flex items-center gap-1">
-            {data.memo && <span className="text-sm" title="메모">📝</span>}
-            {data.role && <span className="text-sm" title={`수행: ${data.role}`}>👤</span>}
-            {data.inputData && <span className="text-sm" title="Input">📥</span>}
-            {data.outputData && <span className="text-sm" title="Output">📤</span>}
-            {data.system && <span className="text-sm" title={`시스템: ${data.system}`}>🖥️</span>}
+          <div className="flex items-center gap-1.5">
+            {data.memo && <span className="text-base" title="메모">📝</span>}
+            {data.role && <span className="text-base" title={`수행: ${data.role}`}>👤</span>}
+            {data.inputData && <span className="text-base" title="Input">📥</span>}
+            {data.outputData && <span className="text-base" title="Output">📤</span>}
+            {data.system && <span className="text-base" title={`시스템: ${data.system}`}>🖥️</span>}
           </div>
         )}
       </div>
@@ -189,7 +189,7 @@ function LevelNodeBase({ data }: { data: NodeData }) {
 
       {/* Role badge (compact) */}
       {data.role && (
-        <div className={`mt-2 inline-block text-xs px-2.5 py-1 rounded-full font-semibold ${
+        <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
           data.level === "L4" || data.level === "L5"
             ? "bg-[#A62121]/15 text-[#A62121]"
             : "bg-white/20 text-white/90"

@@ -176,10 +176,10 @@ export default function ExportToolbar({
       const FONT_SIZE = 14;
 
       const LS: Record<string, { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
-        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 460, pxH: 110, pptW: 2.3, pptH: 0.55 },
-        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 400, pxH: 96, pptW: 2.3, pptH: 0.55 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 360, pxH: 84, pptW: 2.3, pptH: 0.55 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 320, pxH: 70, pptW: 2.3, pptH: 0.55 },
+        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 600, pxH: 140, pptW: 2.3, pptH: 0.55 },
+        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 520, pxH: 120, pptW: 2.3, pptH: 0.55 },
+        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 470, pxH: 105, pptW: 2.3, pptH: 0.55 },
+        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 410, pxH: 90, pptW: 2.3, pptH: 0.55 },
       };
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";

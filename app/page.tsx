@@ -465,10 +465,10 @@ export default function Home() {
         {/* Header + File Upload */}
         <div className="p-4 border-b border-gray-100">
           <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span className="text-xl">📋</span> HR Workflow Builder
+            <span className="text-xl">📋</span> PwC Workflow Builder
           </h1>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            두산 As-is 프로세스 · 클릭하여 Flowsheet 구성
+          <p className="text-[11px] text-gray-500 mt-0.5 font-medium">
+            As-Is Process Workflow Builder
           </p>
           <div
             className="mt-3 border-2 border-dashed border-gray-200 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
@@ -826,7 +826,7 @@ export default function Home() {
                     activeSheet.type === "swimlane"
                       ? {
                           background:
-                            "linear-gradient(to bottom, rgba(166,33,33,0.15) 0% 25%, rgba(217,85,120,0.12) 25% 50%, rgba(242,160,175,0.12) 50% 75%, rgba(242,220,224,0.15) 75% 100%)",
+                            "linear-gradient(to bottom, rgba(180,180,190,0.12) 0% 25%, rgba(200,200,210,0.07) 25% 50%, rgba(180,180,190,0.12) 50% 75%, rgba(200,200,210,0.07) 75% 100%)",
                         }
                       : undefined
                   }

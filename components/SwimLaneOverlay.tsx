@@ -18,12 +18,17 @@ interface Props {
 
 const DEFAULT_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
 
-const LANE_STYLES = [
-  { fill: "rgba(166,33,33,0.13)",  border: "#A6212138", labelBg: "#A62121", labelColor: "#fff" },
-  { fill: "rgba(217,85,120,0.10)", border: "#D9557838", labelBg: "#D95578", labelColor: "#fff" },
-  { fill: "rgba(242,160,175,0.10)", border: "#F2A0AF45", labelBg: "#F2A0AF", labelColor: "#333" },
-  { fill: "rgba(242,220,224,0.12)", border: "#DEDEDE55", labelBg: "#DEDEDE", labelColor: "#333" },
+/* 통일된 배경 — 줄무늬 교대 (짝수: 좀 더 진하게, 홀수: 연하게) */
+const LANE_FILLS = [
+  "rgba(180,180,190,0.10)",
+  "rgba(200,200,210,0.06)",
+  "rgba(180,180,190,0.10)",
+  "rgba(200,200,210,0.06)",
 ];
+const LANE_BORDER = "#C0C0C040";
+const LABEL_BG   = "#4A4A5A";
+const LABEL_COLOR = "#FFFFFF";
+const LABEL_WIDTH = 64;  // px — 세로 박스 폭
 
 export default function SwimLaneOverlay({
   lanes = DEFAULT_LANES,
@@ -64,16 +69,15 @@ export default function SwimLaneOverlay({
           height={height}
           style={{ position: "absolute", left: 0, top: 0 }}
         >
-          {lanes.map((label, i) => {
+          {lanes.map((_label, i) => {
             const ly = i * laneH;
-            const ls = LANE_STYLES[i % LANE_STYLES.length];
             return (
               <g key={i}>
-                <rect x={0} y={ly} width={width} height={laneH} fill={ls.fill} />
+                <rect x={0} y={ly} width={width} height={laneH} fill={LANE_FILLS[i % LANE_FILLS.length]} />
                 {i > 0 && (
                   <line
                     x1={0} y1={ly} x2={width} y2={ly}
-                    stroke={ls.border} strokeWidth={2} strokeDasharray="14 7"
+                    stroke={LANE_BORDER} strokeWidth={2} strokeDasharray="14 7"
                   />
                 )}
               </g>
@@ -81,52 +85,40 @@ export default function SwimLaneOverlay({
           })}
           <line
             x1={0} y1={height} x2={width} y2={height}
-            stroke="#DEDEDE55" strokeWidth={2} strokeDasharray="14 7"
+            stroke={LANE_BORDER} strokeWidth={2} strokeDasharray="14 7"
           />
         </svg>
 
-        {/* Lane label badges — flow coordinates, will scale with zoom */}
+        {/* Lane labels — full-height vertical boxes on the left */}
         {lanes.map((label, i) => {
           const ly = i * laneH;
-          const ls = LANE_STYLES[i % LANE_STYLES.length];
           return (
             <div
               key={"lbl-" + i}
               style={{
                 position: "absolute",
-                left: 40,
-                top: ly + laneH / 2,
-                transform: "translateY(-50%)",
+                left: 0,
+                top: ly,
+                width: LABEL_WIDTH,
+                height: laneH,
                 display: "flex",
                 alignItems: "center",
-                gap: 18,
-                background: ls.labelBg,
-                borderRadius: 18,
-                padding: "14px 36px 14px 28px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                justifyContent: "center",
+                background: LABEL_BG,
+                borderRight: "3px solid rgba(255,255,255,0.25)",
+                writingMode: "vertical-rl",
+                textOrientation: "mixed",
               }}
             >
-              {/* Color dot */}
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  backgroundColor: "#fff",
-                  opacity: 0.35,
-                  flexShrink: 0,
-                }}
-              />
-              {/* Label text */}
               <span
                 style={{
-                  fontSize: 54,
+                  fontSize: 48,
                   fontWeight: 800,
                   fontFamily: "'Noto Sans KR', sans-serif",
-                  color: ls.labelColor,
+                  color: LABEL_COLOR,
                   whiteSpace: "nowrap",
-                  lineHeight: 1.2,
-                  letterSpacing: "0.03em",
+                  lineHeight: 1,
+                  letterSpacing: "0.15em",
                 }}
               >
                 {label}
