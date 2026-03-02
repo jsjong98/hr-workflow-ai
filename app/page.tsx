@@ -33,6 +33,7 @@ import {
   createNodeFromItem,
   summarizeL3ForAI,
   buildFlowFromL3,
+  buildSwimLaneFlowFromL3,
   type CsvRow,
   type L2Item,
   type L3Item,
@@ -381,11 +382,19 @@ export default function Home() {
   /* ═══ Full tree view ═══ */
   const handleViewFullTree = useCallback(() => {
     if (!selectedL3) return;
-    const { nodes: n, edges: e } = buildFlowFromL3(csvRows, selectedL3);
+    // swimlane 시트면 수행주체 기반 자동 배치
+    const sheet = sheets.find((s) => s.id === activeSheetId);
+    const { nodes: n, edges: e } = sheet?.type === "swimlane"
+      ? buildSwimLaneFlowFromL3(csvRows, selectedL3)
+      : buildFlowFromL3(csvRows, selectedL3);
     setNodes(n);
     setEdges(e);
     nodeCountRef.current = n.length;
-  }, [csvRows, selectedL3, setNodes, setEdges]);
+    // fitView 후 뷰 조정
+    setTimeout(() => {
+      rfInstanceRef.current?.fitView({ padding: 0.3, duration: 300 });
+    }, 100);
+  }, [csvRows, selectedL3, sheets, activeSheetId, setNodes, setEdges]);
 
   /* ═══ Clear canvas ═══ */
   const handleClearCanvas = useCallback(() => {

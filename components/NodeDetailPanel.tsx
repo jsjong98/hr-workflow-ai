@@ -26,6 +26,21 @@ export interface NodeMeta {
   system?: string;
 }
 
+/* ── L5 확장 메타 (CSV에서 자동 파싱된 읽기전용 데이터) ── */
+interface L5ExtMeta {
+  actors?: { exec: string; hr: string; teamlead: string; member: string };
+  mgrBody?: string;
+  staffCount?: string;
+  mainPerson?: string;
+  avgTime?: string;
+  freqCount?: string;
+  systems?: { hr: string; groupware: string; office: string; manual: string; etc: string };
+  painPoints?: { speed: string; accuracy: string; repeat: string; data: string; system: string; comm: string; etc: string };
+  inputs?: { system: string; doc: string; external: string; request: string; etc: string };
+  outputs?: { system: string; doc: string; comm: string; decision: string; etc: string };
+  logic?: { rule: string; human: string; mixed: string };
+}
+
 interface NodeDetailPanelProps {
   node: Node | null;
   onClose: () => void;
@@ -58,11 +73,37 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
 
   if (!node) return null;
 
-  const d = node.data as Record<string, string>;
-  const level = d.level || "L4";
-  const label = d.label || "";
-  const id = d.id || node.id;
-  const desc = d.description || "";
+  const d = node.data as Record<string, unknown>;
+  const level = (d.level as string) || "L4";
+  const label = (d.label as string) || "";
+  const id = (d.id as string) || node.id;
+  const desc = (d.description as string) || "";
+
+  /* L5 확장 메타데이터 (CSV 자동 파싱) */
+  const ext: L5ExtMeta | null = level === "L5" ? {
+    actors: d.actors as L5ExtMeta["actors"],
+    mgrBody: d.mgrBody as string,
+    staffCount: d.staffCount as string,
+    mainPerson: d.mainPerson as string,
+    avgTime: d.avgTime as string,
+    freqCount: d.freqCount as string,
+    systems: d.systems as L5ExtMeta["systems"],
+    painPoints: d.painPoints as L5ExtMeta["painPoints"],
+    inputs: d.inputs as L5ExtMeta["inputs"],
+    outputs: d.outputs as L5ExtMeta["outputs"],
+    logic: d.logic as L5ExtMeta["logic"],
+  } : null;
+
+  /* 확장 메타 중 데이터가 하나라도 있는지 */
+  const hasExt = ext && (
+    ext.actors?.exec || ext.actors?.hr || ext.actors?.teamlead || ext.actors?.member ||
+    ext.mgrBody || ext.staffCount || ext.mainPerson || ext.avgTime || ext.freqCount ||
+    ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.manual || ext.systems?.etc ||
+    ext.painPoints?.speed || ext.painPoints?.accuracy || ext.painPoints?.repeat || ext.painPoints?.data || ext.painPoints?.system || ext.painPoints?.comm || ext.painPoints?.etc ||
+    ext.inputs?.system || ext.inputs?.doc || ext.inputs?.external || ext.inputs?.request || ext.inputs?.etc ||
+    ext.outputs?.system || ext.outputs?.doc || ext.outputs?.comm || ext.outputs?.decision || ext.outputs?.etc ||
+    ext.logic?.rule || ext.logic?.human || ext.logic?.mixed
+  );
 
   const levelColors: Record<string, { bg: string; text: string; border: string }> = {
     L2: { bg: "bg-[#A62121]", text: "text-white", border: "border-[#D95578]" },
@@ -180,6 +221,113 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
             rows={2}
           />
         </fieldset>
+
+        {/* ═══ L5 확장 메타데이터 (CSV 자동 파싱, 읽기전용) ═══ */}
+        {hasExt && ext && (
+          <div className="border-t border-gray-200 pt-4 mt-2 space-y-3">
+            <h4 className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">📋 CSV 자동 파싱 정보</h4>
+
+            {/* 수행주체 */}
+            {(ext.actors?.exec || ext.actors?.hr || ext.actors?.teamlead || ext.actors?.member) && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">수행주체</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ext.actors?.exec && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">임원: {ext.actors.exec}</span>}
+                  {ext.actors?.hr && <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">HR: {ext.actors.hr}</span>}
+                  {ext.actors?.teamlead && <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">팀장: {ext.actors.teamlead}</span>}
+                  {ext.actors?.member && <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">구성원: {ext.actors.member}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* 관리주체 · 담당자 수 · 주 담당자 */}
+            {(ext.mgrBody || ext.staffCount || ext.mainPerson) && (
+              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                {ext.mgrBody && <div className="bg-gray-50 rounded p-2"><span className="text-gray-400 block">관리주체</span><span className="font-medium">{ext.mgrBody}</span></div>}
+                {ext.staffCount && <div className="bg-gray-50 rounded p-2"><span className="text-gray-400 block">담당자 수</span><span className="font-medium">{ext.staffCount}</span></div>}
+                {ext.mainPerson && <div className="bg-gray-50 rounded p-2"><span className="text-gray-400 block">주 담당자</span><span className="font-medium">{ext.mainPerson}</span></div>}
+              </div>
+            )}
+
+            {/* 소요시간 · 빈도 */}
+            {(ext.avgTime || ext.freqCount) && (
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                {ext.avgTime && <div className="bg-yellow-50 rounded p-2"><span className="text-gray-400 block">⏱ 평균 소요시간</span><span className="font-medium">{ext.avgTime}</span></div>}
+                {ext.freqCount && <div className="bg-yellow-50 rounded p-2"><span className="text-gray-400 block">📊 발생 빈도</span><span className="font-medium">{ext.freqCount}</span></div>}
+              </div>
+            )}
+
+            {/* 사용 시스템 */}
+            {(ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.manual || ext.systems?.etc) && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">사용 시스템</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ext.systems?.hr && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">HR: {ext.systems.hr}</span>}
+                  {ext.systems?.groupware && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">그룹웨어: {ext.systems.groupware}</span>}
+                  {ext.systems?.office && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">오피스: {ext.systems.office}</span>}
+                  {ext.systems?.manual && <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700">수작업: {ext.systems.manual}</span>}
+                  {ext.systems?.etc && <span className="text-[10px] px-2 py-0.5 rounded bg-gray-200 text-gray-700">기타: {ext.systems.etc}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Pain Points */}
+            {(ext.painPoints?.speed || ext.painPoints?.accuracy || ext.painPoints?.repeat || ext.painPoints?.data || ext.painPoints?.system || ext.painPoints?.comm || ext.painPoints?.etc) && (
+              <div className="bg-red-50 rounded-lg p-3 space-y-1.5">
+                <div className="text-[10px] font-bold text-red-500 uppercase">⚠️ Pain Points</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ext.painPoints?.speed && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">시간/속도: {ext.painPoints.speed}</span>}
+                  {ext.painPoints?.accuracy && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">정확성: {ext.painPoints.accuracy}</span>}
+                  {ext.painPoints?.repeat && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">반복/수작업: {ext.painPoints.repeat}</span>}
+                  {ext.painPoints?.data && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">정보/데이터: {ext.painPoints.data}</span>}
+                  {ext.painPoints?.system && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">시스템/도구: {ext.painPoints.system}</span>}
+                  {ext.painPoints?.comm && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">의사소통: {ext.painPoints.comm}</span>}
+                  {ext.painPoints?.etc && <span className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-700">기타: {ext.painPoints.etc}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Input / Output */}
+            <div className="grid grid-cols-2 gap-2">
+              {(ext.inputs?.system || ext.inputs?.doc || ext.inputs?.external || ext.inputs?.request || ext.inputs?.etc) && (
+                <div className="bg-green-50 rounded-lg p-2 space-y-1">
+                  <div className="text-[10px] font-bold text-green-600">📥 Input</div>
+                  <div className="space-y-0.5 text-[9px] text-green-800">
+                    {ext.inputs?.system && <div>시스템: {ext.inputs.system}</div>}
+                    {ext.inputs?.doc && <div>문서: {ext.inputs.doc}</div>}
+                    {ext.inputs?.external && <div>외부: {ext.inputs.external}</div>}
+                    {ext.inputs?.request && <div>요청: {ext.inputs.request}</div>}
+                    {ext.inputs?.etc && <div>기타: {ext.inputs.etc}</div>}
+                  </div>
+                </div>
+              )}
+              {(ext.outputs?.system || ext.outputs?.doc || ext.outputs?.comm || ext.outputs?.decision || ext.outputs?.etc) && (
+                <div className="bg-blue-50 rounded-lg p-2 space-y-1">
+                  <div className="text-[10px] font-bold text-blue-600">📤 Output</div>
+                  <div className="space-y-0.5 text-[9px] text-blue-800">
+                    {ext.outputs?.system && <div>시스템: {ext.outputs.system}</div>}
+                    {ext.outputs?.doc && <div>문서: {ext.outputs.doc}</div>}
+                    {ext.outputs?.comm && <div>커뮤니케이션: {ext.outputs.comm}</div>}
+                    {ext.outputs?.decision && <div>의사결정: {ext.outputs.decision}</div>}
+                    {ext.outputs?.etc && <div>기타: {ext.outputs.etc}</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 업무 판단 로직 */}
+            {(ext.logic?.rule || ext.logic?.human || ext.logic?.mixed) && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <div className="text-[10px] font-bold text-gray-500 uppercase">🧠 업무 판단 로직</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ext.logic?.rule && <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">Rule-based: {ext.logic.rule}</span>}
+                  {ext.logic?.human && <span className="text-[10px] px-2 py-0.5 rounded bg-teal-100 text-teal-700">사람 판단: {ext.logic.human}</span>}
+                  {ext.logic?.mixed && <span className="text-[10px] px-2 py-0.5 rounded bg-purple-100 text-purple-700">혼합: {ext.logic.mixed}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
