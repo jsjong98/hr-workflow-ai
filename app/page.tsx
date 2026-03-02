@@ -794,9 +794,11 @@ export default function Home() {
                 onEdgeContextMenu={onEdgeContextMenu}
                 onNodeDoubleClick={onNodeDoubleClick}
                 nodeTypes={nodeTypes}
-                onInit={(instance) => { rfInstanceRef.current = instance; }}
-                fitView
-                fitViewOptions={{ padding: 0.05, maxZoom: 1.5 }}
+                onInit={(instance) => {
+                  rfInstanceRef.current = instance;
+                  // fitView only once on initial mount
+                  setTimeout(() => instance.fitView({ padding: 0.05, maxZoom: 1.5, duration: 200 }), 50);
+                }}
                 minZoom={0.02}
                 maxZoom={3}
                 connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
