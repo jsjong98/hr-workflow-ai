@@ -39,34 +39,34 @@ export const LEVEL_STYLES = {
     handleSource: "!bg-[#F2A0AF]",
   },
   L4: {
-    bg: "bg-[#F2A0AF]",
-    text: "text-[#3B0716]",
-    border: "border-[#D95578]",
+    bg: "bg-[#DEDEDE]",
+    text: "text-[#000000]",
+    border: "border-[#DEDEDE]",
     badge: "bg-[#A62121] text-white",
-    shadow: "shadow-md shadow-[#F2A0AF]/30",
+    shadow: "shadow-md shadow-[#AAAAAA]/30",
     font: "text-2xl font-bold",
     descFont: "text-base font-medium",
     minW: "min-w-[580px]",
     maxW: "max-w-[760px]",
     py: "py-11 px-10",
     rounded: "rounded-lg",
-    handleTarget: "!bg-[#D95578]",
-    handleSource: "!bg-[#A62121]",
+    handleTarget: "!bg-[#888888]",
+    handleSource: "!bg-[#555555]",
   },
   L5: {
-    bg: "bg-[#F2DCE0]",
-    text: "text-[#3B0716]",
-    border: "border-[#F2A0AF]",
-    badge: "bg-[#D95578] text-white",
-    shadow: "shadow-sm shadow-[#F2DCE0]/40",
+    bg: "bg-[#FFFFFF]",
+    text: "text-[#000000]",
+    border: "border-[#DEDEDE]",
+    badge: "bg-[#555555] text-white",
+    shadow: "shadow-sm shadow-[#DEDEDE]/60",
     font: "text-xl font-bold",
     descFont: "text-sm font-medium",
     minW: "min-w-[520px]",
     maxW: "max-w-[700px]",
     py: "py-10 px-9",
     rounded: "rounded-md",
-    handleTarget: "!bg-[#D95578]",
-    handleSource: "!bg-[#F2A0AF]",
+    handleTarget: "!bg-[#888888]",
+    handleSource: "!bg-[#555555]",
   },
 } as const;
 
@@ -208,7 +208,7 @@ function LevelNodeBase({ data }: { data: NodeData }) {
       {data.role && (
         <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
           data.level === "L4" || data.level === "L5"
-            ? "bg-[#A62121]/15 text-[#A62121]"
+            ? "bg-black/10 text-black/70"
             : "bg-white/20 text-white/90"
         }`}>
           👤 {data.role}

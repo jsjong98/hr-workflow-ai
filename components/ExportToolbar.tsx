@@ -422,12 +422,32 @@ export default function ExportToolbar({
         if (!src || !tgt) continue;
         const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchorPoints(src, tgt);
         const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-        s2.addShape("line", {
-          x: Math.min(startX, endX), y: Math.min(startY, endY),
-          w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-          flipH: endX < startX, flipV: endY < startY,
-          line: { color: LIGHT_GRAY, width: 1.0, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
-        });
+        const lineColor = "000000";
+        const lineW = 1.2;
+        // 직선인 경우(수평 or 수직 지형) → 직선
+        if (Math.abs(startX - endX) < 0.01 || Math.abs(startY - endY) < 0.01) {
+          s2.addShape("line", {
+            x: Math.min(startX, endX), y: Math.min(startY, endY),
+            w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
+            flipH: endX < startX, flipV: endY < startY,
+            line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+          });
+        } else {
+          // L자 꺾은선: 수평 세그먼트 → 수직 세그먼트 (midX = endX)
+          const midX = endX;
+          s2.addShape("line", {
+            x: Math.min(startX, midX), y: startY,
+            w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
+            flipH: midX < startX,
+            line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+          });
+          s2.addShape("line", {
+            x: midX, y: Math.min(startY, endY),
+            w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
+            flipV: endY < startY,
+            line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
+          });
+        }
       }
 
       // Slide 2 legend bar
@@ -959,12 +979,30 @@ export default function ExportToolbar({
           if (!src || !tgt) continue;
           const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchor(src, tgt);
           const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          slide.addShape("line", {
-            x: Math.min(startX, endX), y: Math.min(startY, endY),
-            w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-            flipH: endX < startX, flipV: endY < startY,
-            line: { color: LIGHT_GRAY, width: 1.0, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
-          });
+          const lineColor = "000000";
+          const lineW = 1.2;
+          if (Math.abs(startX - endX) < 0.01 || Math.abs(startY - endY) < 0.01) {
+            slide.addShape("line", {
+              x: Math.min(startX, endX), y: Math.min(startY, endY),
+              w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
+              flipH: endX < startX, flipV: endY < startY,
+              line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+            });
+          } else {
+            const midX = endX;
+            slide.addShape("line", {
+              x: Math.min(startX, midX), y: startY,
+              w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
+              flipH: midX < startX,
+              line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+            });
+            slide.addShape("line", {
+              x: midX, y: Math.min(startY, endY),
+              w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
+              flipV: endY < startY,
+              line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
+            });
+          }
         }
 
         // 레벨 범례 바

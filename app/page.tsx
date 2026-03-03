@@ -321,13 +321,13 @@ export default function Home() {
           {
             ...connection,
             type: "smoothstep",
-            animated: true,
-            style: { stroke: "#d95578", strokeWidth: 2.5 },
+            animated: false,
+            style: { stroke: "#000000", strokeWidth: 1.5 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              width: 20,
-              height: 20,
-              color: "#d95578",
+              width: 16,
+              height: 16,
+              color: "#000000",
             },
           },
           eds
@@ -345,7 +345,7 @@ export default function Home() {
         eds.map((e) => {
           if (e.id !== edge.id) return e;
           const hasBoth = !!e.markerStart;
-          const color = ((e.style as Record<string, unknown>)?.stroke as string) || "#d95578";
+          const color = ((e.style as Record<string, unknown>)?.stroke as string) || "#000000";
           if (hasBoth) {
             // bidirectional → one-way (remove markerStart)
             const { markerStart: _, ...rest } = e;
@@ -537,8 +537,8 @@ export default function Home() {
           {[
             { l: "L2", c: "bg-[#A62121] text-white" },
             { l: "L3", c: "bg-[#D95578] text-white" },
-            { l: "L4", c: "bg-[#F2A0AF] text-[#3B0716] font-bold" },
-            { l: "L5", c: "bg-[#F2DCE0] text-[#3B0716] font-bold border border-[#F2A0AF]" },
+            { l: "L4", c: "bg-[#DEDEDE] text-black font-bold" },
+            { l: "L5", c: "bg-white text-black font-bold border border-[#DEDEDE]" },
           ].map((i) => (
             <span
               key={i.l}
@@ -741,10 +741,10 @@ export default function Home() {
                     <div className="flex items-stretch">
                       <button
                         onClick={() => addNodeToCanvas("l4", l4)}
-                        className="flex-1 text-left px-3 py-2.5 text-sm font-bold text-[#3B0716] bg-white border-2 border-[#F2A0AF] rounded-l-lg hover:bg-[#F2DCE0]/50 hover:border-[#D95578] transition-colors"
+                        className="flex-1 text-left px-3 py-2.5 text-sm font-bold text-black bg-[#DEDEDE] border-2 border-[#BBBBBB] rounded-l-lg hover:bg-[#CCCCCC] hover:border-[#888888] transition-colors"
                         title={l4.description || l4.name}
                       >
-                        <span className="text-[9px] text-[#A62121] font-mono mr-1.5 bg-[#F2DCE0] px-1 py-0.5 rounded">
+                        <span className="text-[9px] text-gray-600 font-mono mr-1.5 bg-white/60 px-1 py-0.5 rounded">
                           {l4.id}
                         </span>
                         {l4.name}
@@ -760,7 +760,7 @@ export default function Home() {
                             expandedL4 === l4.id ? null : l4.id
                           )
                         }
-                        className="px-2 bg-white border-y-2 border-r-2 border-[#F2A0AF] rounded-r-lg text-gray-400 hover:text-[#A62121] hover:bg-[#F2DCE0]/50 text-[10px] transition-colors"
+                        className="px-2 bg-[#DEDEDE] border-y-2 border-r-2 border-[#BBBBBB] rounded-r-lg text-gray-500 hover:text-black hover:bg-[#CCCCCC] text-[10px] transition-colors"
                       >
                         {expandedL4 === l4.id
                           ? "▼"
@@ -773,10 +773,10 @@ export default function Home() {
                           <button
                             key={l5.id}
                             onClick={() => addNodeToCanvas("l5", l5)}
-                            className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-[#3B0716] bg-[#F2DCE0] border border-[#F2A0AF]/50 rounded hover:bg-[#F2A0AF]/30 hover:border-[#F2A0AF] transition-colors"
+                            className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-black bg-white border border-[#DEDEDE] rounded hover:bg-[#F5F5F5] hover:border-[#AAAAAA] transition-colors"
                             title={l5.description || l5.name}
                           >
-                            <span className="text-[9px] text-[#D95578] font-mono mr-1">
+                            <span className="text-[9px] text-gray-500 font-mono mr-1">
                               {l5.id}
                             </span>
                             {l5.name}
@@ -859,11 +859,11 @@ export default function Home() {
                 defaultViewport={{ x: 0, y: 0, zoom: 0.5 }}
                 minZoom={0.02}
                 maxZoom={3}
-                connectionLineStyle={{ stroke: "#d95578", strokeWidth: 2 }}
+                connectionLineStyle={{ stroke: "#000000", strokeWidth: 1.5 }}
                 defaultEdgeOptions={{
                   type: "smoothstep",
-                  animated: true,
-                  style: { stroke: "#d95578", strokeWidth: 2 },
+                  animated: false,
+                  style: { stroke: "#000000", strokeWidth: 1.5 },
                 }}
                 deleteKeyCode={["Backspace", "Delete"]}
               >
@@ -889,9 +889,9 @@ export default function Home() {
                       case "l3":
                         return "#D95578";
                       case "l4":
-                        return "#F2A0AF";
+                        return "#DEDEDE";
                       case "l5":
-                        return "#F2DCE0";
+                        return "#FFFFFF";
                       default:
                         return "#d1d5db";
                     }
