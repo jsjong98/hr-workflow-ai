@@ -213,6 +213,9 @@ export default function Home() {
   /* ── Search ────────────────────────────────── */
   const [searchTerm, setSearchTerm] = useState("");
 
+  /* ── Add Node Modal ──────────────────────── */
+  const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
+
   /* ═══════════════════════════════════════════════
    * CSV Load
    * ═══════════════════════════════════════════════ */
@@ -763,7 +766,6 @@ export default function Home() {
                   title="새 노드 직접 추가"
                 >
                   {"➕ 새 노드"}
-                </button>
                 </button>
               </div>
               {/* Export toolbar */}
