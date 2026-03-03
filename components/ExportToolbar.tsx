@@ -317,10 +317,19 @@ export default function ExportToolbar({
       const scRef = 0.787 / DEF.pxH;
       const sc = Math.min(scFit, scRef);
 
-      // RF 좌표 → PPT 좌표 (좌상단 기준)
+      // 콘텐츠 실제 크기 → 슬라이드 중앙 정렬
+      const contentW = bRangeX * sc;
+      const contentH = bRangeY * sc;
+      // swimlane: Y는 레인 배경과 맞추어 PAD_TOP 고정, 일반: Y도 중앙
+      const offsetX = PAD_X + Math.max(0, (areaW - contentW) / 2);
+      const offsetY = isSwimLane
+        ? PAD_TOP
+        : PAD_TOP + Math.max(0, (areaH - contentH) / 2);
+
+      // RF 좌표 → PPT 좌표 (중앙 정렬)
       const toPpt = (rfX: number, rfY: number) => ({
-        x: PAD_X + (rfX - bMinX) * sc,
-        y: PAD_TOP + (rfY - bMinY) * sc,
+        x: offsetX + (rfX - bMinX) * sc,
+        y: offsetY + (rfY - bMinY) * sc,
       });
 
       // 노드 폰트 크기 고정 (12pt)
@@ -868,9 +877,17 @@ export default function ExportToolbar({
         const scRef = 0.787 / DEF.pxH;
         const scRatio = Math.min(scFit, scRef);
 
+        // 콘텐츠 실제 크기 → 슬라이드 중앙 정렬
+        const sContentW = bRangeX * scRatio;
+        const sContentH = bRangeY * scRatio;
+        const sOffsetX = sPadX + Math.max(0, (sAreaW - sContentW) / 2);
+        const sOffsetY = isSwimLane
+          ? sPadTop
+          : sPadTop + Math.max(0, (sAreaH - sContentH) / 2);
+
         const toPpt = (rfX: number, rfY: number) => ({
-          x: sPadX + (rfX - bMinX) * scRatio,
-          y: sPadTop + (rfY - bMinY) * scRatio,
+          x: sOffsetX + (rfX - bMinX) * scRatio,
+          y: sOffsetY + (rfY - bMinY) * scRatio,
         });
 
         const NODE_FONT_SIZE_S = 12; // 노드 폰트 12pt 고정
