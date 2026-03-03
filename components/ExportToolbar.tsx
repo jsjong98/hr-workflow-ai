@@ -164,12 +164,9 @@ export default function ExportToolbar({
     isExporting.current = true;
     try {
       const pptx = new PptxGenJS();
-      pptx.author = "PwC · 두산 HR AX";
+      pptx.author = "HR Workflow Builder";
       pptx.title = "HR Workflow";
       pptx.subject = "As-is 프로세스 워크플로우";
-      pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
-      const SLIDE_W = 13.33;
-      const SLIDE_H = 7.5;
 
       /* ── Level style config ── */
       /* L3: 해당색 채우기+흰글씨 | L4: light gray 채우기 | L5: 흰바탕+light gray 윤곽 */
@@ -212,16 +209,12 @@ export default function ExportToolbar({
       const s1 = pptx.addSlide();
       s1.background = { color: "0F172A" };
       s1.addText("HR Workflow", {
-        x: 1, y: 1.5, w: 11.33, h: 1.2,
+        x: 1, y: 2.0, w: 11.33, h: 1.2,
         fontSize: 44, fontFace: FONT_FACE, color: "FFFFFF", bold: true, align: "center",
-      });
-      s1.addText("PwC · 두산 HR AX", {
-        x: 1, y: 2.9, w: 11.33, h: 0.6,
-        fontSize: 18, fontFace: FONT_FACE, color: "94A3B8", align: "center",
       });
       s1.addText(
         `노드 ${nodes.length}개  ·  연결 ${edges.length}개  ·  ${new Date().toLocaleDateString("ko-KR")}`,
-        { x: 1, y: 3.7, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
+        { x: 1, y: 3.3, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
       );
       // Level legend on title
       let lx = 3.2;
@@ -730,11 +723,10 @@ export default function ExportToolbar({
     isExporting.current = true;
     try {
       const pptx = new PptxGenJS();
-      pptx.author = "PwC · 두산 HR AX";
+      pptx.author = "HR Workflow Builder";
       pptx.title = "HR Workflow";
       pptx.subject = "As-is 프로세스 워크플로우";
       pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
-
       const SLIDE_W = 13.33;
       const SLIDE_H = 7.5;
 
@@ -767,19 +759,15 @@ export default function ExportToolbar({
       const s1 = pptx.addSlide();
       s1.background = { color: "0F172A" };
       s1.addText("HR Workflow", {
-        x: 1, y: 1.2, w: 11.33, h: 1.2,
+        x: 1, y: 1.5, w: 11.33, h: 1.2,
         fontSize: 44, fontFace: FONT_FACE, color: "FFFFFF", bold: true, align: "center",
-      });
-      s1.addText("PwC · 두산 HR AX", {
-        x: 1, y: 2.6, w: 11.33, h: 0.6,
-        fontSize: 18, fontFace: FONT_FACE, color: "94A3B8", align: "center",
       });
       s1.addText(
         `시트 ${validSheets.length}개  ·  노드 ${totalNodes}개  ·  연결 ${totalEdges}개  ·  ${new Date().toLocaleDateString("ko-KR")}`,
-        { x: 1, y: 3.3, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
+        { x: 1, y: 2.9, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
       );
       // 시트 목록
-      let listY = 4.1;
+      let listY = 3.7;
       for (const { sheet, nodes: sn } of validSheets) {
         const tag = sheet.type === "swimlane" ? " (수영레인)" : "";
         s1.addText(`• ${sheet.name}${tag}  —  노드 ${sn.length}개`, {
