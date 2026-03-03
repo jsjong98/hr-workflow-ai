@@ -177,8 +177,8 @@ export default function ExportToolbar({
       const LS: Record<string, { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
         L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
         L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
+        L4: { bg: "F2A0AF", border: "F2A0AF", text: "3B0716", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
+        L5: { bg: "F2DCE0", border: "F2A0AF", text: "3B0716", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
       };
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
@@ -231,9 +231,24 @@ export default function ExportToolbar({
       /* ═══════════════════════════════════════════
        * SLIDE 2 — Workflow Diagram (Native Shapes)
        * ═══════════════════════════════════════════ */
+      // 슬라이드 제목: 최상위(가장 낮은) 레벨 노드의 ID + 레이블 기반 자동 생성
+      const slideTitle = (() => {
+        const levelOrder = ["L2", "L3", "L4", "L5"];
+        for (const lv of levelOrder) {
+          const topNode = nodes.find((n) => getLevel(n) === lv);
+          if (topNode) {
+            const rawId = getId(topNode);
+            const label = getLabel(topNode);
+            const dispId = getDisplayId(topNode);
+            const lvLabel = `(${lv})  ${rawId.startsWith(lv) ? lv : lv} 프로세스 맵`;
+            return label ? `${dispId} ${label} — ${lv} 프로세스 맵` : `${dispId} — ${lv} 프로세스 맵`;
+          }
+        }
+        return currentSheet?.name || "워크플로우 다이어그램";
+      })();
       const s2 = pptx.addSlide();
       s2.background = { color: "F8FAFC" };
-      s2.addText("워크플로우 다이어그램", {
+      s2.addText(slideTitle, {
         x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
         fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
@@ -307,9 +322,8 @@ export default function ExportToolbar({
         y: PAD_TOP + (rfY - bMinY) * sc,
       });
 
-      // 폰트 크기: 노드 높이 기준으로 비례
-      const refNodeH = DEF.pxH * sc; // px→인치 변환된 노드 높이
-      const scaledFontSize = Math.min(Math.max(Math.round(refNodeH * 5), 6), 13);
+      // 노드 폰트 크기 고정 (12pt)
+      const NODE_FONT_SIZE = 12;
 
       // Draw nodes
       const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
@@ -330,7 +344,7 @@ export default function ExportToolbar({
           shape: pptx.ShapeType.rect,
           fill: { color: s.bg },
           line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-          fontSize: scaledFontSize, bold: true, color: s.text,
+          fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
           fontFace: FONT_FACE, valign: "middle", align: "center",
         });
 
@@ -347,14 +361,14 @@ export default function ExportToolbar({
             s2.addText(tagText, {
               x: box.x, y: box.y + box.h + 0.03,
               w: box.w, h: 0.2,
-              fontSize: Math.max(scaledFontSize - 2, 6), color: s.bg,
+              fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
               fontFace: FONT_FACE, align: "center", bold: true,
             });
           }
         }
       }
 
-      // Draw edges (arrows) — solid light gray lines with fixed arrows
+      // Draw edges (arrows) — 검정 꺾인선 + fan-in 중간은 직선
       /* Helper: find the best anchor point pair (edge of source/target box) */
       const getAnchorPoints = (src: typeof nodeBoxes[string], tgt: typeof nodeBoxes[string]) => {
         const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
@@ -401,27 +415,61 @@ export default function ExportToolbar({
         return { sx: bestSrc.x, sy: bestSrc.y, ex: bestTgt.x, ey: bestTgt.y };
       };
 
+      // fan-in 감지: target별 연결된 edge 목록 집계
+      const fanInMap: Record<string, string[]> = {};
+      for (const edge of edges) {
+        if (!fanInMap[edge.target]) fanInMap[edge.target] = [];
+        fanInMap[edge.target].push(edge.source);
+      }
+
+      // 꺾인선 그리기 헬퍼 (수평 → 수직 2세그먼트 or 수직 → 수평)
+      const drawElbow = (
+        slide: typeof s2, sx: number, sy: number, ex: number, ey: number,
+        isBidi: boolean, straight: boolean,
+      ) => {
+        const lineStyle = { color: "000000", width: 1.2, dashType: "solid" as const };
+        if (straight || (Math.abs(sx - ex) < 0.01 || Math.abs(sy - ey) < 0.01)) {
+          // 직선 (fan-in 중간 or 이미 정렬된 경우)
+          slide.addShape("line", {
+            x: Math.min(sx, ex), y: Math.min(sy, ey),
+            w: Math.max(Math.abs(ex - sx), 0.01), h: Math.max(Math.abs(ey - sy), 0.01),
+            flipH: ex < sx, flipV: ey < sy,
+            line: { ...lineStyle, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined },
+          });
+          return;
+        }
+        // 꺾인선: 수평 세그먼트 → 수직 세그먼트 (중간점은 수평 이동 후 수직)
+        const mx = ex; // 수직 방향 꺾기: 먼저 수평으로 ex까지 이동
+        // 세그먼트 1: (sx, sy) → (mx, sy)  [수평]
+        slide.addShape("line", {
+          x: Math.min(sx, mx), y: sy,
+          w: Math.max(Math.abs(mx - sx), 0.01), h: 0.01,
+          flipH: mx < sx,
+          line: { ...lineStyle, beginArrowType: isBidi ? "triangle" : undefined },
+        });
+        // 세그먼트 2: (mx, sy) → (mx, ey)  [수직, 화살표]
+        slide.addShape("line", {
+          x: mx, y: Math.min(sy, ey),
+          w: 0.01, h: Math.max(Math.abs(ey - sy), 0.01),
+          flipV: ey < sy,
+          line: { ...lineStyle, endArrowType: "triangle" },
+        });
+      };
+
       for (const edge of edges) {
         const src = nodeBoxes[edge.source];
         const tgt = nodeBoxes[edge.target];
         if (!src || !tgt) continue;
 
         const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchorPoints(src, tgt);
-
         const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
 
-        s2.addShape("line", {
-          x: Math.min(startX, endX), y: Math.min(startY, endY),
-          w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-          flipH: endX < startX, flipV: endY < startY,
-          line: {
-            color: LIGHT_GRAY,
-            width: 1.0,
-            endArrowType: "triangle",
-            beginArrowType: isBidi ? "triangle" : undefined,
-            dashType: "solid",
-          },
-        });
+        // fan-in 여러 개가 같은 target에 연결될 때: 중간 인덱스는 직선
+        const siblings = fanInMap[edge.target] || [];
+        const myIdx = siblings.indexOf(edge.source);
+        const isMid = siblings.length >= 3 && myIdx === Math.floor(siblings.length / 2);
+
+        drawElbow(s2, startX, startY, endX, endY, isBidi, isMid);
       }
 
       // Slide 2 legend bar
@@ -743,8 +791,8 @@ export default function ExportToolbar({
       > = {
         L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
         L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
+        L4: { bg: "F2A0AF", border: "F2A0AF", text: "3B0716", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
+        L5: { bg: "F2DCE0", border: "F2A0AF", text: "3B0716", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
       };
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
@@ -804,21 +852,11 @@ export default function ExportToolbar({
         const slide = pptx.addSlide();
         slide.background = { color: "F8FAFC" };
 
-        // 시트 제목
-        slide.addText(sheet.name, {
-          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
-          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
-        });
-        slide.addText(`노드 ${sNodes.length}개  ·  연결 ${sEdges.length}개`, {
-          x: 0.3, y: 0.5, w: SLIDE_W - 0.6, h: 0.2,
-          fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
-        });
-
-        // 수영레인 배경
+        // 수영레인 설정
         const isSwimLane = sheet.type === "swimlane";
         const swimLanes = sheet.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
 
-        // bbox 기반 좌표 변환 (수영레인 여부에 관계없이 먼저 계산)
+        // bbox 기반 좌표 변환
         let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
         for (const nd of sNodes) {
           const s = LS[getLevel(nd)] || DEF;
@@ -836,7 +874,6 @@ export default function ExportToolbar({
         const sAreaW = SLIDE_W - 2 * sPadX;
         const sAreaH = SLIDE_H - sPadTop - sPadBottom;
         const scFit = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
-        // 기준 스케일: L4 노드 10개가 슬라이드 가로를 채울 때의 크기 (노드 규격 통일)
         const scRef = sAreaW / (10 * DEF.pxW);
         const scRatio = Math.min(scFit, scRef);
 
@@ -845,9 +882,26 @@ export default function ExportToolbar({
           y: sPadTop + (rfY - bMinY) * scRatio,
         });
 
-        const refNodeH = DEF.pxH * scRatio;
-        const scaledFontSize = Math.min(Math.max(Math.round(refNodeH * 5), 6), 13);
+        const NODE_FONT_SIZE_S = 12; // 노드 폰트 12pt 고정
 
+        // 슬라이드 제목: 최상위 레벨 노드 ID + 레이블 기반
+        const sLevelOrder = ["L2", "L3", "L4", "L5"];
+        let sheetSlideTitle = sheet.name;
+        for (const lv of sLevelOrder) {
+          const topNode = sNodes.find((n) => getLevel(n) === lv);
+          if (topNode) {
+            const label = getLabel(topNode);
+            const dispId = getDisplayId(topNode);
+            sheetSlideTitle = label ? `${dispId} ${label} — ${lv} 프로세스 맵` : `${dispId} — ${lv} 프로세스 맵`;
+            break;
+          }
+        }
+        slide.addText(sheetSlideTitle, {
+          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        });
+
+        // 수영레인 배경
         if (isSwimLane) {
           const bandTop = sPadTop - 0.05;
           const bandBottom = SLIDE_H - sPadBottom + 0.05;
@@ -871,8 +925,6 @@ export default function ExportToolbar({
           }
         }
 
-        // (좌표 변환은 위쪽 bbox 기반 toPpt / scRatio 사용)
-
         // 노드 그리기
         const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
         for (const nd of sNodes) {
@@ -890,7 +942,7 @@ export default function ExportToolbar({
             shape: pptx.ShapeType.rect,
             fill: { color: s.bg },
             line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-            fontSize: scaledFontSize, bold: true, color: s.text,
+            fontSize: NODE_FONT_SIZE_S, bold: true, color: s.text,
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
 
@@ -907,7 +959,7 @@ export default function ExportToolbar({
               slide.addText(tagText, {
                 x: box.x, y: box.y + box.h + 0.03,
                 w: box.w, h: 0.2,
-                fontSize: Math.max(scaledFontSize - 2, 6), color: s.bg,
+                fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: s.bg,
                 fontFace: FONT_FACE, align: "center", bold: true,
               });
             }
@@ -943,22 +995,50 @@ export default function ExportToolbar({
           return { sx: bestSrc.x, sy: bestSrc.y, ex: bestTgt.x, ey: bestTgt.y };
         };
 
+        // fan-in 감지: target별 연결된 source 목록
+        const sFanInMap: Record<string, string[]> = {};
+        for (const edge of sEdges) {
+          if (!sFanInMap[edge.target]) sFanInMap[edge.target] = [];
+          sFanInMap[edge.target].push(edge.source);
+        }
+
+        // 꺾인선 그리기 헬퍼
+        const sDrawElbow = (
+          sx: number, sy: number, ex: number, ey: number,
+          isBidi: boolean, straight: boolean,
+        ) => {
+          const ls = { color: "000000", width: 1.2, dashType: "solid" as const };
+          if (straight || Math.abs(sx - ex) < 0.01 || Math.abs(sy - ey) < 0.01) {
+            slide.addShape("line", {
+              x: Math.min(sx, ex), y: Math.min(sy, ey),
+              w: Math.max(Math.abs(ex - sx), 0.01), h: Math.max(Math.abs(ey - sy), 0.01),
+              flipH: ex < sx, flipV: ey < sy,
+              line: { ...ls, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined },
+            });
+            return;
+          }
+          const mx = ex;
+          slide.addShape("line", {
+            x: Math.min(sx, mx), y: sy, w: Math.max(Math.abs(mx - sx), 0.01), h: 0.01,
+            flipH: mx < sx,
+            line: { ...ls, beginArrowType: isBidi ? "triangle" : undefined },
+          });
+          slide.addShape("line", {
+            x: mx, y: Math.min(sy, ey), w: 0.01, h: Math.max(Math.abs(ey - sy), 0.01),
+            flipV: ey < sy,
+            line: { ...ls, endArrowType: "triangle" },
+          });
+        };
+
         for (const edge of sEdges) {
           const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
           if (!src || !tgt) continue;
           const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchor(src, tgt);
           const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          slide.addShape("line", {
-            x: Math.min(startX, endX), y: Math.min(startY, endY),
-            w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-            flipH: endX < startX, flipV: endY < startY,
-            line: {
-              color: LIGHT_GRAY, width: 1.0,
-              endArrowType: "triangle",
-              beginArrowType: isBidi ? "triangle" : undefined,
-              dashType: "solid",
-            },
-          });
+          const siblings = sFanInMap[edge.target] || [];
+          const myIdx = siblings.indexOf(edge.source);
+          const isMid = siblings.length >= 3 && myIdx === Math.floor(siblings.length / 2);
+          sDrawElbow(startX, startY, endX, endY, isBidi, isMid);
         }
 
         // 레벨 범례 바
