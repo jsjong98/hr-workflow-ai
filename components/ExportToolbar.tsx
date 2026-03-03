@@ -168,6 +168,8 @@ export default function ExportToolbar({
       pptx.title = "HR Workflow";
       pptx.subject = "As-is 프로세스 워크플로우";
       pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
+      const SLIDE_W = 13.33;
+      const SLIDE_H = 7.5;
 
       /* ── Level style config ── */
       /* L3: 해당색 채우기+흰글씨 | L4: light gray 채우기 | L5: 흰바탕+light gray 윤곽 */
@@ -210,22 +212,22 @@ export default function ExportToolbar({
       const s1 = pptx.addSlide();
       s1.background = { color: "0F172A" };
       s1.addText("HR Workflow", {
-        x: 1, y: 1.8, w: 11.33, h: 1.2,
+        x: 1, y: 1.5, w: 11.33, h: 1.2,
         fontSize: 44, fontFace: FONT_FACE, color: "FFFFFF", bold: true, align: "center",
       });
       s1.addText("PwC · 두산 HR AX", {
-        x: 1, y: 3.2, w: 11.33, h: 0.6,
+        x: 1, y: 2.9, w: 11.33, h: 0.6,
         fontSize: 18, fontFace: FONT_FACE, color: "94A3B8", align: "center",
       });
       s1.addText(
         `노드 ${nodes.length}개  ·  연결 ${edges.length}개  ·  ${new Date().toLocaleDateString("ko-KR")}`,
-        { x: 1, y: 4.0, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
+        { x: 1, y: 3.7, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
       );
       // Level legend on title
       let lx = 3.2;
       for (const [lvl, cfg] of Object.entries(LS)) {
         s1.addText(lvl, {
-          x: lx, y: 5.2, w: 1.3, h: 0.38,
+          x: lx, y: 5.0, w: 1.3, h: 0.38,
           shape: pptx.ShapeType.rect,
           fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 },
           fontSize: 11, fontFace: FONT_FACE, color: cfg.text, bold: true, align: "center", valign: "middle",
@@ -239,8 +241,8 @@ export default function ExportToolbar({
       const s2 = pptx.addSlide();
       s2.background = { color: "F8FAFC" };
       s2.addText("워크플로우 다이어그램", {
-        x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+        fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
 
       /* ── SwimLane background bands (if active sheet is swimlane) ── */
@@ -255,15 +257,15 @@ export default function ExportToolbar({
       ];
       const SWIM_LABEL_W = 0.45; // vertical label column width
       if (isSwimLane) {
-        const bandTop = 0.7;
-        const bandBottom = 7.0;
+        const bandTop = PAD_TOP - 0.05;
+        const bandBottom = SLIDE_H - PAD_BOTTOM + 0.05;
         const bandH = (bandBottom - bandTop) / swimLanes.length;
         for (let i = 0; i < swimLanes.length; i++) {
           const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
           const by = bandTop + i * bandH;
           // Band background (shifted right for label column)
           s2.addShape("rect", {
-            x: SWIM_LABEL_W, y: by, w: 13.33 - SWIM_LABEL_W, h: bandH,
+            x: SWIM_LABEL_W, y: by, w: SLIDE_W - SWIM_LABEL_W, h: bandH,
             fill: { color: sc2.fill },
             line: { color: sc2.border, width: 0.3, dashType: "dash" },
           });
@@ -280,42 +282,48 @@ export default function ExportToolbar({
         }
       }
 
-      // ── Coordinate mapping: RF center → PPT center ──
-      const rfCenters = nodes.map((nd) => {
+      // ── Coordinate mapping: RF bbox → PPT ──
+      // 노드의 실제 bbox(좌상단 x,y + 크기)로 전체 범위 계산
+      let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+      for (const nd of nodes) {
         const s = LS[getLevel(nd)] || DEF;
-        return { id: nd.id, cx: nd.position.x + s.pxW / 2, cy: nd.position.y + s.pxH / 2 };
-      });
-      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
-      for (const c of rfCenters) {
-        cMinX = Math.min(cMinX, c.cx); cMinY = Math.min(cMinY, c.cy);
-        cMaxX = Math.max(cMaxX, c.cx); cMaxY = Math.max(cMaxY, c.cy);
+        const x0 = nd.position.x, y0 = nd.position.y;
+        const x1 = x0 + s.pxW, y1 = y0 + s.pxH;
+        bMinX = Math.min(bMinX, x0); bMinY = Math.min(bMinY, y0);
+        bMaxX = Math.max(bMaxX, x1); bMaxY = Math.max(bMaxY, y1);
       }
-      const cRangeX = (cMaxX - cMinX) || 1;
-      const cRangeY = (cMaxY - cMinY) || 1;
-      // UI 비율과 동일하게: 노드 크기도 sc로 스케일 (위치 + 크기 동일 비율)
-      const PAD_X = 1.0, PAD_TOP = 0.9;
-      const pptAreaW = 13.33 - 2 * PAD_X;
-      const pptAreaH = 7.5 - PAD_TOP - 0.45;
-      const sc = Math.min(pptAreaW / cRangeX, pptAreaH / cRangeY);
-      const toPptCenter = (rfCx: number, rfCy: number) => ({
-        cx: PAD_X + (rfCx - cMinX) * sc,
-        cy: PAD_TOP + (rfCy - cMinY) * sc,
+      const bRangeX = (bMaxX - bMinX) || 1;
+      const bRangeY = (bMaxY - bMinY) || 1;
+
+      // 여백 설정 (가로 13.33" x 7.5")
+      const PAD_X = isSwimLane ? 0.55 : 0.4;
+      const PAD_TOP = 0.65;
+      const PAD_BOTTOM = 0.35;
+      const areaW = SLIDE_W - 2 * PAD_X;
+      const areaH = SLIDE_H - PAD_TOP - PAD_BOTTOM;
+
+      // 가로/세로 비율 중 작은 쪽으로 단일 스케일 결정
+      const sc = Math.min(areaW / bRangeX, areaH / bRangeY);
+
+      // RF 좌표 → PPT 좌표 (좌상단 기준)
+      const toPpt = (rfX: number, rfY: number) => ({
+        x: PAD_X + (rfX - bMinX) * sc,
+        y: PAD_TOP + (rfY - bMinY) * sc,
       });
-      // sc 기준 폰트 크기 (최소 7pt ~ 최대 12pt)
-      const scaledFontSize = Math.min(Math.max(Math.round(10 * sc / 0.0025), 7), 12);
+
+      // 폰트 크기: 노드 높이 기준으로 비례
+      const refNodeH = DEF.pxH * sc; // px→인치 변환된 노드 높이
+      const scaledFontSize = Math.min(Math.max(Math.round(refNodeH * 5), 6), 13);
 
       // Draw nodes
       const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
       for (const nd of nodes) {
         const level = getLevel(nd);
         const s = LS[level] || DEF;
-        const rfCx = nd.position.x + s.pxW / 2;
-        const rfCy = nd.position.y + s.pxH / 2;
-        const { cx, cy } = toPptCenter(rfCx, rfCy);
-        // 노드 크기 = 캔버스 px 크기 × sc (화면과 동일 비율), 최솟값 보장
-        const nW = Math.max(s.pxW * sc, 0.6);
-        const nH = Math.max(s.pxH * sc, 0.24);
-        const box = { x: cx - nW / 2, y: cy - nH / 2, w: nW, h: nH };
+        const { x: bx, y: by } = toPpt(nd.position.x, nd.position.y);
+        const nW = s.pxW * sc;
+        const nH = s.pxH * sc;
+        const box = { x: bx, y: by, w: nW, h: nH };
         nodeBoxes[nd.id] = box;
 
         const dispLabel = getLabel(nd);
@@ -424,15 +432,15 @@ export default function ExportToolbar({
       let lg2x = 0.4;
       for (const [lvl, cfg] of Object.entries(LS)) {
         s2.addText("", {
-          x: lg2x, y: 7.05, w: 0.22, h: 0.22,
+          x: lg2x, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
           shape: pptx.ShapeType.rect,
           fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
         });
-        s2.addText(lvl, { x: lg2x + 0.28, y: 7.05, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
+        s2.addText(lvl, { x: lg2x + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
         lg2x += 0.9;
       }
       s2.addText("── 실선  ▶ 화살표: 진행 방향", {
-        x: 4.5, y: 7.05, w: 6, h: 0.22, fontSize: 7, color: "94A3B8", fontFace: FONT_FACE, valign: "middle",
+        x: 4.0, y: SLIDE_H - 0.28, w: 4.0, h: 0.22, fontSize: 7, color: "94A3B8", fontFace: FONT_FACE, valign: "middle",
       });
 
       /* ═══════════════════════════════════════════
@@ -472,15 +480,15 @@ export default function ExportToolbar({
       const s3 = pptx.addSlide();
       s3.background = { color: "FFFFFF" };
       s3.addText("프로세스 흐름 순서", {
-        x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+        fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       s3.addText("토폴로지 정렬 기반 실행 순서 · 번호는 선후행 관계를 반영합니다", {
-        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
+        x: 0.3, y: 0.5, w: SLIDE_W - 0.6, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
       });
 
-      // Serpentine flow layout
-      const COLS = 4, BW = 2.8, BH = 0.5, GX = 0.3, GY = 0.38, SX = 0.4, SY = 1.05;
+      // Serpentine flow layout (3열 가로 배치)
+      const COLS = 3, BW = 3.8, BH = 0.52, GX = 0.28, GY = 0.35, SX = 0.4, SY = 0.95;
       const maxSteps = Math.min(sorted.length, 24);
       for (let i = 0; i < maxSteps; i++) {
         const nd = nodeMap.get(sorted[i]);
@@ -551,11 +559,11 @@ export default function ExportToolbar({
       const s4 = pptx.addSlide();
       s4.background = { color: "FFFFFF" };
       s4.addText("연결 관계 (화살표) 목록", {
-        x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+        fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       s4.addText(`총 ${edges.length}개의 연결 화살표`, {
-        x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
+        x: 0.3, y: 0.5, w: SLIDE_W - 0.6, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
       });
 
       const hdrOpts = { bold: true as const, color: "FFFFFF", fill: { color: "1E293B" }, fontSize: 9 };
@@ -584,9 +592,9 @@ export default function ExportToolbar({
         ]);
       });
       s4.addTable(connRows, {
-        x: 0.3, y: 0.95, w: 12.7,
-        colW: [0.5, 3.0, 0.7, 0.5, 3.0, 0.7, 2.5],
-        border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.35,
+        x: 0.3, y: 0.9, w: SLIDE_W - 0.6,
+        colW: [0.4, 3.5, 0.7, 0.4, 3.5, 0.7, 3.0],
+        border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.32,
         autoPage: true, autoPageRepeatHeader: true,
       });
 
@@ -596,8 +604,8 @@ export default function ExportToolbar({
       const s5 = pptx.addSlide();
       s5.background = { color: "FFFFFF" };
       s5.addText("노드 상세 목록", {
-        x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-        fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+        fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
       });
       const nhdr = { bold: true as const, color: "FFFFFF", fill: { color: "1E293B" }, fontSize: 9 };
       const nodeRows: PptxGenJS.TableRow[] = [[
@@ -625,9 +633,9 @@ export default function ExportToolbar({
         ]);
       }
       s5.addTable(nodeRows, {
-        x: 0.3, y: 0.75, w: 12.7,
-        colW: [0.8, 1.5, 2.8, 5.5, 1.0],
-        border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.35,
+        x: 0.3, y: 0.65, w: SLIDE_W - 0.6,
+        colW: [0.7, 1.4, 3.2, 6.0, 1.3],
+        border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.32,
         autoPage: true, autoPageRepeatHeader: true,
       });
 
@@ -641,12 +649,12 @@ export default function ExportToolbar({
       if (nodesWithMeta.length > 0) {
         const s6 = pptx.addSlide();
         s6.background = { color: "FFFFFF" };
-        s6.addText("노드 메타 정보 (메모 · 수행주체 · Input/Output · 시스템)", {
-          x: 0.3, y: 0.15, w: 12.7, h: 0.45,
-          fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        s6.addText("노드 메타 정보 (메모 · 수행주체 · I/O · 시스템)", {
+          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
         });
         s6.addText(`메타데이터가 입력된 ${nodesWithMeta.length}개 노드`, {
-          x: 0.3, y: 0.55, w: 12.7, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
+          x: 0.3, y: 0.5, w: SLIDE_W - 0.6, h: 0.3, fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
         });
 
         const mhdr = { bold: true as const, color: "FFFFFF", fill: { color: "A62121" }, fontSize: 8 };
@@ -674,9 +682,9 @@ export default function ExportToolbar({
           ]);
         }
         s6.addTable(metaRows, {
-          x: 0.3, y: 0.95, w: 12.7,
-          colW: [0.6, 2.0, 1.2, 2.0, 2.0, 1.8, 3.1],
-          border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.38,
+          x: 0.3, y: 0.9, w: SLIDE_W - 0.6,
+          colW: [0.6, 2.2, 1.2, 2.1, 2.1, 1.8, 3.3],
+          border: { pt: 0.5, color: "E2E8F0" }, rowH: 0.35,
           autoPage: true, autoPageRepeatHeader: true,
         });
       }
@@ -725,7 +733,10 @@ export default function ExportToolbar({
       pptx.author = "PwC · 두산 HR AX";
       pptx.title = "HR Workflow";
       pptx.subject = "As-is 프로세스 워크플로우";
-      pptx.layout = "LAYOUT_WIDE";
+      pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
+
+      const SLIDE_W = 13.33;
+      const SLIDE_H = 7.5;
 
       const LIGHT_GRAY = "DEDEDE";
       const FONT_FACE = "Noto Sans KR";
@@ -756,19 +767,19 @@ export default function ExportToolbar({
       const s1 = pptx.addSlide();
       s1.background = { color: "0F172A" };
       s1.addText("HR Workflow", {
-        x: 1, y: 1.5, w: 11.33, h: 1.2,
+        x: 1, y: 1.2, w: 11.33, h: 1.2,
         fontSize: 44, fontFace: FONT_FACE, color: "FFFFFF", bold: true, align: "center",
       });
       s1.addText("PwC · 두산 HR AX", {
-        x: 1, y: 2.9, w: 11.33, h: 0.6,
+        x: 1, y: 2.6, w: 11.33, h: 0.6,
         fontSize: 18, fontFace: FONT_FACE, color: "94A3B8", align: "center",
       });
       s1.addText(
         `시트 ${validSheets.length}개  ·  노드 ${totalNodes}개  ·  연결 ${totalEdges}개  ·  ${new Date().toLocaleDateString("ko-KR")}`,
-        { x: 1, y: 3.6, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
+        { x: 1, y: 3.3, w: 11.33, h: 0.5, fontSize: 13, fontFace: FONT_FACE, color: "64748B", align: "center" },
       );
       // 시트 목록
-      let listY = 4.2;
+      let listY = 4.1;
       for (const { sheet, nodes: sn } of validSheets) {
         const tag = sheet.type === "swimlane" ? " (수영레인)" : "";
         s1.addText(`• ${sheet.name}${tag}  —  노드 ${sn.length}개`, {
@@ -781,7 +792,7 @@ export default function ExportToolbar({
       let lx = 3.2;
       for (const [lvl, cfg] of Object.entries(LS)) {
         s1.addText(lvl, {
-          x: lx, y: Math.max(listY + 0.3, 6.3), w: 1.3, h: 0.38,
+          x: lx, y: Math.max(listY + 0.2, 5.8), w: 1.3, h: 0.38,
           shape: pptx.ShapeType.rect,
           fill: { color: cfg.bg }, line: { color: cfg.border, width: 1 },
           fontSize: 11, fontFace: FONT_FACE, color: cfg.text, bold: true, align: "center", valign: "middle",
@@ -804,26 +815,54 @@ export default function ExportToolbar({
 
         // 시트 제목
         slide.addText(sheet.name, {
-          x: 0.3, y: 0.1, w: 10, h: 0.45,
-          fontSize: 16, fontFace: FONT_FACE, bold: true, color: "1E293B",
+          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
         });
         slide.addText(`노드 ${sNodes.length}개  ·  연결 ${sEdges.length}개`, {
-          x: 0.3, y: 0.5, w: 12.7, h: 0.22,
+          x: 0.3, y: 0.5, w: SLIDE_W - 0.6, h: 0.2,
           fontSize: 9, fontFace: FONT_FACE, color: "94A3B8",
         });
 
         // 수영레인 배경
         const isSwimLane = sheet.type === "swimlane";
         const swimLanes = sheet.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
+
+        // bbox 기반 좌표 변환 (수영레인 여부에 관계없이 먼저 계산)
+        let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+        for (const nd of sNodes) {
+          const s = LS[getLevel(nd)] || DEF;
+          bMinX = Math.min(bMinX, nd.position.x);
+          bMinY = Math.min(bMinY, nd.position.y);
+          bMaxX = Math.max(bMaxX, nd.position.x + s.pxW);
+          bMaxY = Math.max(bMaxY, nd.position.y + s.pxH);
+        }
+        const bRangeX = (bMaxX - bMinX) || 1;
+        const bRangeY = (bMaxY - bMinY) || 1;
+
+        const sPadX = isSwimLane ? 0.55 : 0.4;
+        const sPadTop = 0.65;
+        const sPadBottom = 0.35;
+        const sAreaW = SLIDE_W - 2 * sPadX;
+        const sAreaH = SLIDE_H - sPadTop - sPadBottom;
+        const scRatio = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
+
+        const toPpt = (rfX: number, rfY: number) => ({
+          x: sPadX + (rfX - bMinX) * scRatio,
+          y: sPadTop + (rfY - bMinY) * scRatio,
+        });
+
+        const refNodeH = DEF.pxH * scRatio;
+        const scaledFontSize = Math.min(Math.max(Math.round(refNodeH * 5), 6), 13);
+
         if (isSwimLane) {
-          const bandTop = 0.8;
-          const bandBottom = 7.1;
+          const bandTop = sPadTop - 0.05;
+          const bandBottom = SLIDE_H - sPadBottom + 0.05;
           const bandH = (bandBottom - bandTop) / swimLanes.length;
           for (let i = 0; i < swimLanes.length; i++) {
             const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
             const by = bandTop + i * bandH;
             slide.addShape("rect", {
-              x: SWIM_LABEL_W, y: by, w: 13.33 - SWIM_LABEL_W, h: bandH,
+              x: SWIM_LABEL_W, y: by, w: SLIDE_W - SWIM_LABEL_W, h: bandH,
               fill: { color: sc2.fill },
               line: { color: sc2.border, width: 0.3, dashType: "dash" },
             });
@@ -838,38 +877,17 @@ export default function ExportToolbar({
           }
         }
 
-        // 좌표 변환: ReactFlow → PPT
-        const rfCenters = sNodes.map((nd) => {
-          const s = LS[getLevel(nd)] || DEF;
-          return { id: nd.id, cx: nd.position.x + s.pxW / 2, cy: nd.position.y + s.pxH / 2 };
-        });
-        let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
-        for (const c of rfCenters) {
-          cMinX = Math.min(cMinX, c.cx); cMinY = Math.min(cMinY, c.cy);
-          cMaxX = Math.max(cMaxX, c.cx); cMaxY = Math.max(cMaxY, c.cy);
-        }
-        const cRangeX = (cMaxX - cMinX) || 1;
-        const cRangeY = (cMaxY - cMinY) || 1;
-        // UI 비율과 동일하게: 노드 크기도 scRatio로 스케일
-        const PAD_X = 1.0, PAD_TOP = 0.9;
-        const pptAreaW = 13.33 - 2 * PAD_X;
-        const pptAreaH = 7.5 - PAD_TOP - 0.45;
-        const scRatio = Math.min(pptAreaW / cRangeX, pptAreaH / cRangeY);
-        const toPptCenter = (rfCx: number, rfCy: number) => ({
-          cx: PAD_X + (rfCx - cMinX) * scRatio,
-          cy: PAD_TOP + (rfCy - cMinY) * scRatio,
-        });
-        const scaledFontSize = Math.min(Math.max(Math.round(10 * scRatio / 0.0025), 7), 12);
+        // (좌표 변환은 위쪽 bbox 기반 toPpt / scRatio 사용)
 
         // 노드 그리기
         const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
         for (const nd of sNodes) {
           const level = getLevel(nd);
           const s = LS[level] || DEF;
-          const { cx, cy } = toPptCenter(nd.position.x + s.pxW / 2, nd.position.y + s.pxH / 2);
-          const nW = Math.max(s.pxW * scRatio, 0.6);
-          const nH = Math.max(s.pxH * scRatio, 0.24);
-          const box = { x: cx - nW / 2, y: cy - nH / 2, w: nW, h: nH };
+          const { x: bx, y: by } = toPpt(nd.position.x, nd.position.y);
+          const nW = s.pxW * scRatio;
+          const nH = s.pxH * scRatio;
+          const box = { x: bx, y: by, w: nW, h: nH };
           nodeBoxes[nd.id] = box;
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
@@ -953,11 +971,11 @@ export default function ExportToolbar({
         let lgx = 0.4;
         for (const [lvl, cfg] of Object.entries(LS)) {
           slide.addText("", {
-            x: lgx, y: 7.1, w: 0.22, h: 0.22,
+            x: lgx, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
             shape: pptx.ShapeType.rect,
             fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
           });
-          slide.addText(lvl, { x: lgx + 0.28, y: 7.1, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
+          slide.addText(lvl, { x: lgx + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
           lgx += 0.9;
         }
       }

@@ -66,6 +66,7 @@ export default function Home() {
   const [l4List, setL4List] = useState<L4Item[]>([]);
   const [l5Map, setL5Map] = useState<Record<string, L5Item[]>>({});
   const [expandedL4, setExpandedL4] = useState<string | null>(null);
+  const [l3PanelCollapsed, setL3PanelCollapsed] = useState(false);
 
   /* ── Canvas State ──────────────────────────── */
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -279,6 +280,7 @@ export default function Home() {
       }
       setL5Map(m5);
       setExpandedL4(null);
+      setL3PanelCollapsed(true); // L3 선택 시 아코디언 자동 접기
     },
     [csvRows]
   );
@@ -457,6 +459,20 @@ export default function Home() {
     return () => window.removeEventListener("loadWorkflow", handler);
   }, [setNodes, setEdges]);
 
+  /* ═══ Current L3 / L2 derivation (for breadcrumb) ═══ */
+  const currentL3Item = useMemo(() => {
+    if (!selectedL3) return null;
+    return Object.values(l3Map).flat().find((l3) => l3.id === selectedL3) || null;
+  }, [selectedL3, l3Map]);
+
+  const currentL2Item = useMemo(() => {
+    if (!selectedL3) return null;
+    for (const l2 of l2List) {
+      if (l3Map[l2.id]?.some((l3) => l3.id === selectedL3)) return l2;
+    }
+    return null;
+  }, [selectedL3, l3Map, l2List]);
+
   /* ═══ Search filter ═══ */
   const filteredL4 = useMemo(() => {
     if (!searchTerm.trim()) return l4List;
@@ -535,97 +551,136 @@ export default function Home() {
           ))}
         </div>
 
-        {/* L2 → L3 Accordion */}
-        <div className="flex-none max-h-[35%] overflow-y-auto border-b border-gray-100">
-          {l2List.length === 0 ? (
-            <div className="p-4 text-center text-xs text-gray-400">
-              CSV 파일을 업로드하세요
-            </div>
-          ) : (
-            l2List.map((l2) => (
-              <div key={l2.id}>
-                <div className="flex items-stretch">
-                  <button
-                    className={
-                      "flex-1 text-left px-4 py-2.5 text-sm font-bold flex items-center justify-between transition-colors " +
-                      (expandedL2 === l2.id
-                        ? "bg-[#A62121] text-white"
-                        : "bg-red-50/50 text-gray-700 hover:bg-red-50")
-                    }
-                    onClick={() =>
-                      setExpandedL2(expandedL2 === l2.id ? null : l2.id)
-                    }
-                  >
-                    <span>
-                      <span className="text-[10px] opacity-60 mr-1">
-                        {l2.id + "."}
-                      </span>
-                      {l2.name}
-                    </span>
-                    <span className="text-xs opacity-60">
-                      {expandedL2 === l2.id ? "▼" : "▶"}
-                    </span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      addNodeToCanvas("l2", l2);
-                    }}
-                    className={
-                      "px-2 text-[10px] font-bold transition-colors " +
-                      (expandedL2 === l2.id
-                        ? "bg-[#8A1B1B] text-red-200 hover:text-white hover:bg-[#A62121]"
-                        : "bg-red-50/50 text-gray-400 hover:text-[#A62121] hover:bg-red-100")
-                    }
-                    title="캔버스에 추가"
-                  >
-                    +
-                  </button>
+        {/* L2 → L3 Accordion — L3 선택 시 breadcrumb으로 접힘 */}
+        {l3PanelCollapsed && selectedL3 ? (
+          /* ── Collapsed: 한 줄 breadcrumb ── */
+          <div className="flex-none border-b border-gray-100 bg-[#FFF5F7]">
+            <button
+              onClick={() => setL3PanelCollapsed(false)}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-red-50/60 transition-colors text-left group"
+              title="L3 목록으로 돌아가기"
+            >
+              <span className="flex-none text-[11px] text-gray-400 group-hover:text-[#A62121] transition-colors">☰</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 mb-0.5">
+                  {currentL2Item && (
+                    <>
+                      <span className="text-[8px] text-gray-400 font-mono truncate max-w-[60px]">{currentL2Item.name}</span>
+                      <span className="text-[8px] text-gray-300">›</span>
+                    </>
+                  )}
+                  <span className="text-[9px] font-mono bg-[#F2DCE0] text-[#A62121] px-1 py-0.5 rounded flex-none">{selectedL3}</span>
                 </div>
-                {expandedL2 === l2.id && l3Map[l2.id] && (
-                  <div className="bg-gray-50">
-                    {l3Map[l2.id].map((l3) => (
-                      <div key={l3.id} className="flex items-stretch">
-                        <button
-                          onClick={() => handleSelectL3(l3.id)}
-                          className={
-                            "flex-1 text-left px-6 py-2 text-xs transition-colors border-l-[3px] " +
-                            (selectedL3 === l3.id
-                              ? "bg-red-50 text-[#A62121] border-l-[#A62121] font-semibold"
-                              : "text-gray-600 hover:bg-gray-100 border-l-transparent")
-                          }
-                        >
-                          <span className="text-[9px] text-gray-400 font-mono mr-1">
-                            {l3.id}
-                          </span>
-                          {l3.name}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            addNodeToCanvas("l3", {
-                              id: l3.id,
-                              name: l3.name,
-                            });
-                          }}
-                          className={
-                            "px-2 text-[10px] font-bold transition-colors " +
-                            (selectedL3 === l3.id
-                              ? "bg-red-50 text-[#D95578] hover:text-[#A62121]"
-                              : "text-gray-300 hover:text-[#A62121] hover:bg-red-50")
-                          }
-                          title="캔버스에 추가"
-                        >
-                          +
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="text-[11px] font-semibold text-[#A62121] truncate leading-tight">
+                  {currentL3Item?.name || selectedL3}
+                </div>
               </div>
-            ))
-          )}
-        </div>
+              <span className="flex-none text-[9px] text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded group-hover:border-[#D95578] group-hover:text-[#A62121] transition-colors whitespace-nowrap">변경 ▾</span>
+            </button>
+          </div>
+        ) : (
+          /* ── Expanded: 전체 아코디언 ── */
+          <div className="flex-none max-h-[35%] overflow-y-auto border-b border-gray-100">
+            {selectedL3 && l2List.length > 0 && (
+              <div className="sticky top-0 z-10 bg-white/95 border-b border-gray-100 px-3 py-1 flex justify-end">
+                <button
+                  onClick={() => setL3PanelCollapsed(true)}
+                  className="text-[9px] text-gray-400 hover:text-[#A62121] px-2 py-0.5 rounded hover:bg-red-50 transition-colors"
+                >
+                  ▲ 접기
+                </button>
+              </div>
+            )}
+            {l2List.length === 0 ? (
+              <div className="p-4 text-center text-xs text-gray-400">
+                CSV 파일을 업로드하세요
+              </div>
+            ) : (
+              l2List.map((l2) => (
+                <div key={l2.id}>
+                  <div className="flex items-stretch">
+                    <button
+                      className={
+                        "flex-1 text-left px-4 py-2.5 text-sm font-bold flex items-center justify-between transition-colors " +
+                        (expandedL2 === l2.id
+                          ? "bg-[#A62121] text-white"
+                          : "bg-red-50/50 text-gray-700 hover:bg-red-50")
+                      }
+                      onClick={() =>
+                        setExpandedL2(expandedL2 === l2.id ? null : l2.id)
+                      }
+                    >
+                      <span>
+                        <span className="text-[10px] opacity-60 mr-1">
+                          {l2.id + "."}
+                        </span>
+                        {l2.name}
+                      </span>
+                      <span className="text-xs opacity-60">
+                        {expandedL2 === l2.id ? "▼" : "▶"}
+                      </span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addNodeToCanvas("l2", l2);
+                      }}
+                      className={
+                        "px-2 text-[10px] font-bold transition-colors " +
+                        (expandedL2 === l2.id
+                          ? "bg-[#8A1B1B] text-red-200 hover:text-white hover:bg-[#A62121]"
+                          : "bg-red-50/50 text-gray-400 hover:text-[#A62121] hover:bg-red-100")
+                      }
+                      title="캔버스에 추가"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {expandedL2 === l2.id && l3Map[l2.id] && (
+                    <div className="bg-gray-50">
+                      {l3Map[l2.id].map((l3) => (
+                        <div key={l3.id} className="flex items-stretch">
+                          <button
+                            onClick={() => handleSelectL3(l3.id)}
+                            className={
+                              "flex-1 text-left px-6 py-2 text-xs transition-colors border-l-[3px] " +
+                              (selectedL3 === l3.id
+                                ? "bg-red-50 text-[#A62121] border-l-[#A62121] font-semibold"
+                                : "text-gray-600 hover:bg-gray-100 border-l-transparent")
+                            }
+                          >
+                            <span className="text-[9px] text-gray-400 font-mono mr-1">
+                              {l3.id}
+                            </span>
+                            {l3.name}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addNodeToCanvas("l3", {
+                                id: l3.id,
+                                name: l3.name,
+                              });
+                            }}
+                            className={
+                              "px-2 text-[10px] font-bold transition-colors " +
+                              (selectedL3 === l3.id
+                                ? "bg-red-50 text-[#D95578] hover:text-[#A62121]"
+                                : "text-gray-300 hover:text-[#A62121] hover:bg-red-50")
+                            }
+                            title="캔버스에 추가"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         {/* L4 / L5 Palette */}
         <div className="flex-1 flex flex-col overflow-hidden">
