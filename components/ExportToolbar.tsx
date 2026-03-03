@@ -433,18 +433,30 @@ export default function ExportToolbar({
             line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
           });
         } else {
-          // L자 꺾은선: 수평 세그먼트 → 수직 세그먼트 (midX = endX)
-          const midX = endX;
+          // L자 꺾은선 3세그먼트: 수평 → 수직 → 수평(화살표)
+          // midX: 출발점과 도착점의 중간 X — 여기서 수직으로 꺾임
+          const midX = (startX + endX) / 2;
+          // Seg1: 수평 (source → midX, 출발 화살표 옵션)
           s2.addShape("line", {
             x: Math.min(startX, midX), y: startY,
             w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
             flipH: midX < startX,
             line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
           });
+          // Seg2: 수직 (midX, startY → midX, endY, 화살표 없음)
+          if (Math.abs(endY - startY) > 0.01) {
+            s2.addShape("line", {
+              x: midX, y: Math.min(startY, endY),
+              w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
+              flipV: endY < startY,
+              line: { color: lineColor, width: lineW, dashType: "solid" },
+            });
+          }
+          // Seg3: 수평 (midX → target, 도착 화살표)
           s2.addShape("line", {
-            x: midX, y: Math.min(startY, endY),
-            w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
-            flipV: endY < startY,
+            x: Math.min(midX, endX), y: endY,
+            w: Math.max(Math.abs(endX - midX), 0.01), h: 0.01,
+            flipH: endX < midX,
             line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
           });
         }
@@ -989,17 +1001,26 @@ export default function ExportToolbar({
               line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
             });
           } else {
-            const midX = endX;
+            // 3세그먼트 L자: 수평 → 수직 → 수평(화살표)
+            const midX = (startX + endX) / 2;
             slide.addShape("line", {
               x: Math.min(startX, midX), y: startY,
               w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
               flipH: midX < startX,
               line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
             });
+            if (Math.abs(endY - startY) > 0.01) {
+              slide.addShape("line", {
+                x: midX, y: Math.min(startY, endY),
+                w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
+                flipV: endY < startY,
+                line: { color: lineColor, width: lineW, dashType: "solid" },
+              });
+            }
             slide.addShape("line", {
-              x: midX, y: Math.min(startY, endY),
-              w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
-              flipV: endY < startY,
+              x: Math.min(midX, endX), y: endY,
+              w: Math.max(Math.abs(endX - midX), 0.01), h: 0.01,
+              flipH: endX < midX,
               line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
             });
           }
