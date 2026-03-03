@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react";
 import { toPng, toSvg } from "html-to-image";
 import { saveAs } from "file-saver";
 import PptxGenJS from "pptxgenjs";
+import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
 
@@ -265,6 +266,9 @@ export default function ExportToolbar({
         { fill: "F9F5F6", border: "DEDEDE55", labelBg: "DEDEDE", labelColor: "333333" },
       ];
       const SWIM_LABEL_W = 0.45; // vertical label column width
+      const PAD_X = isSwimLane ? 0.55 : 0.4;
+      const PAD_TOP = 1.575; // 4cm 상단 여백
+      const PAD_BOTTOM = 0.35;
       if (isSwimLane) {
         const bandTop = PAD_TOP - 0.05;
         const bandBottom = SLIDE_H - PAD_BOTTOM + 0.05;
@@ -305,9 +309,6 @@ export default function ExportToolbar({
       const bRangeY = (bMaxY - bMinY) || 1;
 
       // 여백 설정 (가로 13.33" x 7.5")
-      const PAD_X = isSwimLane ? 0.55 : 0.4;
-      const PAD_TOP = 1.575; // 4cm 상단 여백
-      const PAD_BOTTOM = 0.35;
       const areaW = SLIDE_W - 2 * PAD_X;
       const areaH = SLIDE_H - PAD_TOP - PAD_BOTTOM;
 
@@ -401,76 +402,45 @@ export default function ExportToolbar({
         }
       }
 
-      // ── Phase 4: 엣지 그리기 — 직선 vs PPT bentConnector3 꺾인선 ──────
-      {
-        const LC = "000000", LW = 1.0;
-        // Y범위 겹침 판정 (같은 행이면 직선)
-        const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
-          a.y < b.y + b.h && b.y < a.y + a.h;
-        // X범위 겹침 판정 (같은 열이면 수직 직선)
-        const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
-          a.x < b.x + b.w && b.x < a.x + a.w;
+      // ── Phase 4: 엣지 메타 수집 (실제 그리기는 PPTX 후처리에서 진짜 커넥터로) ──────
+      // nodeBoxes의 노드 이름을 Phase 3의 addText 순서와 매핑하기 위해 순서 기록
+      const nodeDrawOrder: string[] = [];
+      // Phase 3에서 그린 노드 순서 재현 (위 Phase 3 루프와 동일 순서)
+      for (const nd of nodes) {
+        if (nodeBoxes[nd.id]) nodeDrawOrder.push(nd.id);
+      }
 
-        for (const e of edges) {
-          const src = nodeBoxes[e.source];
-          const tgt = nodeBoxes[e.target];
-          if (!src || !tgt) continue;
-          const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
+      interface ConnectorMeta {
+        srcNodeId: string; tgtNodeId: string;
+        srcBox: { x: number; y: number; w: number; h: number };
+        tgtBox: { x: number; y: number; w: number; h: number };
+        isStraight: boolean;  // true=직선, false=꺾인선
+        isHorizontal: boolean; // true=가로 우세, false=세로 우세
+        bidi: boolean;
+      }
+      const connectors: ConnectorMeta[] = [];
 
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+      const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
+        a.y < b.y + b.h && b.y < a.y + a.h;
+      const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
+        a.x < b.x + b.w && b.x < a.x + a.w;
 
-          const lineOpts = {
-            color: LC, width: LW, dashType: "solid" as const,
-            endArrowType: "triangle" as const,
-            ...(bidi && { beginArrowType: "triangle" as const }),
-          };
-
-          const sameRow = yOverlap(src, tgt);  // Y 겹침 → 같은 행
-          const sameCol = xOverlap(src, tgt);  // X 겹침 → 같은 열
-
-          if (sameRow && !sameCol) {
-            // ── 같은 행: 수평 직선 (각 노드 중앙Y에서 출발/도착) ──
-            const x1 = dx >= 0 ? src.x + src.w : src.x;
-            const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
-            s2.addShape("line", {
-              x: Math.min(x1, x2), y: Math.min(srcCy, tgtCy),
-              w: Math.max(Math.abs(x2 - x1), 0.01),
-              h: Math.max(Math.abs(tgtCy - srcCy), 0.01),
-              flipH: x2 < x1, flipV: tgtCy < srcCy,
-              line: lineOpts,
-            });
-          } else if (sameCol && !sameRow) {
-            // ── 같은 열: 수직 직선 (각 노드 중앙X에서 출발/도착) ──
-            const y1 = dy >= 0 ? src.y + src.h : src.y;
-            const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            s2.addShape("line", {
-              x: Math.min(srcCx, tgtCx), y: Math.min(y1, y2),
-              w: Math.max(Math.abs(tgtCx - srcCx), 0.01),
-              h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: tgtCx < srcCx, flipV: y2 < y1,
-              line: lineOpts,
-            });
-          } else {
-            // ── 다른 행+열: 꺾인 화살표 연결선 (bentConnector3) ──
-            let x1: number, y1: number, x2: number, y2: number;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-              x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-              x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-            } else {
-              x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-              x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            s2.addShape("bentConnector3" as any, {
-              x: Math.min(x1, x2), y: Math.min(y1, y2),
-              w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: x2 < x1, flipV: y2 < y1,
-              line: lineOpts,
-            });
-          }
-        }
+      for (const e of edges) {
+        const src = nodeBoxes[e.source];
+        const tgt = nodeBoxes[e.target];
+        if (!src || !tgt) continue;
+        const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
+        const srcCx = src.x + src.w / 2, tgtCx = tgt.x + tgt.w / 2;
+        const dx = tgtCx - srcCx, dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
+        const sameRow = yOverlap(src, tgt);
+        const sameCol = xOverlap(src, tgt);
+        const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
+        const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
+        connectors.push({
+          srcNodeId: e.source, tgtNodeId: e.target,
+          srcBox: src, tgtBox: tgt,
+          isStraight, isHorizontal, bidi,
+        });
       }
 
       // Slide 2 legend bar
@@ -734,7 +704,142 @@ export default function ExportToolbar({
         });
       }
 
-      await pptx.writeFile({ fileName: `hr-workflow-${Date.now()}.pptx` });
+      // ── JSZip 후처리: 진짜 <p:cxnSp> 커넥터 주입 ──────────────────────────
+      const EMU = 914400;
+      const pptxBlob = await pptx.write({ outputType: "blob" }) as Blob;
+      const zip = await JSZip.loadAsync(pptxBlob);
+
+      const slide2Path = "ppt/slides/slide2.xml";
+      const slide2Xml = await zip.file(slide2Path)?.async("string");
+      if (slide2Xml && connectors.length > 0) {
+        // shape ID ↔ nodeId 매핑 (EMU 좌표로 매칭)
+        const shapeIdMap: Record<string, string> = {};   // nodeId → cNvPr id
+        let maxShapeId = 0;
+
+        const spBlocks = slide2Xml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+        for (const block of spBlocks) {
+          const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+          if (!idMatch) continue;
+          const sid = parseInt(idMatch[1]);
+          if (sid > maxShapeId) maxShapeId = sid;
+
+          const offBlock = block.match(/<a:off\s([^>]*)\/?>/)
+          if (!offBlock) continue;
+          const xm = offBlock[1].match(/x="(\d+)"/);
+          const ym = offBlock[1].match(/y="(\d+)"/);
+          if (!xm || !ym) continue;
+          const xEmu = parseInt(xm[1]), yEmu = parseInt(ym[1]);
+          const tol = Math.round(EMU * 0.02);
+
+          for (const [nid, box] of Object.entries(nodeBoxes)) {
+            if (shapeIdMap[nid]) continue;
+            const ex = Math.round(box.x * EMU), ey = Math.round(box.y * EMU);
+            if (Math.abs(xEmu - ex) < tol && Math.abs(yEmu - ey) < tol) {
+              shapeIdMap[nid] = idMatch[1];
+              break;
+            }
+          }
+        }
+
+        // 커넥터 XML 생성
+        let cxnXml = "";
+        let nextId = maxShapeId + 1;
+        for (const c of connectors) {
+          const srcSid = shapeIdMap[c.srcNodeId];
+          const tgtSid = shapeIdMap[c.tgtNodeId];
+          if (!srcSid || !tgtSid) continue;
+
+          const src = c.srcBox, tgt = c.tgtBox;
+          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
+          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+
+          let x1: number, y1: number, x2: number, y2: number;
+          let stIdx: number, endIdx: number;
+          let prst: string;
+
+          // 연결점 인덱스: 0=top, 1=right, 2=bottom, 3=left (rect preset)
+          if (c.isStraight && c.isHorizontal) {
+            x1 = dx >= 0 ? src.x + src.w : src.x;
+            y1 = srcCy;
+            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
+            y2 = tgtCy;
+            stIdx = dx >= 0 ? 1 : 3;
+            endIdx = dx >= 0 ? 3 : 1;
+            prst = "straightConnector1";
+          } else if (c.isStraight && !c.isHorizontal) {
+            x1 = srcCx;
+            y1 = dy >= 0 ? src.y + src.h : src.y;
+            x2 = tgtCx;
+            y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            stIdx = dy >= 0 ? 2 : 0;
+            endIdx = dy >= 0 ? 0 : 2;
+            prst = "straightConnector1";
+          } else if (c.isHorizontal) {
+            x1 = dx >= 0 ? src.x + src.w : src.x;
+            y1 = srcCy;
+            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
+            y2 = tgtCy;
+            stIdx = dx >= 0 ? 1 : 3;
+            endIdx = dx >= 0 ? 3 : 1;
+            prst = "bentConnector3";
+          } else {
+            x1 = srcCx;
+            y1 = dy >= 0 ? src.y + src.h : src.y;
+            x2 = tgtCx;
+            y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            stIdx = dy >= 0 ? 2 : 0;
+            endIdx = dy >= 0 ? 0 : 2;
+            prst = "bentConnector3";
+          }
+
+          const offX = Math.round(Math.min(x1, x2) * EMU);
+          const offY = Math.round(Math.min(y1, y2) * EMU);
+          const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
+          const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
+          const flipH = x2 < x1 ? ' flipH="1"' : "";
+          const flipV = y2 < y1 ? ' flipV="1"' : "";
+          const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
+
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
+            + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
+            + `<p:cNvCxnSpPr>`
+            + `<a:stCxn id="${srcSid}" idx="${stIdx}"/>`
+            + `<a:endCxn id="${tgtSid}" idx="${endIdx}"/>`
+            + `</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>`
+            + `<p:spPr>`
+            + `<a:xfrm${flipH}${flipV}>`
+            + `<a:off x="${offX}" y="${offY}"/>`
+            + `<a:ext cx="${extCx}" cy="${extCy}"/>`
+            + `</a:xfrm>`
+            + `<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>`
+            + `<a:ln w="12700">`
+            + `<a:solidFill><a:srgbClr val="000000"/></a:solidFill>`
+            + headArrow
+            + `<a:tailEnd type="triangle" w="med" len="med"/>`
+            + `</a:ln></p:spPr></p:cxnSp>`;
+          nextId++;
+        }
+
+        if (cxnXml) {
+          const modified = slide2Xml.replace("</p:spTree>", cxnXml + "</p:spTree>");
+          zip.file(slide2Path, modified);
+        }
+      }
+
+      // 다운로드
+      const finalBlob = await zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      });
+      const url = URL.createObjectURL(finalBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hr-workflow-${Date.now()}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PPT export error:", err);
       alert("PPT 내보내기에 실패했습니다.");
@@ -848,6 +953,14 @@ export default function ExportToolbar({
         { fill: "F9F5F6", border: "DEDEDE55" },
       ];
       const SWIM_LABEL_W = 0.45;
+
+      // 슬라이드별 커넥터 메타 수집
+      const allSlideConnectors: {
+        slideIndex: number;
+        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; isStraight: boolean; isHorizontal: boolean; bidi: boolean }[];
+        nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
+      }[] = [];
+      let slideIdx = 2; // slide1=타이틀, slide2부터 시트
 
       for (const { sheet, nodes: sNodes, edges: sEdges } of validSheets) {
         const slide = pptx.addSlide();
@@ -1001,71 +1114,35 @@ export default function ExportToolbar({
           }
         }
 
-        // ── Phase 4: 엣지 그리기 — 직선 vs PPT bentConnector3 꺾인선 ─────
+        // ── Phase 4: 엣지 메타 수집 (JSZip 후처리에서 진짜 커넥터로) ─────
         {
-          const SLC = "000000", SLW = 1.0;
+          interface CxnMeta {
+            srcNodeId: string; tgtNodeId: string;
+            srcBox: { x: number; y: number; w: number; h: number };
+            tgtBox: { x: number; y: number; w: number; h: number };
+            isStraight: boolean; isHorizontal: boolean; bidi: boolean;
+          }
           const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
             a.y < b.y + b.h && b.y < a.y + a.h;
           const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
             a.x < b.x + b.w && b.x < a.x + a.w;
 
+          const sheetConnectors: CxnMeta[] = [];
           for (const e of sEdges) {
             const src = nodeBoxes[e.source];
             const tgt = nodeBoxes[e.target];
             if (!src || !tgt) continue;
             const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
-
-            const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-            const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-            const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-
-            const lineOpts = {
-              color: SLC, width: SLW, dashType: "solid" as const,
-              endArrowType: "triangle" as const,
-              ...(bidi && { beginArrowType: "triangle" as const }),
-            };
-
+            const srcCx = src.x + src.w / 2, tgtCx = tgt.x + tgt.w / 2;
+            const dx = tgtCx - srcCx, dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
             const sameRow = yOverlap(src, tgt);
             const sameCol = xOverlap(src, tgt);
-
-            if (sameRow && !sameCol) {
-              const x1 = dx >= 0 ? src.x + src.w : src.x;
-              const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
-              slide.addShape("line", {
-                x: Math.min(x1, x2), y: Math.min(srcCy, tgtCy),
-                w: Math.max(Math.abs(x2 - x1), 0.01),
-                h: Math.max(Math.abs(tgtCy - srcCy), 0.01),
-                flipH: x2 < x1, flipV: tgtCy < srcCy,
-                line: lineOpts,
-              });
-            } else if (sameCol && !sameRow) {
-              const y1 = dy >= 0 ? src.y + src.h : src.y;
-              const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-              slide.addShape("line", {
-                x: Math.min(srcCx, tgtCx), y: Math.min(y1, y2),
-                w: Math.max(Math.abs(tgtCx - srcCx), 0.01),
-                h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipH: tgtCx < srcCx, flipV: y2 < y1,
-                line: lineOpts,
-              });
-            } else {
-              let x1: number, y1: number, x2: number, y2: number;
-              if (Math.abs(dx) >= Math.abs(dy)) {
-                x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-                x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-              } else {
-                x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-                x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-              }
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              slide.addShape("bentConnector3" as any, {
-                x: Math.min(x1, x2), y: Math.min(y1, y2),
-                w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipH: x2 < x1, flipV: y2 < y1,
-                line: lineOpts,
-              });
-            }
+            const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
+            const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
+            sheetConnectors.push({ srcNodeId: e.source, tgtNodeId: e.target, srcBox: src, tgtBox: tgt, isStraight, isHorizontal, bidi });
           }
+          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes } });
+          slideIdx++;
         }
 
         // 레벨 범례 바
@@ -1081,7 +1158,88 @@ export default function ExportToolbar({
         }
       }
 
-      await pptx.writeFile({ fileName: `hr-workflow-all-${Date.now()}.pptx` });
+      // ── JSZip 후처리: 각 시트 슬라이드에 진짜 <p:cxnSp> 커넥터 주입 ──────
+      const EMU = 914400;
+      const pptxBlob = await pptx.write({ outputType: "blob" }) as Blob;
+      const zip = await JSZip.loadAsync(pptxBlob);
+
+      for (const sc of allSlideConnectors) {
+        if (sc.connectors.length === 0) continue;
+        const slidePath = `ppt/slides/slide${sc.slideIndex}.xml`;
+        const slideXml = await zip.file(slidePath)?.async("string");
+        if (!slideXml) continue;
+
+        // shape ID ↔ nodeId 매핑 (EMU 좌표 매칭)
+        const shapeIdMap: Record<string, string> = {};
+        let maxShapeId = 0;
+        const spBlocks = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+        for (const block of spBlocks) {
+          const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+          if (!idMatch) continue;
+          const sid = parseInt(idMatch[1]);
+          if (sid > maxShapeId) maxShapeId = sid;
+          const offBlock = block.match(/<a:off\s([^>]*)\/?>/)
+          if (!offBlock) continue;
+          const xm = offBlock[1].match(/x="(\d+)"/);
+          const ym = offBlock[1].match(/y="(\d+)"/);
+          if (!xm || !ym) continue;
+          const xEmu = parseInt(xm[1]), yEmu = parseInt(ym[1]);
+          const tol = Math.round(EMU * 0.02);
+          for (const [nid, box] of Object.entries(sc.nodeBoxes)) {
+            if (shapeIdMap[nid]) continue;
+            if (Math.abs(xEmu - Math.round(box.x * EMU)) < tol && Math.abs(yEmu - Math.round(box.y * EMU)) < tol) {
+              shapeIdMap[nid] = idMatch[1];
+              break;
+            }
+          }
+        }
+
+        let cxnXml = "";
+        let nextId = maxShapeId + 1;
+        for (const c of sc.connectors) {
+          const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
+          if (!srcSid || !tgtSid) continue;
+          const src = c.srcBox, tgt = c.tgtBox;
+          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
+          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+          let x1: number, y1: number, x2: number, y2: number, stIdx: number, endIdx: number, prst: string;
+          if (c.isStraight && c.isHorizontal) {
+            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy; x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+            stIdx = dx >= 0 ? 1 : 3; endIdx = dx >= 0 ? 3 : 1; prst = "straightConnector1";
+          } else if (c.isStraight) {
+            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y; x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            stIdx = dy >= 0 ? 2 : 0; endIdx = dy >= 0 ? 0 : 2; prst = "straightConnector1";
+          } else if (c.isHorizontal) {
+            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy; x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+            stIdx = dx >= 0 ? 1 : 3; endIdx = dx >= 0 ? 3 : 1; prst = "bentConnector3";
+          } else {
+            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y; x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            stIdx = dy >= 0 ? 2 : 0; endIdx = dy >= 0 ? 0 : 2; prst = "bentConnector3";
+          }
+          const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
+          const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
+          const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
+          const flipH = x2 < x1 ? ' flipH="1"' : "", flipV = y2 < y1 ? ' flipV="1"' : "";
+          const headArr = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH}${flipV}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>${headArr}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
+          nextId++;
+        }
+        if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
+      }
+
+      const finalBlob = await zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      });
+      const url = URL.createObjectURL(finalBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hr-workflow-all-${Date.now()}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PPT export (all sheets) error:", err);
       alert("전체 시트 PPT 내보내기에 실패했습니다.");
