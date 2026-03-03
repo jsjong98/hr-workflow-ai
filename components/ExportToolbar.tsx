@@ -369,7 +369,7 @@ export default function ExportToolbar({
         }
       }
 
-      // ── 엣지 그리기: 소스 → 타겟 직선 화살표 ──────────────────────────────
+      // ── 엣지 그리기: PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ─────────────────────────────
       {
         const LC = "000000", LW = 1.0;
         for (const edge of edges) {
@@ -388,11 +388,13 @@ export default function ExportToolbar({
             x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
           }
           const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          s2.addShape("line", {
+          // bentConnector3: OOXML Z자 꺾인선 도형
+          // 시작점이 bottom-left 이므로 flipV는 직선과 반대: 타겟이 아래에 있을 때 true
+          s2.addShape(pptx.ShapeType.bentConnector3, {
             x: Math.min(x1, x2), y: Math.min(y1, y2),
             w: Math.max(Math.abs(x2 - x1), 0.01),
             h: Math.max(Math.abs(y2 - y1), 0.01),
-            flipH: x2 < x1, flipV: y2 < y1,
+            flipH: x2 < x1, flipV: y2 > y1,
             line: {
               color: LC, width: LW, dashType: "solid",
               endArrowType: "triangle",
@@ -897,7 +899,7 @@ export default function ExportToolbar({
           }
         }
 
-        // ── 엣지(arrows) 그리기: 소스 → 타겟 직선 화살표 ──────────────────
+        // ── 엣지(arrows) 그리기: PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ──────────────────
         {
           const SLC = "000000", SLW = 1.0;
           for (const edge of sEdges) {
@@ -915,11 +917,11 @@ export default function ExportToolbar({
               x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
             }
             const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-            slide.addShape("line", {
+            slide.addShape(pptx.ShapeType.bentConnector3, {
               x: Math.min(x1, x2), y: Math.min(y1, y2),
               w: Math.max(Math.abs(x2 - x1), 0.01),
               h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: x2 < x1, flipV: y2 < y1,
+              flipH: x2 < x1, flipV: y2 > y1,
               line: {
                 color: SLC, width: SLW, dashType: "solid",
                 endArrowType: "triangle",
