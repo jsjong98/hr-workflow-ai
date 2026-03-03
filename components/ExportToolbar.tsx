@@ -369,6 +369,27 @@ export default function ExportToolbar({
         }
       }
 
+      // ── Phase 2.5: Cross-column Y 정렬 — 혼자 있는 컬럼 노드 → 연결 노드 median centerY ──
+      for (const grp of pColGrps) {
+        if (grp.length !== 1) continue;
+        const nid = grp[0];
+        const box = nodeBoxes[nid];
+        if (!box) continue;
+        const connCenterYs: number[] = [];
+        for (const e of edges) {
+          const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
+          if (!cid) continue;
+          const cb = nodeBoxes[cid];
+          if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+        }
+        if (connCenterYs.length === 0) continue;
+        connCenterYs.sort((a, b) => a - b);
+        const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
+        const newY = medianCy - box.h / 2;
+        // 슬라이드 영역 안에 클램프
+        box.y = Math.max(PAD_TOP, Math.min(newY, SLIDE_H - PAD_BOTTOM - box.h));
+      }
+
       // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────────────
       for (const nd of nodes) {
         const level = getLevel(nd);
@@ -1079,6 +1100,26 @@ export default function ExportToolbar({
               curY += sRawPos[id].h + gap;
             }
           }
+        }
+
+        // ── Phase 2.5: Cross-column Y 정렬 — 혼자 있는 컬럼 노드 → 연결 노드 median centerY ──
+        for (const grp of sColGrps) {
+          if (grp.length !== 1) continue;
+          const nid = grp[0];
+          const box = nodeBoxes[nid];
+          if (!box) continue;
+          const connCenterYs: number[] = [];
+          for (const e of sEdges) {
+            const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
+            if (!cid) continue;
+            const cb = nodeBoxes[cid];
+            if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+          }
+          if (connCenterYs.length === 0) continue;
+          connCenterYs.sort((a, b) => a - b);
+          const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
+          const newY = medianCy - box.h / 2;
+          box.y = Math.max(sPadTop, Math.min(newY, SLIDE_H - 0.35 - box.h));
         }
 
         // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────
