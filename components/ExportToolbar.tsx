@@ -369,7 +369,7 @@ export default function ExportToolbar({
         }
       }
 
-      // ── 엣지 그리기: PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ─────────────────────────────
+      // ── 엣지 그리기: 3세그먼트 꺾인 화살표 연결선 ─────────────────────────────
       {
         const LC = "000000", LW = 1.0;
         for (const edge of edges) {
@@ -378,7 +378,6 @@ export default function ExportToolbar({
           const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
           const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
           const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-          // 지배축 기준으로 포트 결정
           let x1: number, y1: number, x2: number, y2: number;
           if (Math.abs(dx) >= Math.abs(dy)) {
             x1 = dx >= 0 ? src.x + src.w : src.x;  y1 = srcCy;
@@ -388,19 +387,46 @@ export default function ExportToolbar({
             x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
           }
           const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          // bentConnector3: OOXML Z자 꺾인선 도형
-          // 시작점이 bottom-left 이므로 flipV는 직선과 반대: 타겟이 아래에 있을 때 true
-          s2.addShape(pptx.ShapeType.bentConnector3, {
-            x: Math.min(x1, x2), y: Math.min(y1, y2),
-            w: Math.max(Math.abs(x2 - x1), 0.01),
-            h: Math.max(Math.abs(y2 - y1), 0.01),
-            flipH: x2 < x1, flipV: y2 > y1,
-            line: {
-              color: LC, width: LW, dashType: "solid",
-              endArrowType: "triangle",
-              ...(isBidi && { beginArrowType: "triangle" as const }),
-            },
-          });
+
+          if (Math.abs(y1 - y2) < 0.01) {
+            // 수평 직선
+            s2.addShape("line", {
+              x: Math.min(x1, x2), y: y1, w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
+              flipH: x2 < x1,
+              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle",
+                ...(isBidi && { beginArrowType: "triangle" as const }) },
+            });
+          } else if (Math.abs(x1 - x2) < 0.01) {
+            // 수직 직선
+            s2.addShape("line", {
+              x: x1, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipV: y2 < y1,
+              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle",
+                ...(isBidi && { beginArrowType: "triangle" as const }) },
+            });
+          } else {
+            // 3세그먼트: 수평→수직→수평+화살표
+            const midX = (x1 + x2) / 2;
+            // Seg1: (x1,y1) → (midX,y1)
+            s2.addShape("line", {
+              x: Math.min(x1, midX), y: y1, w: Math.max(Math.abs(midX - x1), 0.01), h: 0.01,
+              flipH: midX < x1,
+              line: { color: LC, width: LW, dashType: "solid",
+                ...(isBidi && { beginArrowType: "triangle" as const }) },
+            });
+            // Seg2: (midX,y1) → (midX,y2)
+            s2.addShape("line", {
+              x: midX, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipV: y2 < y1,
+              line: { color: LC, width: LW, dashType: "solid" },
+            });
+            // Seg3: (midX,y2) → (x2,y2) + 화살표
+            s2.addShape("line", {
+              x: Math.min(midX, x2), y: y2, w: Math.max(Math.abs(x2 - midX), 0.01), h: 0.01,
+              flipH: x2 < midX,
+              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle" },
+            });
+          }
         }
       }
 
@@ -899,7 +925,7 @@ export default function ExportToolbar({
           }
         }
 
-        // ── 엣지(arrows) 그리기: PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ──────────────────
+        // ── 엣지(arrows) 그리기: 3세그먼트 꺾인 화살표 연결선 ──────────────────
         {
           const SLC = "000000", SLW = 1.0;
           for (const edge of sEdges) {
@@ -917,17 +943,43 @@ export default function ExportToolbar({
               x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
             }
             const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-            slide.addShape(pptx.ShapeType.bentConnector3, {
-              x: Math.min(x1, x2), y: Math.min(y1, y2),
-              w: Math.max(Math.abs(x2 - x1), 0.01),
-              h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: x2 < x1, flipV: y2 > y1,
-              line: {
-                color: SLC, width: SLW, dashType: "solid",
-                endArrowType: "triangle",
-                ...(isBidi && { beginArrowType: "triangle" as const }),
-              },
-            });
+
+            if (Math.abs(y1 - y2) < 0.01) {
+              slide.addShape("line", {
+                x: Math.min(x1, x2), y: y1, w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
+                flipH: x2 < x1,
+                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle",
+                  ...(isBidi && { beginArrowType: "triangle" as const }) },
+              });
+            } else if (Math.abs(x1 - x2) < 0.01) {
+              slide.addShape("line", {
+                x: x1, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipV: y2 < y1,
+                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle",
+                  ...(isBidi && { beginArrowType: "triangle" as const }) },
+              });
+            } else {
+              const midX = (x1 + x2) / 2;
+              // Seg1: (x1,y1) → (midX,y1)
+              slide.addShape("line", {
+                x: Math.min(x1, midX), y: y1, w: Math.max(Math.abs(midX - x1), 0.01), h: 0.01,
+                flipH: midX < x1,
+                line: { color: SLC, width: SLW, dashType: "solid",
+                  ...(isBidi && { beginArrowType: "triangle" as const }) },
+              });
+              // Seg2: (midX,y1) → (midX,y2)
+              slide.addShape("line", {
+                x: midX, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipV: y2 < y1,
+                line: { color: SLC, width: SLW, dashType: "solid" },
+              });
+              // Seg3: (midX,y2) → (x2,y2) + 화살표
+              slide.addShape("line", {
+                x: Math.min(midX, x2), y: y2, w: Math.max(Math.abs(x2 - midX), 0.01), h: 0.01,
+                flipH: x2 < midX,
+                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle" },
+              });
+            }
           }
         }
 
