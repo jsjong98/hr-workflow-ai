@@ -431,29 +431,25 @@ export default function ExportToolbar({
           const sameCol = xOverlap(src, tgt);  // X 겹침 → 같은 열
 
           if (sameRow && !sameCol) {
-            // ── 같은 행: 수평 직선 (겹치는 Y 범위의 중앙으로 연결) ──
-            const overlapTop = Math.max(src.y, tgt.y);
-            const overlapBot = Math.min(src.y + src.h, tgt.y + tgt.h);
-            const connY = (overlapTop + overlapBot) / 2;
+            // ── 같은 행: 수평 직선 (각 노드 중앙Y에서 출발/도착) ──
             const x1 = dx >= 0 ? src.x + src.w : src.x;
             const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
             s2.addShape("line", {
-              x: Math.min(x1, x2), y: Math.min(connY, connY),
-              w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
-              flipH: x2 < x1, flipV: false,
+              x: Math.min(x1, x2), y: Math.min(srcCy, tgtCy),
+              w: Math.max(Math.abs(x2 - x1), 0.01),
+              h: Math.max(Math.abs(tgtCy - srcCy), 0.01),
+              flipH: x2 < x1, flipV: tgtCy < srcCy,
               line: lineOpts,
             });
           } else if (sameCol && !sameRow) {
-            // ── 같은 열: 수직 직선 (상/하 면, 공통 midX) ──
-            const overlapLeft = Math.max(src.x, tgt.x);
-            const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
-            const connX = (overlapLeft + overlapRight) / 2;
+            // ── 같은 열: 수직 직선 (각 노드 중앙X에서 출발/도착) ──
             const y1 = dy >= 0 ? src.y + src.h : src.y;
             const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
             s2.addShape("line", {
-              x: Math.min(connX, connX), y: Math.min(y1, y2),
-              w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: false, flipV: y2 < y1,
+              x: Math.min(srcCx, tgtCx), y: Math.min(y1, y2),
+              w: Math.max(Math.abs(tgtCx - srcCx), 0.01),
+              h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipH: tgtCx < srcCx, flipV: y2 < y1,
               line: lineOpts,
             });
           } else {
@@ -1033,27 +1029,23 @@ export default function ExportToolbar({
             const sameCol = xOverlap(src, tgt);
 
             if (sameRow && !sameCol) {
-              const overlapTop = Math.max(src.y, tgt.y);
-              const overlapBot = Math.min(src.y + src.h, tgt.y + tgt.h);
-              const connY = (overlapTop + overlapBot) / 2;
               const x1 = dx >= 0 ? src.x + src.w : src.x;
               const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
               slide.addShape("line", {
-                x: Math.min(x1, x2), y: Math.min(connY, connY),
-                w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
-                flipH: x2 < x1, flipV: false,
+                x: Math.min(x1, x2), y: Math.min(srcCy, tgtCy),
+                w: Math.max(Math.abs(x2 - x1), 0.01),
+                h: Math.max(Math.abs(tgtCy - srcCy), 0.01),
+                flipH: x2 < x1, flipV: tgtCy < srcCy,
                 line: lineOpts,
               });
             } else if (sameCol && !sameRow) {
-              const overlapLeft = Math.max(src.x, tgt.x);
-              const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
-              const connX = (overlapLeft + overlapRight) / 2;
               const y1 = dy >= 0 ? src.y + src.h : src.y;
               const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
               slide.addShape("line", {
-                x: Math.min(connX, connX), y: Math.min(y1, y2),
-                w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipH: false, flipV: y2 < y1,
+                x: Math.min(srcCx, tgtCx), y: Math.min(y1, y2),
+                w: Math.max(Math.abs(tgtCx - srcCx), 0.01),
+                h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipH: tgtCx < srcCx, flipV: y2 < y1,
                 line: lineOpts,
               });
             } else {
