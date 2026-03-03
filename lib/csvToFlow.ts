@@ -436,9 +436,9 @@ export function buildFlowFromL3(
  * 모두 비어있으면 HR 담당자 레인(2)에 기본 배치.
  * ═══════════════════════════════════════════════ */
 
-const SWIM_LANE_HEIGHT = 4000;
+const SWIM_LANE_HEIGHT = 2400;
 const SWIM_LANE_COUNT = 4;
-const SWIM_LANE_H = SWIM_LANE_HEIGHT / SWIM_LANE_COUNT; // 1000px per lane
+const SWIM_LANE_H = SWIM_LANE_HEIGHT / SWIM_LANE_COUNT; // 600px per lane
 
 /** 수행주체 열에서 레인 인덱스를 결정 */
 function determineLane(r: CsvRow): number {
@@ -477,10 +477,12 @@ export function buildSwimLaneFlowFromL3(
   }
 
   // L4별로 L5를 수평 배치, 각 L5는 자신의 레인(Y좌표)에 배치
-  const L4_COL_WIDTH = 600;       // L4 그룹 간 X 간격
-  const NODE_X_GAP = 560;         // 같은 레인 내 L5 간 X 간격
+  const L4_COL_WIDTH = 780;       // L4 그룹 간 X 간격
+  const NODE_X_GAP = 740;         // 같은 레인 내 L5 간 X 간격
   const L4_START_X = 200;
-  const LANE_PAD_TOP = 120;       // 레인 상단 여백
+  const LANE_PAD_TOP = 60;        // 레인 상단 여백
+  const L4_NODE_HEIGHT = 220;     // L4 노드 실제 렌더 높이 근사값
+  const L5_LANE_OFFSET = 80;      // L5의 레인 내 추가 오프셋 (비-L4 레인)
 
   // 레인별 다음 X 위치 추적
   const laneNextX: number[] = [L4_START_X, L4_START_X, L4_START_X, L4_START_X];
@@ -510,7 +512,10 @@ export function buildSwimLaneFlowFromL3(
       seen.add(r.L5_ID);
 
       const lane = determineLane(r);
-      const laneY = lane * SWIM_LANE_H + LANE_PAD_TOP + 160; // 레인 상단 + 여백
+      // lane 2 (HR 담당자)는 L4 아래에 배치, 나머지는 레인 상단 기준
+      const laneY = lane === 2
+        ? 2 * SWIM_LANE_H + LANE_PAD_TOP + L4_NODE_HEIGHT + 40
+        : lane * SWIM_LANE_H + LANE_PAD_TOP + L5_LANE_OFFSET;
       const x = Math.max(laneNextX[lane], l4ColX);
 
       const l5NodeId = `l5-${r.L5_ID}`;

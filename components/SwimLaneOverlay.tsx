@@ -33,7 +33,7 @@ const LABEL_WIDTH = 64;  // px — 세로 박스 폭
 export default function SwimLaneOverlay({
   lanes = DEFAULT_LANES,
   width = 6000,
-  height = 4000,
+  height = 2400,
 }: Props) {
   const { x, y, zoom } = useViewport();
   const laneH = height / lanes.length;

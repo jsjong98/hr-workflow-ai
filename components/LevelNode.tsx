@@ -14,11 +14,11 @@ export const LEVEL_STYLES = {
     border: "border-[#D95578]",
     badge: "bg-[#F2A0AF]/40 text-white",
     shadow: "shadow-xl shadow-[#A62121]/30",
-    font: "text-3xl font-extrabold tracking-tight",
-    descFont: "text-base",
-    minW: "min-w-[530px]",
-    maxW: "max-w-[660px]",
-    py: "py-9 px-10",
+    font: "text-4xl font-extrabold tracking-tight",
+    descFont: "text-lg",
+    minW: "min-w-[720px]",
+    maxW: "max-w-[900px]",
+    py: "py-14 px-12",
     rounded: "rounded-2xl",
     handleTarget: "!bg-[#F2A0AF]",
     handleSource: "!bg-[#D95578]",
@@ -29,11 +29,11 @@ export const LEVEL_STYLES = {
     border: "border-[#F2A0AF]",
     badge: "bg-white/20 text-white",
     shadow: "shadow-lg shadow-[#D95578]/25",
-    font: "text-2xl font-bold",
+    font: "text-3xl font-bold",
     descFont: "text-base",
-    minW: "min-w-[460px]",
-    maxW: "max-w-[580px]",
-    py: "py-8 px-9",
+    minW: "min-w-[650px]",
+    maxW: "max-w-[820px]",
+    py: "py-12 px-11",
     rounded: "rounded-xl",
     handleTarget: "!bg-[#F2DCE0]",
     handleSource: "!bg-[#F2A0AF]",
@@ -44,11 +44,11 @@ export const LEVEL_STYLES = {
     border: "border-[#D95578]",
     badge: "bg-[#A62121] text-white",
     shadow: "shadow-md shadow-[#F2A0AF]/30",
-    font: "text-xl font-bold",
-    descFont: "text-sm font-medium",
-    minW: "min-w-[400px]",
-    maxW: "max-w-[530px]",
-    py: "py-7 px-8",
+    font: "text-2xl font-bold",
+    descFont: "text-base font-medium",
+    minW: "min-w-[580px]",
+    maxW: "max-w-[760px]",
+    py: "py-11 px-10",
     rounded: "rounded-lg",
     handleTarget: "!bg-[#D95578]",
     handleSource: "!bg-[#A62121]",
@@ -59,11 +59,11 @@ export const LEVEL_STYLES = {
     border: "border-[#F2A0AF]",
     badge: "bg-[#D95578] text-white",
     shadow: "shadow-sm shadow-[#F2DCE0]/40",
-    font: "text-lg font-bold",
+    font: "text-xl font-bold",
     descFont: "text-sm font-medium",
-    minW: "min-w-[340px]",
-    maxW: "max-w-[480px]",
-    py: "py-6 px-7",
+    minW: "min-w-[520px]",
+    maxW: "max-w-[700px]",
+    py: "py-10 px-9",
     rounded: "rounded-md",
     handleTarget: "!bg-[#D95578]",
     handleSource: "!bg-[#F2A0AF]",
@@ -83,7 +83,24 @@ interface NodeData {
   inputData?: string;
   outputData?: string;
   system?: string;
+  /* ── CSV-parsed systems (L5) ── */
+  systems?: {
+    hr: string;
+    groupware: string;
+    office: string;
+    manual: string;
+    etc: string;
+  };
 }
+
+/* 시스템 라벨 매핑 */
+const SYSTEM_TAGS: { key: keyof NonNullable<NodeData["systems"]>; label: string }[] = [
+  { key: "hr",        label: "HR시스템" },
+  { key: "groupware", label: "그룹웨어" },
+  { key: "office",    label: "오피스"   },
+  { key: "manual",    label: "수작업"   },
+  { key: "etc",       label: "기타툴"   },
+];
 
 /* helper: check if any metadata exists */
 function hasMeta(d: NodeData): boolean {
@@ -197,6 +214,28 @@ function LevelNodeBase({ data }: { data: NodeData }) {
           👤 {data.role}
         </div>
       )}
+
+      {/* 사용 시스템 태그 (L5 전용 — CSV systems 객체) */}
+      {data.systems && (() => {
+        const activeTags = SYSTEM_TAGS.filter(t => data.systems![t.key]?.trim());
+        if (activeTags.length === 0) return null;
+        return (
+          <div className="mt-3 pt-3 border-t border-black/10">
+            <div className="text-[10px] font-semibold text-black/40 mb-1.5 uppercase tracking-wide">사용 시스템</div>
+            <div className="flex flex-wrap gap-1.5">
+              {activeTags.map(t => (
+                <span
+                  key={t.key}
+                  className={`text-xs font-bold px-2.5 py-1 rounded-full ${s.badge}`}
+                  title={data.systems![t.key]}
+                >
+                  🖥️ {t.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
