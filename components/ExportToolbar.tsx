@@ -369,76 +369,71 @@ export default function ExportToolbar({
         }
       }
 
-      // 엣지 그리기 — 지배축 기반 포트 선택: 노드 경계에 정확히 치함
-      const getAnchorPoints = (src: typeof nodeBoxes[string], tgt: typeof nodeBoxes[string]) => {
-        const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-        const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-        const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-        // 지배축(더 큰 방향):
-        //   가로 지배 → right→left (또는 left→right)
-        //   세로 지배 → bottom→top (또는 top→bottom)
-        if (Math.abs(dx) >= Math.abs(dy)) {
-          return dx >= 0
-            ? { sx: src.x + src.w, sy: srcCy, ex: tgt.x,           ey: tgtCy }
-            : { sx: src.x,         sy: srcCy, ex: tgt.x + tgt.w,    ey: tgtCy };
-        } else {
-          return dy >= 0
-            ? { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y           }
-            : { sx: srcCx, sy: src.y,          ex: tgtCx, ey: tgt.y + tgt.h  };
+      // ── 엣지 그리기: 버스 기반 꺾인 연결선 ──────────────────────────────
+      // 같은 target으로 향하는 edge들은 공통 busX(최우측 source.right ~ target.left 중간)
+      // 에서 수직으로 만난 뒤 busX → target 화살표는 1개만 그린다(fan-in 처리).
+      {
+        // 1) 타겟별 maxSrcRight, tgtX, tgtCY 수집 → busX
+        const tgtBus: Record<string, { maxSR: number; tgtX: number; tgtCY: number }> = {};
+        for (const edge of edges) {
+          const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
+          if (!src || !tgt) continue;
+          const sr = src.x + src.w;
+          if (!tgtBus[edge.target]) {
+            tgtBus[edge.target] = { maxSR: sr, tgtX: tgt.x, tgtCY: tgt.y + tgt.h / 2 };
+          } else {
+            tgtBus[edge.target].maxSR = Math.max(tgtBus[edge.target].maxSR, sr);
+          }
         }
-      };
+        const busXMap: Record<string, number> = {};
+        for (const [id, b] of Object.entries(tgtBus)) {
+          busXMap[id] = (b.maxSR + b.tgtX) / 2;
+        }
 
-      const LINE_W = 1.0; // 1pt 통일
+        const seg3Done = new Set<string>();
+        const LC = "000000", LW = 1.0;
 
-      for (const edge of edges) {
-        const src = nodeBoxes[edge.source];
-        const tgt = nodeBoxes[edge.target];
-        if (!src || !tgt) continue;
-        const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchorPoints(src, tgt);
-        const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-        const LC = "000000";
-        const beginArrow = isBidi ? "triangle" : ("none" as const);
-        // 수평선 or 수직선: 직선 1pt 화살표
-        if (Math.abs(startY - endY) < 0.005) {
-          // 수평 직선
-          s2.addShape("line", {
-            x: Math.min(startX, endX), y: startY,
-            w: Math.max(Math.abs(endX - startX), 0.01), h: 0.005,
-            flipH: endX < startX,
-            line: { color: LC, width: LINE_W, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
-          });
-        } else if (Math.abs(startX - endX) < 0.005) {
-          // 수직 직선
-          s2.addShape("line", {
-            x: startX, y: Math.min(startY, endY),
-            w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
-            flipV: endY < startY,
-            line: { color: LC, width: LINE_W, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
-          });
-        } else {
-          // 꺾인 연결선 3세그먼트: 수평 → 수직 → 수평(화살표)
-          const midX = (startX + endX) / 2;
-          // Seg1
-          s2.addShape("line", {
-            x: Math.min(startX, midX), y: startY,
-            w: Math.max(Math.abs(midX - startX), 0.005), h: 0.005,
-            flipH: midX < startX,
-            line: { color: LC, width: LINE_W, beginArrowType: beginArrow, dashType: "solid" },
-          });
-          // Seg2
-          s2.addShape("line", {
-            x: midX, y: Math.min(startY, endY),
-            w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
-            flipV: endY < startY,
-            line: { color: LC, width: LINE_W, dashType: "solid" },
-          });
-          // Seg3
-          s2.addShape("line", {
-            x: Math.min(midX, endX), y: endY,
-            w: Math.max(Math.abs(endX - midX), 0.005), h: 0.005,
-            flipH: endX < midX,
-            line: { color: LC, width: LINE_W, endArrowType: "triangle", dashType: "solid" },
-          });
+        for (const edge of edges) {
+          const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
+          if (!src || !tgt) continue;
+          const sx = src.x + src.w, sy = src.y + src.h / 2;
+          const { tgtX, tgtCY } = tgtBus[edge.target];
+          const busX = busXMap[edge.target];
+          const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
+          const bArr = isBidi ? ("triangle" as const) : undefined;
+
+          // Seg1: source 우측 → busX (수평, source 중앙 Y)
+          if (Math.abs(busX - sx) > 0.005) {
+            s2.addShape("line", {
+              x: Math.min(sx, busX), y: sy,
+              w: Math.max(Math.abs(busX - sx), 0.01), h: 0.01,
+              flipH: busX < sx,
+              line: { color: LC, width: LW, ...(bArr && { beginArrowType: bArr }), dashType: "solid" },
+            });
+          }
+
+          // Seg2: busX 에서 source Y → target Y (수직, Y가 다를 때만)
+          if (Math.abs(sy - tgtCY) > 0.01) {
+            s2.addShape("line", {
+              x: busX, y: Math.min(sy, tgtCY),
+              w: 0.01, h: Math.max(Math.abs(tgtCY - sy), 0.01),
+              flipV: tgtCY < sy,
+              line: { color: LC, width: LW, dashType: "solid" },
+            });
+          }
+
+          // Seg3: busX → target 좌측 (수평, target 중앙 Y) — target 당 1회
+          if (!seg3Done.has(edge.target)) {
+            seg3Done.add(edge.target);
+            if (Math.abs(tgtX - busX) > 0.005) {
+              s2.addShape("line", {
+                x: Math.min(busX, tgtX), y: tgtCY,
+                w: Math.max(Math.abs(tgtX - busX), 0.01), h: 0.01,
+                flipH: tgtX < busX,
+                line: { color: LC, width: LW, endArrowType: "triangle", dashType: "solid" },
+              });
+            }
+          }
         }
       }
 
@@ -937,65 +932,62 @@ export default function ExportToolbar({
           }
         }
 
-        // 엣지(arrows) 그리기 — 지배축 기반 포트 선택
-        const getAnchor = (src: (typeof nodeBoxes)[string], tgt: (typeof nodeBoxes)[string]) => {
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            return dx >= 0
-              ? { sx: src.x + src.w, sy: srcCy, ex: tgt.x,          ey: tgtCy }
-              : { sx: src.x,         sy: srcCy, ex: tgt.x + tgt.w,   ey: tgtCy };
-          } else {
-            return dy >= 0
-              ? { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y          }
-              : { sx: srcCx, sy: src.y,          ex: tgtCx, ey: tgt.y + tgt.h };
+        // ── 엣지(arrows) 그리기: 버스 기반 꺾인 연결선 ─────────────────────
+        {
+          const tgtBusS: Record<string, { maxSR: number; tgtX: number; tgtCY: number }> = {};
+          for (const edge of sEdges) {
+            const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
+            if (!src || !tgt) continue;
+            const sr = src.x + src.w;
+            if (!tgtBusS[edge.target]) {
+              tgtBusS[edge.target] = { maxSR: sr, tgtX: tgt.x, tgtCY: tgt.y + tgt.h / 2 };
+            } else {
+              tgtBusS[edge.target].maxSR = Math.max(tgtBusS[edge.target].maxSR, sr);
+            }
           }
-        };
+          const busXS: Record<string, number> = {};
+          for (const [id, b] of Object.entries(tgtBusS)) {
+            busXS[id] = (b.maxSR + b.tgtX) / 2;
+          }
+          const s3Done = new Set<string>();
+          const SLC = "000000", SLW = 1.0;
 
-        const SLC = "000000";
-        const SLW = 1.0;
+          for (const edge of sEdges) {
+            const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
+            if (!src || !tgt) continue;
+            const sx = src.x + src.w, sy = src.y + src.h / 2;
+            const { tgtX, tgtCY } = tgtBusS[edge.target];
+            const busX = busXS[edge.target];
+            const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
+            const bArr = isBidi ? ("triangle" as const) : undefined;
 
-        for (const edge of sEdges) {
-          const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
-          if (!src || !tgt) continue;
-          const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchor(src, tgt);
-          const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          const beginArrow = isBidi ? "triangle" : ("none" as const);
-          if (Math.abs(startY - endY) < 0.005) {
-            slide.addShape("line", {
-              x: Math.min(startX, endX), y: startY,
-              w: Math.max(Math.abs(endX - startX), 0.01), h: 0.005,
-              flipH: endX < startX,
-              line: { color: SLC, width: SLW, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
-            });
-          } else if (Math.abs(startX - endX) < 0.005) {
-            slide.addShape("line", {
-              x: startX, y: Math.min(startY, endY),
-              w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
-              flipV: endY < startY,
-              line: { color: SLC, width: SLW, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
-            });
-          } else {
-            const midX = (startX + endX) / 2;
-            slide.addShape("line", {
-              x: Math.min(startX, midX), y: startY,
-              w: Math.max(Math.abs(midX - startX), 0.005), h: 0.005,
-              flipH: midX < startX,
-              line: { color: SLC, width: SLW, beginArrowType: beginArrow, dashType: "solid" },
-            });
-            slide.addShape("line", {
-              x: midX, y: Math.min(startY, endY),
-              w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
-              flipV: endY < startY,
-              line: { color: SLC, width: SLW, dashType: "solid" },
-            });
-            slide.addShape("line", {
-              x: Math.min(midX, endX), y: endY,
-              w: Math.max(Math.abs(endX - midX), 0.005), h: 0.005,
-              flipH: endX < midX,
-              line: { color: SLC, width: SLW, endArrowType: "triangle", dashType: "solid" },
-            });
+            if (Math.abs(busX - sx) > 0.005) {
+              slide.addShape("line", {
+                x: Math.min(sx, busX), y: sy,
+                w: Math.max(Math.abs(busX - sx), 0.01), h: 0.01,
+                flipH: busX < sx,
+                line: { color: SLC, width: SLW, ...(bArr && { beginArrowType: bArr }), dashType: "solid" },
+              });
+            }
+            if (Math.abs(sy - tgtCY) > 0.01) {
+              slide.addShape("line", {
+                x: busX, y: Math.min(sy, tgtCY),
+                w: 0.01, h: Math.max(Math.abs(tgtCY - sy), 0.01),
+                flipV: tgtCY < sy,
+                line: { color: SLC, width: SLW, dashType: "solid" },
+              });
+            }
+            if (!s3Done.has(edge.target)) {
+              s3Done.add(edge.target);
+              if (Math.abs(tgtX - busX) > 0.005) {
+                slide.addShape("line", {
+                  x: Math.min(busX, tgtX), y: tgtCY,
+                  w: Math.max(Math.abs(tgtX - busX), 0.01), h: 0.01,
+                  flipH: tgtX < busX,
+                  line: { color: SLC, width: SLW, endArrowType: "triangle", dashType: "solid" },
+                });
+              }
+            }
           }
         }
 
