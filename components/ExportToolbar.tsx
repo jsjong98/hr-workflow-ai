@@ -317,19 +317,10 @@ export default function ExportToolbar({
       const scRef = 0.787 / DEF.pxH;
       const sc = Math.min(scFit, scRef);
 
-      // 콘텐츠 실제 크기 → 슬라이드 중앙 정렬
-      const contentW = bRangeX * sc;
-      const contentH = bRangeY * sc;
-      // swimlane: Y는 레인 배경과 맞추어 PAD_TOP 고정, 일반: Y도 중앙
-      const offsetX = PAD_X + Math.max(0, (areaW - contentW) / 2);
-      const offsetY = isSwimLane
-        ? PAD_TOP
-        : PAD_TOP + Math.max(0, (areaH - contentH) / 2);
-
-      // RF 좌표 → PPT 좌표 (중앙 정렬)
+      // RF 좌표 → PPT 좌표 (좌상단 시작)
       const toPpt = (rfX: number, rfY: number) => ({
-        x: offsetX + (rfX - bMinX) * sc,
-        y: offsetY + (rfY - bMinY) * sc,
+        x: PAD_X + (rfX - bMinX) * sc,
+        y: PAD_TOP + (rfY - bMinY) * sc,
       });
 
       // 노드 폰트 크기 고정 (12pt)
@@ -378,52 +369,26 @@ export default function ExportToolbar({
         }
       }
 
-      // Draw edges (arrows) — 검정 꺾인선 + fan-in 중간은 직선
-      /* Helper: find the best anchor point pair (edge of source/target box) */
+      // 엣지 그리기 — 지배축 기반 포트 선택: 노드 경계에 정확히 치함
       const getAnchorPoints = (src: typeof nodeBoxes[string], tgt: typeof nodeBoxes[string]) => {
         const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
         const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
         const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-
-        // 4 cardinal directions: top, bottom, left, right
-        const srcPorts = [
-          { x: srcCx, y: src.y, dir: "top" },
-          { x: srcCx, y: src.y + src.h, dir: "bottom" },
-          { x: src.x, y: srcCy, dir: "left" },
-          { x: src.x + src.w, y: srcCy, dir: "right" },
-        ];
-        const tgtPorts = [
-          { x: tgtCx, y: tgt.y, dir: "top" },
-          { x: tgtCx, y: tgt.y + tgt.h, dir: "bottom" },
-          { x: tgt.x, y: tgtCy, dir: "left" },
-          { x: tgt.x + tgt.w, y: tgtCy, dir: "right" },
-        ];
-
-        // Choose the pair with minimum distance
-        let bestDist = Infinity;
-        let bestSrc = srcPorts[0], bestTgt = tgtPorts[0];
-        for (const sp of srcPorts) {
-          for (const tp of tgtPorts) {
-            // Skip if going back into the same direction
-            if (sp.dir === tp.dir) continue;
-            const d = Math.hypot(tp.x - sp.x, tp.y - sp.y);
-            if (d < bestDist) { bestDist = d; bestSrc = sp; bestTgt = tp; }
-          }
+        // 지배축(더 큰 방향):
+        //   가로 지배 → right→left (또는 left→right)
+        //   세로 지배 → bottom→top (또는 top→bottom)
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          return dx >= 0
+            ? { sx: src.x + src.w, sy: srcCy, ex: tgt.x,           ey: tgtCy }
+            : { sx: src.x,         sy: srcCy, ex: tgt.x + tgt.w,    ey: tgtCy };
+        } else {
+          return dy >= 0
+            ? { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y           }
+            : { sx: srcCx, sy: src.y,          ex: tgtCx, ey: tgt.y + tgt.h  };
         }
-
-        // Fallback: use dominant axis
-        if (bestDist === Infinity || bestDist === 0) {
-          if (Math.abs(dy) >= Math.abs(dx)) {
-            if (dy > 0) return { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y };
-            else return { sx: srcCx, sy: src.y, ex: tgtCx, ey: tgt.y + tgt.h };
-          } else {
-            if (dx > 0) return { sx: src.x + src.w, sy: srcCy, ex: tgt.x, ey: tgtCy };
-            else return { sx: src.x, sy: srcCy, ex: tgt.x + tgt.w, ey: tgtCy };
-          }
-        }
-
-        return { sx: bestSrc.x, sy: bestSrc.y, ex: bestTgt.x, ey: bestTgt.y };
       };
+
+      const LINE_W = 1.0; // 1pt 통일
 
       for (const edge of edges) {
         const src = nodeBoxes[edge.source];
@@ -431,42 +396,48 @@ export default function ExportToolbar({
         if (!src || !tgt) continue;
         const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchorPoints(src, tgt);
         const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-        const lineColor = "000000";
-        const lineW = 1.2;
-        // 직선인 경우(수평 or 수직 지형) → 직선
-        if (Math.abs(startX - endX) < 0.01 || Math.abs(startY - endY) < 0.01) {
+        const LC = "000000";
+        const beginArrow = isBidi ? "triangle" : ("none" as const);
+        // 수평선 or 수직선: 직선 1pt 화살표
+        if (Math.abs(startY - endY) < 0.005) {
+          // 수평 직선
           s2.addShape("line", {
-            x: Math.min(startX, endX), y: Math.min(startY, endY),
-            w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-            flipH: endX < startX, flipV: endY < startY,
-            line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+            x: Math.min(startX, endX), y: startY,
+            w: Math.max(Math.abs(endX - startX), 0.01), h: 0.005,
+            flipH: endX < startX,
+            line: { color: LC, width: LINE_W, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
+          });
+        } else if (Math.abs(startX - endX) < 0.005) {
+          // 수직 직선
+          s2.addShape("line", {
+            x: startX, y: Math.min(startY, endY),
+            w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
+            flipV: endY < startY,
+            line: { color: LC, width: LINE_W, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
           });
         } else {
-          // L자 꺾은선 3세그먼트: 수평 → 수직 → 수평(화살표)
-          // midX: 출발점과 도착점의 중간 X — 여기서 수직으로 꺾임
+          // 꺾인 연결선 3세그먼트: 수평 → 수직 → 수평(화살표)
           const midX = (startX + endX) / 2;
-          // Seg1: 수평 (source → midX, 출발 화살표 옵션)
+          // Seg1
           s2.addShape("line", {
             x: Math.min(startX, midX), y: startY,
-            w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
+            w: Math.max(Math.abs(midX - startX), 0.005), h: 0.005,
             flipH: midX < startX,
-            line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+            line: { color: LC, width: LINE_W, beginArrowType: beginArrow, dashType: "solid" },
           });
-          // Seg2: 수직 (midX, startY → midX, endY, 화살표 없음)
-          if (Math.abs(endY - startY) > 0.01) {
-            s2.addShape("line", {
-              x: midX, y: Math.min(startY, endY),
-              w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
-              flipV: endY < startY,
-              line: { color: lineColor, width: lineW, dashType: "solid" },
-            });
-          }
-          // Seg3: 수평 (midX → target, 도착 화살표)
+          // Seg2
+          s2.addShape("line", {
+            x: midX, y: Math.min(startY, endY),
+            w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
+            flipV: endY < startY,
+            line: { color: LC, width: LINE_W, dashType: "solid" },
+          });
+          // Seg3
           s2.addShape("line", {
             x: Math.min(midX, endX), y: endY,
-            w: Math.max(Math.abs(endX - midX), 0.01), h: 0.01,
+            w: Math.max(Math.abs(endX - midX), 0.005), h: 0.005,
             flipH: endX < midX,
-            line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
+            line: { color: LC, width: LINE_W, endArrowType: "triangle", dashType: "solid" },
           });
         }
       }
@@ -877,17 +848,9 @@ export default function ExportToolbar({
         const scRef = 0.787 / DEF.pxH;
         const scRatio = Math.min(scFit, scRef);
 
-        // 콘텐츠 실제 크기 → 슬라이드 중앙 정렬
-        const sContentW = bRangeX * scRatio;
-        const sContentH = bRangeY * scRatio;
-        const sOffsetX = sPadX + Math.max(0, (sAreaW - sContentW) / 2);
-        const sOffsetY = isSwimLane
-          ? sPadTop
-          : sPadTop + Math.max(0, (sAreaH - sContentH) / 2);
-
         const toPpt = (rfX: number, rfY: number) => ({
-          x: sOffsetX + (rfX - bMinX) * scRatio,
-          y: sOffsetY + (rfY - bMinY) * scRatio,
+          x: sPadX + (rfX - bMinX) * scRatio,
+          y: sPadTop + (rfY - bMinY) * scRatio,
         });
 
         const NODE_FONT_SIZE_S = 12; // 노드 폰트 12pt 고정
@@ -974,71 +937,64 @@ export default function ExportToolbar({
           }
         }
 
-        // 엣지(화살표) 그리기
+        // 엣지(arrows) 그리기 — 지배축 기반 포트 선택
         const getAnchor = (src: (typeof nodeBoxes)[string], tgt: (typeof nodeBoxes)[string]) => {
           const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
           const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
           const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-          const srcPorts = [
-            { x: srcCx, y: src.y, dir: "top" }, { x: srcCx, y: src.y + src.h, dir: "bottom" },
-            { x: src.x, y: srcCy, dir: "left" }, { x: src.x + src.w, y: srcCy, dir: "right" },
-          ];
-          const tgtPorts = [
-            { x: tgtCx, y: tgt.y, dir: "top" }, { x: tgtCx, y: tgt.y + tgt.h, dir: "bottom" },
-            { x: tgt.x, y: tgtCy, dir: "left" }, { x: tgt.x + tgt.w, y: tgtCy, dir: "right" },
-          ];
-          let bestDist = Infinity, bestSrc = srcPorts[0], bestTgt = tgtPorts[0];
-          for (const sp of srcPorts) {
-            for (const tp of tgtPorts) {
-              if (sp.dir === tp.dir) continue;
-              const d = Math.hypot(tp.x - sp.x, tp.y - sp.y);
-              if (d < bestDist) { bestDist = d; bestSrc = sp; bestTgt = tp; }
-            }
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            return dx >= 0
+              ? { sx: src.x + src.w, sy: srcCy, ex: tgt.x,          ey: tgtCy }
+              : { sx: src.x,         sy: srcCy, ex: tgt.x + tgt.w,   ey: tgtCy };
+          } else {
+            return dy >= 0
+              ? { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y          }
+              : { sx: srcCx, sy: src.y,          ex: tgtCx, ey: tgt.y + tgt.h };
           }
-          if (bestDist === Infinity || bestDist === 0) {
-            return Math.abs(dy) >= Math.abs(dx)
-              ? (dy > 0 ? { sx: srcCx, sy: src.y + src.h, ex: tgtCx, ey: tgt.y } : { sx: srcCx, sy: src.y, ex: tgtCx, ey: tgt.y + tgt.h })
-              : (dx > 0 ? { sx: src.x + src.w, sy: srcCy, ex: tgt.x, ey: tgtCy } : { sx: src.x, sy: srcCy, ex: tgt.x + tgt.w, ey: tgtCy });
-          }
-          return { sx: bestSrc.x, sy: bestSrc.y, ex: bestTgt.x, ey: bestTgt.y };
         };
+
+        const SLC = "000000";
+        const SLW = 1.0;
 
         for (const edge of sEdges) {
           const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
           if (!src || !tgt) continue;
           const { sx: startX, sy: startY, ex: endX, ey: endY } = getAnchor(src, tgt);
           const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-          const lineColor = "000000";
-          const lineW = 1.2;
-          if (Math.abs(startX - endX) < 0.01 || Math.abs(startY - endY) < 0.01) {
+          const beginArrow = isBidi ? "triangle" : ("none" as const);
+          if (Math.abs(startY - endY) < 0.005) {
             slide.addShape("line", {
-              x: Math.min(startX, endX), y: Math.min(startY, endY),
-              w: Math.max(Math.abs(endX - startX), 0.01), h: Math.max(Math.abs(endY - startY), 0.01),
-              flipH: endX < startX, flipV: endY < startY,
-              line: { color: lineColor, width: lineW, endArrowType: "triangle", beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+              x: Math.min(startX, endX), y: startY,
+              w: Math.max(Math.abs(endX - startX), 0.01), h: 0.005,
+              flipH: endX < startX,
+              line: { color: SLC, width: SLW, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
+            });
+          } else if (Math.abs(startX - endX) < 0.005) {
+            slide.addShape("line", {
+              x: startX, y: Math.min(startY, endY),
+              w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
+              flipV: endY < startY,
+              line: { color: SLC, width: SLW, endArrowType: "triangle", beginArrowType: beginArrow, dashType: "solid" },
             });
           } else {
-            // 3세그먼트 L자: 수평 → 수직 → 수평(화살표)
             const midX = (startX + endX) / 2;
             slide.addShape("line", {
               x: Math.min(startX, midX), y: startY,
-              w: Math.max(Math.abs(midX - startX), 0.01), h: 0.01,
+              w: Math.max(Math.abs(midX - startX), 0.005), h: 0.005,
               flipH: midX < startX,
-              line: { color: lineColor, width: lineW, beginArrowType: isBidi ? "triangle" : undefined, dashType: "solid" },
+              line: { color: SLC, width: SLW, beginArrowType: beginArrow, dashType: "solid" },
             });
-            if (Math.abs(endY - startY) > 0.01) {
-              slide.addShape("line", {
-                x: midX, y: Math.min(startY, endY),
-                w: 0.01, h: Math.max(Math.abs(endY - startY), 0.01),
-                flipV: endY < startY,
-                line: { color: lineColor, width: lineW, dashType: "solid" },
-              });
-            }
+            slide.addShape("line", {
+              x: midX, y: Math.min(startY, endY),
+              w: 0.005, h: Math.max(Math.abs(endY - startY), 0.01),
+              flipV: endY < startY,
+              line: { color: SLC, width: SLW, dashType: "solid" },
+            });
             slide.addShape("line", {
               x: Math.min(midX, endX), y: endY,
-              w: Math.max(Math.abs(endX - midX), 0.01), h: 0.01,
+              w: Math.max(Math.abs(endX - midX), 0.005), h: 0.005,
               flipH: endX < midX,
-              line: { color: lineColor, width: lineW, endArrowType: "triangle", dashType: "solid" },
+              line: { color: SLC, width: SLW, endArrowType: "triangle", dashType: "solid" },
             });
           }
         }
