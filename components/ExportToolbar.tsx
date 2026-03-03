@@ -401,79 +401,54 @@ export default function ExportToolbar({
         }
       }
 
-      // ── Phase 4: 엣지 그리기 — fan-in T-junction + 3세그먼트 fallback ──────────────
+      // ── Phase 4: 엣지 그리기 — PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ──────
       {
         const LC = "000000", LW = 1.0;
-        // 단순 선 그리기 헬퍼 (flipH/flipV 자동)
-        const addL = (
-          x1: number, y1: number, x2: number, y2: number,
-          endArr: boolean, begArr: boolean,
-        ) => s2.addShape("line", {
-          x: Math.min(x1, x2), y: Math.min(y1, y2),
-          w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-          flipH: x2 < x1, flipV: y2 < y1,
-          line: {
-            color: LC, width: LW, dashType: "solid",
-            ...(endArr && { endArrowType: "triangle" as const }),
-            ...(begArr && { beginArrowType: "triangle" as const }),
-          },
-        });
-
-        // 타겟별로 엣지 그룹화
-        const eByTgt = new Map<string, (typeof edges[0])[]>();
         for (const e of edges) {
-          if (!eByTgt.has(e.target)) eByTgt.set(e.target, []);
-          eByTgt.get(e.target)!.push(e);
-        }
+          const src = nodeBoxes[e.source];
+          const tgt = nodeBoxes[e.target];
+          if (!src || !tgt) continue;
+          const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
 
-        for (const [tgtId, tEdges] of eByTgt) {
-          const tgt = nodeBoxes[tgtId];
-          if (!tgt) continue;
-          const tgtCy = tgt.y + tgt.h / 2;
-          const valid = tEdges.filter(e => !!nodeBoxes[e.source]);
-          if (!valid.length) continue;
-          const srcs = valid.map(e => nodeBoxes[e.source]);
+          // 소스/타겟 중심
+          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
+          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
 
-          // 모든 소스가 타겟 왼쪽에 있으면 T-junction 버스 라우팅
-          if (srcs.every(s => s.x + s.w <= tgt.x + 0.05)) {
-            const busX = (Math.max(...srcs.map(s => s.x + s.w)) + tgt.x) / 2;
-            // Seg1: 각 소스 우측 → busX (화살표 없음)
-            for (let i = 0; i < valid.length; i++) {
-              const s = srcs[i], cy = s.y + s.h / 2;
-              const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
-              if (Math.abs(busX - (s.x + s.w)) > 0.005) addL(s.x + s.w, cy, busX, cy, false, bidi);
-            }
-            // Seg2: 수직 버스 (모든 소스 Y + 타겟 Y 포함)
-            const cys = [...srcs.map(s => s.y + s.h / 2), tgtCy];
-            const busTop = Math.min(...cys), busBot = Math.max(...cys);
-            if (busBot - busTop > 0.01) addL(busX, busTop, busX, busBot, false, false);
-            // Seg3: busX → 타겟 좌측 (화살표)
-            if (Math.abs(tgt.x - busX) > 0.005) addL(busX, tgtCy, tgt.x, tgtCy, true, false);
+          // 연결점 결정: 가로 우세 → 좌/우 면, 세로 우세 → 상/하 면
+          let x1: number, y1: number, x2: number, y2: number;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
           } else {
-            // 개별 3세그먼트 fallback
-            for (let i = 0; i < valid.length; i++) {
-              const src = srcs[i];
-              const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-              const tgtCx = tgt.x + tgt.w / 2;
-              const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-              const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
-              let x1: number, y1: number, x2: number, y2: number;
-              if (Math.abs(dx) >= Math.abs(dy)) {
-                x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-                x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-              } else {
-                x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-                x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-              }
-              if (Math.abs(y1 - y2) < 0.01 || Math.abs(x1 - x2) < 0.01) {
-                addL(x1, y1, x2, y2, true, bidi);
-              } else {
-                const midX = (x1 + x2) / 2;
-                addL(x1, y1, midX, y1, false, bidi);
-                addL(midX, y1, midX, y2, false, false);
-                addL(midX, y2, x2, y2, true, false);
-              }
-            }
+            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+            x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+          }
+
+          const lineOpts = {
+            color: LC, width: LW, dashType: "solid" as const,
+            endArrowType: "triangle" as const,
+            ...(bidi && { beginArrowType: "triangle" as const }),
+          };
+
+          // 직선 (같은 축) vs 꺾인 연결선
+          if (Math.abs(y1 - y2) < 0.02 || Math.abs(x1 - x2) < 0.02) {
+            // 직선: PPT line 도형
+            s2.addShape("line", {
+              x: Math.min(x1, x2), y: Math.min(y1, y2),
+              w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipH: x2 < x1, flipV: y2 < y1,
+              line: lineOpts,
+            });
+          } else {
+            // 꺾인 화살표 연결선: PPT bentConnector3 도형
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            s2.addShape("bentConnector3" as any, {
+              x: Math.min(x1, x2), y: Math.min(y1, y2),
+              w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipH: x2 < x1, flipV: y2 < y1,
+              line: lineOpts,
+            });
           }
         }
       }
@@ -1006,69 +981,49 @@ export default function ExportToolbar({
           }
         }
 
-        // ── Phase 4: 엣지 그리기 — fan-in T-junction + 3세그먼트 fallback ─────
+        // ── Phase 4: 엣지 그리기 — PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ─────
         {
           const SLC = "000000", SLW = 1.0;
-          const addSL = (
-            x1: number, y1: number, x2: number, y2: number,
-            endArr: boolean, begArr: boolean,
-          ) => slide.addShape("line", {
-            x: Math.min(x1, x2), y: Math.min(y1, y2),
-            w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-            flipH: x2 < x1, flipV: y2 < y1,
-            line: {
-              color: SLC, width: SLW, dashType: "solid",
-              ...(endArr && { endArrowType: "triangle" as const }),
-              ...(begArr && { beginArrowType: "triangle" as const }),
-            },
-          });
-          const seByTgt = new Map<string, (typeof sEdges[0])[]>();
           for (const e of sEdges) {
-            if (!seByTgt.has(e.target)) seByTgt.set(e.target, []);
-            seByTgt.get(e.target)!.push(e);
-          }
-          for (const [tgtId, tEdges] of seByTgt) {
-            const tgt = nodeBoxes[tgtId];
-            if (!tgt) continue;
-            const tgtCy = tgt.y + tgt.h / 2;
-            const valid = tEdges.filter(e => !!nodeBoxes[e.source]);
-            if (!valid.length) continue;
-            const srcs = valid.map(e => nodeBoxes[e.source]);
-            if (srcs.every(s => s.x + s.w <= tgt.x + 0.05)) {
-              const busX = (Math.max(...srcs.map(s => s.x + s.w)) + tgt.x) / 2;
-              for (let i = 0; i < valid.length; i++) {
-                const s = srcs[i], cy = s.y + s.h / 2;
-                const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
-                if (Math.abs(busX - (s.x + s.w)) > 0.005) addSL(s.x + s.w, cy, busX, cy, false, bidi);
-              }
-              const cys = [...srcs.map(s => s.y + s.h / 2), tgtCy];
-              const busTop = Math.min(...cys), busBot = Math.max(...cys);
-              if (busBot - busTop > 0.01) addSL(busX, busTop, busX, busBot, false, false);
-              if (Math.abs(tgt.x - busX) > 0.005) addSL(busX, tgtCy, tgt.x, tgtCy, true, false);
+            const src = nodeBoxes[e.source];
+            const tgt = nodeBoxes[e.target];
+            if (!src || !tgt) continue;
+            const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
+
+            const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+            const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
+            const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+
+            let x1: number, y1: number, x2: number, y2: number;
+            if (Math.abs(dx) >= Math.abs(dy)) {
+              x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+              x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
             } else {
-              for (let i = 0; i < valid.length; i++) {
-                const src = srcs[i];
-                const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-                const tgtCx = tgt.x + tgt.w / 2;
-                const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-                const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
-                let x1: number, y1: number, x2: number, y2: number;
-                if (Math.abs(dx) >= Math.abs(dy)) {
-                  x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-                  x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-                } else {
-                  x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-                  x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-                }
-                if (Math.abs(y1 - y2) < 0.01 || Math.abs(x1 - x2) < 0.01) {
-                  addSL(x1, y1, x2, y2, true, bidi);
-                } else {
-                  const midX = (x1 + x2) / 2;
-                  addSL(x1, y1, midX, y1, false, bidi);
-                  addSL(midX, y1, midX, y2, false, false);
-                  addSL(midX, y2, x2, y2, true, false);
-                }
-              }
+              x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+              x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            }
+
+            const lineOpts = {
+              color: SLC, width: SLW, dashType: "solid" as const,
+              endArrowType: "triangle" as const,
+              ...(bidi && { beginArrowType: "triangle" as const }),
+            };
+
+            if (Math.abs(y1 - y2) < 0.02 || Math.abs(x1 - x2) < 0.02) {
+              slide.addShape("line", {
+                x: Math.min(x1, x2), y: Math.min(y1, y2),
+                w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipH: x2 < x1, flipV: y2 < y1,
+                line: lineOpts,
+              });
+            } else {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              slide.addShape("bentConnector3" as any, {
+                x: Math.min(x1, x2), y: Math.min(y1, y2),
+                w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipH: x2 < x1, flipV: y2 < y1,
+                line: lineOpts,
+              });
             }
           }
         }
