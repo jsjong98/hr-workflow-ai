@@ -296,7 +296,10 @@ export default function ExportToolbar({
       const areaH = SLIDE_H - PAD_TOP - PAD_BOTTOM;
 
       // 가로/세로 비율 중 작은 쪽으로 단일 스케일 결정
-      const sc = Math.min(areaW / bRangeX, areaH / bRangeY);
+      const scFit = Math.min(areaW / bRangeX, areaH / bRangeY);
+      // 기준 스케일: L4 노드 10개가 슬라이드 가로를 채울 때의 크기 (노드 규격 통일)
+      const scRef = areaW / (10 * DEF.pxW);
+      const sc = Math.min(scFit, scRef);
 
       // RF 좌표 → PPT 좌표 (좌상단 기준)
       const toPpt = (rfX: number, rfY: number) => ({
@@ -832,7 +835,10 @@ export default function ExportToolbar({
         const sPadBottom = 0.35;
         const sAreaW = SLIDE_W - 2 * sPadX;
         const sAreaH = SLIDE_H - sPadTop - sPadBottom;
-        const scRatio = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
+        const scFit = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
+        // 기준 스케일: L4 노드 10개가 슬라이드 가로를 채울 때의 크기 (노드 규격 통일)
+        const scRef = sAreaW / (10 * DEF.pxW);
+        const scRatio = Math.min(scFit, scRef);
 
         const toPpt = (rfX: number, rfY: number) => ({
           x: sPadX + (rfX - bMinX) * scRatio,
