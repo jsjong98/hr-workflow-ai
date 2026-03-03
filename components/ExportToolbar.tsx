@@ -305,15 +305,15 @@ export default function ExportToolbar({
 
       // 여백 설정 (가로 13.33" x 7.5")
       const PAD_X = isSwimLane ? 0.55 : 0.4;
-      const PAD_TOP = 0.65;
+      const PAD_TOP = 1.575; // 4cm 상단 여백
       const PAD_BOTTOM = 0.35;
       const areaW = SLIDE_W - 2 * PAD_X;
       const areaH = SLIDE_H - PAD_TOP - PAD_BOTTOM;
 
       // 가로/세로 비율 중 작은 쪽으로 단일 스케일 결정
       const scFit = Math.min(areaW / bRangeX, areaH / bRangeY);
-      // 기준 스케일: L4 노드 10개가 슬라이드 가로를 채울 때의 크기 (노드 규격 통일)
-      const scRef = areaW / (10 * DEF.pxW);
+      // 기준 스케일: L4 노드 세로 2cm(0.787") 기준 (노드 규격 통일)
+      const scRef = 0.787 / DEF.pxH;
       const sc = Math.min(scFit, scRef);
 
       // RF 좌표 → PPT 좌표 (좌상단 기준)
@@ -869,12 +869,13 @@ export default function ExportToolbar({
         const bRangeY = (bMaxY - bMinY) || 1;
 
         const sPadX = isSwimLane ? 0.55 : 0.4;
-        const sPadTop = 0.65;
+        const sPadTop = 1.575; // 4cm 상단 여백
         const sPadBottom = 0.35;
         const sAreaW = SLIDE_W - 2 * sPadX;
         const sAreaH = SLIDE_H - sPadTop - sPadBottom;
         const scFit = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
-        const scRef = sAreaW / (10 * DEF.pxW);
+        // 기준 스케일: L4 노드 세로 2cm(0.787") 기준
+        const scRef = 0.787 / DEF.pxH;
         const scRatio = Math.min(scFit, scRef);
 
         const toPpt = (rfX: number, rfY: number) => ({
