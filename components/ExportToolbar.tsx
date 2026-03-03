@@ -326,21 +326,57 @@ export default function ExportToolbar({
       // 노드 폰트 크기 고정 (12pt)
       const NODE_FONT_SIZE = 12;
 
-      // Draw nodes
+      // ── Phase 1: RF 좌표 기반 raw 위치 계산 ─────────────────────────────────────
+      const rawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
+      for (const nd of nodes) {
+        const s = LS[getLevel(nd)] || DEF;
+        rawPos[nd.id] = { rfX: nd.position.x, rfY: nd.position.y, w: s.pxW * sc, h: s.pxH * sc };
+      }
+
+      // ── Phase 2: 콜럼 정규화 — 같은 X군 안에서 X 스냅 + 세로 등간격 ────────────────
+      // RF 60px 이내 = 같은 콜럼
+      const pColVis = new Set<string>();
+      const pColGrps: string[][] = [];
+      for (const id of Object.keys(rawPos).sort((a, b) => rawPos[a].rfX - rawPos[b].rfX)) {
+        if (pColVis.has(id)) continue;
+        const grp = [id]; pColVis.add(id);
+        for (const id2 of Object.keys(rawPos)) {
+          if (!pColVis.has(id2) && Math.abs(rawPos[id2].rfX - rawPos[id].rfX) <= 60) {
+            grp.push(id2); pColVis.add(id2);
+          }
+        }
+        pColGrps.push(grp);
+      }
       const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+      for (const grp of pColGrps) {
+        grp.sort((a, b) => rawPos[a].rfY - rawPos[b].rfY);
+        const snapX = PAD_X + (Math.min(...grp.map(id => rawPos[id].rfX)) - bMinX) * sc;
+        const y0 = PAD_TOP + (rawPos[grp[0]].rfY - bMinY) * sc;
+        if (grp.length === 1) {
+          nodeBoxes[grp[0]] = { x: snapX, y: y0, w: rawPos[grp[0]].w, h: rawPos[grp[0]].h };
+        } else {
+          const lastId = grp[grp.length - 1];
+          const yLast = PAD_TOP + (rawPos[lastId].rfY - bMinY) * sc;
+          const span = yLast + rawPos[lastId].h - y0;
+          const sumH = grp.reduce((acc, id) => acc + rawPos[id].h, 0);
+          const gap = Math.max((span - sumH) / (grp.length - 1), 0.06);
+          let curY = y0;
+          for (const id of grp) {
+            nodeBoxes[id] = { x: snapX, y: curY, w: rawPos[id].w, h: rawPos[id].h };
+            curY += rawPos[id].h + gap;
+          }
+        }
+      }
+
+      // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────────────
       for (const nd of nodes) {
         const level = getLevel(nd);
         const s = LS[level] || DEF;
-        const { x: bx, y: by } = toPpt(nd.position.x, nd.position.y);
-        const nW = s.pxW * sc;
-        const nH = s.pxH * sc;
-        const box = { x: bx, y: by, w: nW, h: nH };
-        nodeBoxes[nd.id] = box;
-
+        const box = nodeBoxes[nd.id];
+        if (!box) continue;
         const dispLabel = getLabel(nd);
         const dispId = getDisplayId(nd);
-        const boxText = dispLabel ? `${dispId}\n${dispLabel}` : dispId;
-        s2.addText(boxText, {
+        s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
           x: box.x, y: box.y, w: box.w, h: box.h,
           shape: pptx.ShapeType.rect,
           fill: { color: s.bg },
@@ -348,8 +384,6 @@ export default function ExportToolbar({
           fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
           fontFace: FONT_FACE, valign: "middle", align: "center",
         });
-
-        // 사용 시스템 태그 (값이 있는 항목만, 노드 하단에 표시)
         const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
         if (sysMap) {
           const SYS_KEYS: { key: string; label: string }[] = [
@@ -358,10 +392,8 @@ export default function ExportToolbar({
           ];
           const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
           if (activeSys.length > 0) {
-            const tagText = activeSys.map(k => `🖥 ${k.label}`).join("  ");
-            s2.addText(tagText, {
-              x: box.x, y: box.y + box.h + 0.03,
-              w: box.w, h: 0.2,
+            s2.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+              x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
               fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
               fontFace: FONT_FACE, align: "center", bold: true,
             });
@@ -369,63 +401,79 @@ export default function ExportToolbar({
         }
       }
 
-      // ── 엣지 그리기: 3세그먼트 꺾인 화살표 연결선 ─────────────────────────────
+      // ── Phase 4: 엣지 그리기 — fan-in T-junction + 3세그먼트 fallback ──────────────
       {
         const LC = "000000", LW = 1.0;
-        for (const edge of edges) {
-          const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
-          if (!src || !tgt) continue;
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-          let x1: number, y1: number, x2: number, y2: number;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            x1 = dx >= 0 ? src.x + src.w : src.x;  y1 = srcCy;
-            x2 = dx >= 0 ? tgt.x         : tgt.x + tgt.w; y2 = tgtCy;
-          } else {
-            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-            x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
-          }
-          const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
+        // 단순 선 그리기 헬퍼 (flipH/flipV 자동)
+        const addL = (
+          x1: number, y1: number, x2: number, y2: number,
+          endArr: boolean, begArr: boolean,
+        ) => s2.addShape("line", {
+          x: Math.min(x1, x2), y: Math.min(y1, y2),
+          w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+          flipH: x2 < x1, flipV: y2 < y1,
+          line: {
+            color: LC, width: LW, dashType: "solid",
+            ...(endArr && { endArrowType: "triangle" as const }),
+            ...(begArr && { beginArrowType: "triangle" as const }),
+          },
+        });
 
-          if (Math.abs(y1 - y2) < 0.01) {
-            // 수평 직선
-            s2.addShape("line", {
-              x: Math.min(x1, x2), y: y1, w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
-              flipH: x2 < x1,
-              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle",
-                ...(isBidi && { beginArrowType: "triangle" as const }) },
-            });
-          } else if (Math.abs(x1 - x2) < 0.01) {
-            // 수직 직선
-            s2.addShape("line", {
-              x: x1, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipV: y2 < y1,
-              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle",
-                ...(isBidi && { beginArrowType: "triangle" as const }) },
-            });
+        // 타겟별로 엣지 그룹화
+        const eByTgt = new Map<string, (typeof edges[0])[]>();
+        for (const e of edges) {
+          if (!eByTgt.has(e.target)) eByTgt.set(e.target, []);
+          eByTgt.get(e.target)!.push(e);
+        }
+
+        for (const [tgtId, tEdges] of eByTgt) {
+          const tgt = nodeBoxes[tgtId];
+          if (!tgt) continue;
+          const tgtCy = tgt.y + tgt.h / 2;
+          const valid = tEdges.filter(e => !!nodeBoxes[e.source]);
+          if (!valid.length) continue;
+          const srcs = valid.map(e => nodeBoxes[e.source]);
+
+          // 모든 소스가 타겟 왼쪽에 있으면 T-junction 버스 라우팅
+          if (srcs.every(s => s.x + s.w <= tgt.x + 0.05)) {
+            const busX = (Math.max(...srcs.map(s => s.x + s.w)) + tgt.x) / 2;
+            // Seg1: 각 소스 우측 → busX (화살표 없음)
+            for (let i = 0; i < valid.length; i++) {
+              const s = srcs[i], cy = s.y + s.h / 2;
+              const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
+              if (Math.abs(busX - (s.x + s.w)) > 0.005) addL(s.x + s.w, cy, busX, cy, false, bidi);
+            }
+            // Seg2: 수직 버스 (모든 소스 Y + 타겟 Y 포함)
+            const cys = [...srcs.map(s => s.y + s.h / 2), tgtCy];
+            const busTop = Math.min(...cys), busBot = Math.max(...cys);
+            if (busBot - busTop > 0.01) addL(busX, busTop, busX, busBot, false, false);
+            // Seg3: busX → 타겟 좌측 (화살표)
+            if (Math.abs(tgt.x - busX) > 0.005) addL(busX, tgtCy, tgt.x, tgtCy, true, false);
           } else {
-            // 3세그먼트: 수평→수직→수평+화살표
-            const midX = (x1 + x2) / 2;
-            // Seg1: (x1,y1) → (midX,y1)
-            s2.addShape("line", {
-              x: Math.min(x1, midX), y: y1, w: Math.max(Math.abs(midX - x1), 0.01), h: 0.01,
-              flipH: midX < x1,
-              line: { color: LC, width: LW, dashType: "solid",
-                ...(isBidi && { beginArrowType: "triangle" as const }) },
-            });
-            // Seg2: (midX,y1) → (midX,y2)
-            s2.addShape("line", {
-              x: midX, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipV: y2 < y1,
-              line: { color: LC, width: LW, dashType: "solid" },
-            });
-            // Seg3: (midX,y2) → (x2,y2) + 화살표
-            s2.addShape("line", {
-              x: Math.min(midX, x2), y: y2, w: Math.max(Math.abs(x2 - midX), 0.01), h: 0.01,
-              flipH: x2 < midX,
-              line: { color: LC, width: LW, dashType: "solid", endArrowType: "triangle" },
-            });
+            // 개별 3세그먼트 fallback
+            for (let i = 0; i < valid.length; i++) {
+              const src = srcs[i];
+              const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+              const tgtCx = tgt.x + tgt.w / 2;
+              const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+              const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
+              let x1: number, y1: number, x2: number, y2: number;
+              if (Math.abs(dx) >= Math.abs(dy)) {
+                x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+                x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+              } else {
+                x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+                x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+              }
+              if (Math.abs(y1 - y2) < 0.01 || Math.abs(x1 - x2) < 0.01) {
+                addL(x1, y1, x2, y2, true, bidi);
+              } else {
+                const midX = (x1 + x2) / 2;
+                addL(x1, y1, midX, y1, false, bidi);
+                addL(midX, y1, midX, y2, false, false);
+                addL(midX, y2, x2, y2, true, false);
+              }
+            }
           }
         }
       }
@@ -884,28 +932,63 @@ export default function ExportToolbar({
           }
         }
 
-        // 노드 그리기
+        // ── Phase 1: raw PPT 위치 ──────────────────────────────────────────────
+        const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
+        for (const nd of sNodes) {
+          const sv = LS[getLevel(nd)] || DEF;
+          sRawPos[nd.id] = { rfX: nd.position.x, rfY: nd.position.y, w: sv.pxW * scRatio, h: sv.pxH * scRatio };
+        }
+
+        // ── Phase 2: 컬럼 정규화 (X스냅 + 세로 등간격) ─────────────────────────
+        const sColVis = new Set<string>();
+        const sColGrps: string[][] = [];
+        for (const id of Object.keys(sRawPos).sort((a, b) => sRawPos[a].rfX - sRawPos[b].rfX)) {
+          if (sColVis.has(id)) continue;
+          const grp = [id]; sColVis.add(id);
+          for (const id2 of Object.keys(sRawPos)) {
+            if (!sColVis.has(id2) && Math.abs(sRawPos[id2].rfX - sRawPos[id].rfX) <= 60) {
+              grp.push(id2); sColVis.add(id2);
+            }
+          }
+          sColGrps.push(grp);
+        }
         const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        for (const grp of sColGrps) {
+          grp.sort((a, b) => sRawPos[a].rfY - sRawPos[b].rfY);
+          const sSnapX = sPadX + (Math.min(...grp.map(id => sRawPos[id].rfX)) - bMinX) * scRatio;
+          const sY0 = sPadTop + (sRawPos[grp[0]].rfY - bMinY) * scRatio;
+          if (grp.length === 1) {
+            nodeBoxes[grp[0]] = { x: sSnapX, y: sY0, w: sRawPos[grp[0]].w, h: sRawPos[grp[0]].h };
+          } else {
+            const lastId = grp[grp.length - 1];
+            const yLast = sPadTop + (sRawPos[lastId].rfY - bMinY) * scRatio;
+            const span = yLast + sRawPos[lastId].h - sY0;
+            const sumH = grp.reduce((acc, id) => acc + sRawPos[id].h, 0);
+            const gap = Math.max((span - sumH) / (grp.length - 1), 0.06);
+            let curY = sY0;
+            for (const id of grp) {
+              nodeBoxes[id] = { x: sSnapX, y: curY, w: sRawPos[id].w, h: sRawPos[id].h };
+              curY += sRawPos[id].h + gap;
+            }
+          }
+        }
+
+        // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────
         for (const nd of sNodes) {
           const level = getLevel(nd);
-          const s = LS[level] || DEF;
-          const { x: bx, y: by } = toPpt(nd.position.x, nd.position.y);
-          const nW = s.pxW * scRatio;
-          const nH = s.pxH * scRatio;
-          const box = { x: bx, y: by, w: nW, h: nH };
-          nodeBoxes[nd.id] = box;
+          const sv = LS[level] || DEF;
+          const box = nodeBoxes[nd.id];
+          if (!box) continue;
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
           slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
             x: box.x, y: box.y, w: box.w, h: box.h,
             shape: pptx.ShapeType.rect,
-            fill: { color: s.bg },
-            line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-            fontSize: NODE_FONT_SIZE_S, bold: true, color: s.text,
+            fill: { color: sv.bg },
+            line: { color: sv.border, width: level === "L5" ? 1.5 : 0.5 },
+            fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
-
-          // 사용 시스템 태그
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           if (sysMap) {
             const SYS_KEYS: { key: string; label: string }[] = [
@@ -914,71 +997,78 @@ export default function ExportToolbar({
             ];
             const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
             if (activeSys.length > 0) {
-              const tagText = activeSys.map(k => `🖥 ${k.label}`).join("  ");
-              slide.addText(tagText, {
-                x: box.x, y: box.y + box.h + 0.03,
-                w: box.w, h: 0.2,
-                fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: s.bg,
+              slide.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+                x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
+                fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
                 fontFace: FONT_FACE, align: "center", bold: true,
               });
             }
           }
         }
 
-        // ── 엣지(arrows) 그리기: 3세그먼트 꺾인 화살표 연결선 ──────────────────
+        // ── Phase 4: 엣지 그리기 — fan-in T-junction + 3세그먼트 fallback ─────
         {
           const SLC = "000000", SLW = 1.0;
-          for (const edge of sEdges) {
-            const src = nodeBoxes[edge.source], tgt = nodeBoxes[edge.target];
-            if (!src || !tgt) continue;
-            const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-            const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-            const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-            let x1: number, y1: number, x2: number, y2: number;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-              x1 = dx >= 0 ? src.x + src.w : src.x;  y1 = srcCy;
-              x2 = dx >= 0 ? tgt.x         : tgt.x + tgt.w; y2 = tgtCy;
+          const addSL = (
+            x1: number, y1: number, x2: number, y2: number,
+            endArr: boolean, begArr: boolean,
+          ) => slide.addShape("line", {
+            x: Math.min(x1, x2), y: Math.min(y1, y2),
+            w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
+            flipH: x2 < x1, flipV: y2 < y1,
+            line: {
+              color: SLC, width: SLW, dashType: "solid",
+              ...(endArr && { endArrowType: "triangle" as const }),
+              ...(begArr && { beginArrowType: "triangle" as const }),
+            },
+          });
+          const seByTgt = new Map<string, (typeof sEdges[0])[]>();
+          for (const e of sEdges) {
+            if (!seByTgt.has(e.target)) seByTgt.set(e.target, []);
+            seByTgt.get(e.target)!.push(e);
+          }
+          for (const [tgtId, tEdges] of seByTgt) {
+            const tgt = nodeBoxes[tgtId];
+            if (!tgt) continue;
+            const tgtCy = tgt.y + tgt.h / 2;
+            const valid = tEdges.filter(e => !!nodeBoxes[e.source]);
+            if (!valid.length) continue;
+            const srcs = valid.map(e => nodeBoxes[e.source]);
+            if (srcs.every(s => s.x + s.w <= tgt.x + 0.05)) {
+              const busX = (Math.max(...srcs.map(s => s.x + s.w)) + tgt.x) / 2;
+              for (let i = 0; i < valid.length; i++) {
+                const s = srcs[i], cy = s.y + s.h / 2;
+                const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
+                if (Math.abs(busX - (s.x + s.w)) > 0.005) addSL(s.x + s.w, cy, busX, cy, false, bidi);
+              }
+              const cys = [...srcs.map(s => s.y + s.h / 2), tgtCy];
+              const busTop = Math.min(...cys), busBot = Math.max(...cys);
+              if (busBot - busTop > 0.01) addSL(busX, busTop, busX, busBot, false, false);
+              if (Math.abs(tgt.x - busX) > 0.005) addSL(busX, tgtCy, tgt.x, tgtCy, true, false);
             } else {
-              x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-              x2 = tgtCx; y2 = dy >= 0 ? tgt.y          : tgt.y + tgt.h;
-            }
-            const isBidi = !!(edge.markerStart || ((edge.data as Record<string, unknown>)?.bidirectional));
-
-            if (Math.abs(y1 - y2) < 0.01) {
-              slide.addShape("line", {
-                x: Math.min(x1, x2), y: y1, w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
-                flipH: x2 < x1,
-                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle",
-                  ...(isBidi && { beginArrowType: "triangle" as const }) },
-              });
-            } else if (Math.abs(x1 - x2) < 0.01) {
-              slide.addShape("line", {
-                x: x1, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipV: y2 < y1,
-                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle",
-                  ...(isBidi && { beginArrowType: "triangle" as const }) },
-              });
-            } else {
-              const midX = (x1 + x2) / 2;
-              // Seg1: (x1,y1) → (midX,y1)
-              slide.addShape("line", {
-                x: Math.min(x1, midX), y: y1, w: Math.max(Math.abs(midX - x1), 0.01), h: 0.01,
-                flipH: midX < x1,
-                line: { color: SLC, width: SLW, dashType: "solid",
-                  ...(isBidi && { beginArrowType: "triangle" as const }) },
-              });
-              // Seg2: (midX,y1) → (midX,y2)
-              slide.addShape("line", {
-                x: midX, y: Math.min(y1, y2), w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipV: y2 < y1,
-                line: { color: SLC, width: SLW, dashType: "solid" },
-              });
-              // Seg3: (midX,y2) → (x2,y2) + 화살표
-              slide.addShape("line", {
-                x: Math.min(midX, x2), y: y2, w: Math.max(Math.abs(x2 - midX), 0.01), h: 0.01,
-                flipH: x2 < midX,
-                line: { color: SLC, width: SLW, dashType: "solid", endArrowType: "triangle" },
-              });
+              for (let i = 0; i < valid.length; i++) {
+                const src = srcs[i];
+                const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+                const tgtCx = tgt.x + tgt.w / 2;
+                const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
+                const bidi = !!(valid[i].markerStart || (valid[i].data as Record<string, unknown>)?.bidirectional);
+                let x1: number, y1: number, x2: number, y2: number;
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                  x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+                  x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+                } else {
+                  x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+                  x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+                }
+                if (Math.abs(y1 - y2) < 0.01 || Math.abs(x1 - x2) < 0.01) {
+                  addSL(x1, y1, x2, y2, true, bidi);
+                } else {
+                  const midX = (x1 + x2) / 2;
+                  addSL(x1, y1, midX, y1, false, bidi);
+                  addSL(midX, y1, midX, y2, false, false);
+                  addSL(midX, y2, x2, y2, true, false);
+                }
+              }
             }
           }
         }
