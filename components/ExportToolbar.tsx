@@ -401,29 +401,25 @@ export default function ExportToolbar({
         }
       }
 
-      // ── Phase 4: 엣지 그리기 — PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ──────
+      // ── Phase 4: 엣지 그리기 — 직선 vs PPT bentConnector3 꺾인선 ──────
       {
         const LC = "000000", LW = 1.0;
+        // Y범위 겹침 판정 (같은 행이면 직선)
+        const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
+          a.y < b.y + b.h && b.y < a.y + a.h;
+        // X범위 겹침 판정 (같은 열이면 수직 직선)
+        const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
+          a.x < b.x + b.w && b.x < a.x + a.w;
+
         for (const e of edges) {
           const src = nodeBoxes[e.source];
           const tgt = nodeBoxes[e.target];
           if (!src || !tgt) continue;
           const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
 
-          // 소스/타겟 중심
           const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
           const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
           const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-
-          // 연결점 결정: 가로 우세 → 좌/우 면, 세로 우세 → 상/하 면
-          let x1: number, y1: number, x2: number, y2: number;
-          if (Math.abs(dx) >= Math.abs(dy)) {
-            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-          } else {
-            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-            x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-          }
 
           const lineOpts = {
             color: LC, width: LW, dashType: "solid" as const,
@@ -431,17 +427,45 @@ export default function ExportToolbar({
             ...(bidi && { beginArrowType: "triangle" as const }),
           };
 
-          // 직선 (같은 축) vs 꺾인 연결선
-          if (Math.abs(y1 - y2) < 0.02 || Math.abs(x1 - x2) < 0.02) {
-            // 직선: PPT line 도형
+          const sameRow = yOverlap(src, tgt);  // Y 겹침 → 같은 행
+          const sameCol = xOverlap(src, tgt);  // X 겹침 → 같은 열
+
+          if (sameRow && !sameCol) {
+            // ── 같은 행: 수평 직선 (겹치는 Y 범위의 중앙으로 연결) ──
+            const overlapTop = Math.max(src.y, tgt.y);
+            const overlapBot = Math.min(src.y + src.h, tgt.y + tgt.h);
+            const connY = (overlapTop + overlapBot) / 2;
+            const x1 = dx >= 0 ? src.x + src.w : src.x;
+            const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
             s2.addShape("line", {
-              x: Math.min(x1, x2), y: Math.min(y1, y2),
-              w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-              flipH: x2 < x1, flipV: y2 < y1,
+              x: Math.min(x1, x2), y: Math.min(connY, connY),
+              w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
+              flipH: x2 < x1, flipV: false,
+              line: lineOpts,
+            });
+          } else if (sameCol && !sameRow) {
+            // ── 같은 열: 수직 직선 (상/하 면, 공통 midX) ──
+            const overlapLeft = Math.max(src.x, tgt.x);
+            const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+            const connX = (overlapLeft + overlapRight) / 2;
+            const y1 = dy >= 0 ? src.y + src.h : src.y;
+            const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            s2.addShape("line", {
+              x: Math.min(connX, connX), y: Math.min(y1, y2),
+              w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+              flipH: false, flipV: y2 < y1,
               line: lineOpts,
             });
           } else {
-            // 꺾인 화살표 연결선: PPT bentConnector3 도형
+            // ── 다른 행+열: 꺾인 화살표 연결선 (bentConnector3) ──
+            let x1: number, y1: number, x2: number, y2: number;
+            if (Math.abs(dx) >= Math.abs(dy)) {
+              x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+              x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+            } else {
+              x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+              x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+            }
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             s2.addShape("bentConnector3" as any, {
               x: Math.min(x1, x2), y: Math.min(y1, y2),
@@ -981,9 +1005,14 @@ export default function ExportToolbar({
           }
         }
 
-        // ── Phase 4: 엣지 그리기 — PPT 네이티브 꺾인 화살표 연결선 (bentConnector3) ─────
+        // ── Phase 4: 엣지 그리기 — 직선 vs PPT bentConnector3 꺾인선 ─────
         {
           const SLC = "000000", SLW = 1.0;
+          const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
+            a.y < b.y + b.h && b.y < a.y + a.h;
+          const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
+            a.x < b.x + b.w && b.x < a.x + a.w;
+
           for (const e of sEdges) {
             const src = nodeBoxes[e.source];
             const tgt = nodeBoxes[e.target];
@@ -994,29 +1023,48 @@ export default function ExportToolbar({
             const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
             const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
 
-            let x1: number, y1: number, x2: number, y2: number;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-              x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
-              x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-            } else {
-              x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
-              x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            }
-
             const lineOpts = {
               color: SLC, width: SLW, dashType: "solid" as const,
               endArrowType: "triangle" as const,
               ...(bidi && { beginArrowType: "triangle" as const }),
             };
 
-            if (Math.abs(y1 - y2) < 0.02 || Math.abs(x1 - x2) < 0.02) {
+            const sameRow = yOverlap(src, tgt);
+            const sameCol = xOverlap(src, tgt);
+
+            if (sameRow && !sameCol) {
+              const overlapTop = Math.max(src.y, tgt.y);
+              const overlapBot = Math.min(src.y + src.h, tgt.y + tgt.h);
+              const connY = (overlapTop + overlapBot) / 2;
+              const x1 = dx >= 0 ? src.x + src.w : src.x;
+              const x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
               slide.addShape("line", {
-                x: Math.min(x1, x2), y: Math.min(y1, y2),
-                w: Math.max(Math.abs(x2 - x1), 0.01), h: Math.max(Math.abs(y2 - y1), 0.01),
-                flipH: x2 < x1, flipV: y2 < y1,
+                x: Math.min(x1, x2), y: Math.min(connY, connY),
+                w: Math.max(Math.abs(x2 - x1), 0.01), h: 0.01,
+                flipH: x2 < x1, flipV: false,
+                line: lineOpts,
+              });
+            } else if (sameCol && !sameRow) {
+              const overlapLeft = Math.max(src.x, tgt.x);
+              const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+              const connX = (overlapLeft + overlapRight) / 2;
+              const y1 = dy >= 0 ? src.y + src.h : src.y;
+              const y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+              slide.addShape("line", {
+                x: Math.min(connX, connX), y: Math.min(y1, y2),
+                w: 0.01, h: Math.max(Math.abs(y2 - y1), 0.01),
+                flipH: false, flipV: y2 < y1,
                 line: lineOpts,
               });
             } else {
+              let x1: number, y1: number, x2: number, y2: number;
+              if (Math.abs(dx) >= Math.abs(dy)) {
+                x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy;
+                x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
+              } else {
+                x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y;
+                x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
+              }
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               slide.addShape("bentConnector3" as any, {
                 x: Math.min(x1, x2), y: Math.min(y1, y2),
