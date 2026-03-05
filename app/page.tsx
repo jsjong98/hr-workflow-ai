@@ -904,6 +904,8 @@ export default function Home() {
                 onEdgeContextMenu={onEdgeContextMenu}
                 onNodeDoubleClick={onNodeDoubleClick}
                 nodeTypes={nodeTypes}
+                snapToGrid={true}
+                snapGrid={[20, 20]}
                 onInit={(instance) => {
                   rfInstanceRef.current = instance;
                   // fitView only when there are existing nodes (not when canvas is empty)
@@ -926,7 +928,7 @@ export default function Home() {
                 {activeSheet.type === "swimlane" ? (
                   <Background key="bg" color="#f1f5f9" gap={40} size={0.5} />
                 ) : (
-                  <Background key="bg" color="#e2e8f0" gap={20} size={1} />
+                  <Background key="bg" variant={"lines" as never} color="#e2e8f0" gap={20} size={0.5} lineWidth={0.5} />
                 )}
 
                 {/* Swimlane overlay — uses useViewport(), must be inside ReactFlow */}
