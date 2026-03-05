@@ -5,13 +5,14 @@ import type { Node } from "@xyflow/react";
 
 /* ═══ 타입 ═══ */
 interface RowData {
-  nodeId: string;          // React Flow 내부 id
+  nodeId: string;
   level: "L2" | "L3" | "L4" | "L5";
-  displayId: string;       // 표시 ID (1.1, 1.1.2 등)
+  displayId: string;
   name: string;
   description: string;
   role: string;
   memo: string;
+  parentLevel?: string;
 }
 
 interface Props {
@@ -37,8 +38,12 @@ const ROLE_OPTIONS = [
 ];
 
 /* ═══ 유틸 ═══ */
+function getNodeData(n: Node): Record<string, unknown> {
+  return (n.data || {}) as Record<string, unknown>;
+}
+
 function nodeToRow(n: Node): RowData {
-  const d = (n.data || {}) as Record<string, unknown>;
+  const d = getNodeData(n);
   return {
     nodeId: n.id,
     level: ((d.level as string) || "L4").toUpperCase() as RowData["level"],
@@ -50,6 +55,98 @@ function nodeToRow(n: Node): RowData {
   };
 }
 
+/* ═══ 계층 구조로 노드 정렬 ═══ */
+function buildHierarchicalRows(nodes: Node[]): RowData[] {
+  const result: RowData[] = [];
+  const allRows = nodes.map(nodeToRow);
+
+  const l2s = allRows.filter(r => r.level === "L2").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
+  const l3s = allRows.filter(r => r.level === "L3").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
+  const l4s = allRows.filter(r => r.level === "L4").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
+  const l5s = allRows.filter(r => r.level === "L5").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
+
+  function findParentId(childId: string, parentRows: RowData[]): string | undefined {
+    if (!childId) return undefined;
+    let best: string | undefined;
+    let bestLen = 0;
+    for (const p of parentRows) {
+      if (!p.displayId) continue;
+      if (childId.startsWith(p.displayId + ".") && p.displayId.length > bestLen) {
+        best = p.displayId;
+        bestLen = p.displayId.length;
+      }
+    }
+    return best;
+  }
+
+  for (const l2 of l2s) {
+    result.push(l2);
+    const childL3s = l3s.filter(l3 => findParentId(l3.displayId, [l2]) === l2.displayId);
+    for (const l3 of childL3s) {
+      result.push({ ...l3, parentLevel: "L2" });
+      const childL4s = l4s.filter(l4 => findParentId(l4.displayId, [l3]) === l3.displayId);
+      for (const l4 of childL4s) {
+        result.push({ ...l4, parentLevel: "L3" });
+        const childL5s = l5s.filter(l5 => findParentId(l5.displayId, [l4]) === l4.displayId);
+        for (const l5 of childL5s) {
+          result.push({ ...l5, parentLevel: "L4" });
+        }
+      }
+    }
+  }
+
+  const inResult = new Set(result.map(r => r.nodeId));
+  const levelOrder: Record<string, number> = { L2: 0, L3: 1, L4: 2, L5: 3 };
+  const orphans = allRows
+    .filter(r => !inResult.has(r.nodeId))
+    .sort((a, b) => (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9) || a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
+  result.push(...orphans);
+
+  return result;
+}
+
+/* ═══ ID 자동 재번호 ═══ */
+function renumberIds(nodes: Node[], setNodes: (updater: (nds: Node[]) => Node[]) => void) {
+  const rows = buildHierarchicalRows(nodes);
+  const idMap = new Map<string, string>();
+  const levelDepth: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
+  const depthToLevel = ["", "L2", "L3", "L4", "L5"];
+  const counters: Record<string, number> = {};
+
+  for (const row of rows) {
+    const depth = levelDepth[row.level] || 4;
+    if (depth === 1) {
+      const key = "L2";
+      counters[key] = (counters[key] || 0) + 1;
+      idMap.set(row.nodeId, `${counters[key]}`);
+    } else {
+      const parentLevel = depthToLevel[depth - 1];
+      let parentNewId = "";
+      for (let i = rows.indexOf(row) - 1; i >= 0; i--) {
+        if (rows[i].level === parentLevel && idMap.has(rows[i].nodeId)) {
+          parentNewId = idMap.get(rows[i].nodeId)!;
+          break;
+        }
+      }
+      if (parentNewId) {
+        const key = `${parentLevel}-${parentNewId}`;
+        counters[key] = (counters[key] || 0) + 1;
+        idMap.set(row.nodeId, `${parentNewId}.${counters[key]}`);
+      } else {
+        idMap.set(row.nodeId, row.displayId);
+      }
+    }
+  }
+
+  setNodes((nds) =>
+    nds.map((n) => {
+      const newId = idMap.get(n.id);
+      if (!newId) return n;
+      return { ...n, data: { ...getNodeData(n), id: newId } };
+    })
+  );
+}
+
 /* ═══ CSV 이스케이프 ═══ */
 function csvEscape(v: string) {
   if (v.includes(",") || v.includes('"') || v.includes("\n")) {
@@ -58,48 +155,71 @@ function csvEscape(v: string) {
   return v;
 }
 
+/* ═══ 확장 메타 요약 ═══ */
+function getExtMetaSummary(n: Node): string {
+  const d = getNodeData(n);
+  const parts: string[] = [];
+  const actors = d.actors as Record<string, string> | undefined;
+  if (actors) {
+    const ap: string[] = [];
+    if (actors.exec) ap.push("임원:" + actors.exec);
+    if (actors.hr) ap.push("HR:" + actors.hr);
+    if (actors.teamlead) ap.push("팀장:" + actors.teamlead);
+    if (actors.member) ap.push("구성원:" + actors.member);
+    if (ap.length) parts.push("수행(" + ap.join(",") + ")");
+  }
+  if (d.mainPerson) parts.push("주담당:" + d.mainPerson);
+  if (d.avgTime) parts.push("소요:" + d.avgTime);
+  const sys = d.systems as Record<string, string> | undefined;
+  if (sys) {
+    const sp: string[] = [];
+    if (sys.hr) sp.push("HR");
+    if (sys.groupware) sp.push("GW");
+    if (sys.office) sp.push("Office");
+    if (sys.manual) sp.push("수작업");
+    if (sys.etc) sp.push("기타");
+    if (sp.length) parts.push("시스템(" + sp.join(",") + ")");
+  }
+  const pp = d.painPoints as Record<string, string> | undefined;
+  if (pp) {
+    const cnt = Object.values(pp).filter(v => v?.trim()).length;
+    if (cnt > 0) parts.push("PP:" + cnt + "건");
+  }
+  return parts.join(" · ");
+}
+
 /* ═══ 메인 컴포넌트 ═══ */
 export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: Props) {
-  /* 편집 모드 */
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<RowData | null>(null);
-
-  /* 새 노드 추가 모드 */
   const [addMode, setAddMode] = useState(false);
   const [addForm, setAddForm] = useState<Omit<RowData, "nodeId">>({
     level: "L4", displayId: "", name: "", description: "", role: "", memo: "",
   });
-
-  /* 드래그 상태 */
+  const [addAfterIdx, setAddAfterIdx] = useState<number | null>(null);
   const dragIdxRef = useRef<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  /* 노드 → 행 변환 (레벨 순서 유지) */
-  const rows: RowData[] = useMemo(() => {
-    const levelOrder = { L2: 0, L3: 1, L4: 2, L5: 3 };
-    return nodes
-      .map(nodeToRow)
-      .sort((a, b) => (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9));
-  }, [nodes]);
+  const rows: RowData[] = useMemo(() => buildHierarchicalRows(nodes), [nodes]);
 
-  /* ── 편집 시작 ── */
   const startEdit = useCallback((idx: number) => {
     setEditingIdx(idx);
     setEditForm({ ...rows[idx] });
   }, [rows]);
 
-  /* ── 편집 저장 ── */
+  /* ── 편집 저장 (기존 확장 메타 보존) ── */
   const saveEdit = useCallback(() => {
     if (editingIdx === null || !editForm) return;
     const targetNodeId = rows[editingIdx].nodeId;
     setNodes((nds) =>
       nds.map((n) => {
         if (n.id !== targetNodeId) return n;
+        const existing = getNodeData(n);
         return {
           ...n,
           type: editForm.level.toLowerCase(),
           data: {
-            ...(n.data as Record<string, unknown>),
+            ...existing,
             level: editForm.level,
             id: editForm.displayId,
             label: editForm.name,
@@ -114,223 +234,181 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     setEditForm(null);
   }, [editingIdx, editForm, rows, setNodes]);
 
-  /* ── 편집 취소 ── */
-  const cancelEdit = useCallback(() => {
-    setEditingIdx(null);
-    setEditForm(null);
-  }, []);
+  const cancelEdit = useCallback(() => { setEditingIdx(null); setEditForm(null); }, []);
 
-  /* ── 삭제 ── */
   const deleteRow = useCallback((idx: number) => {
     const targetNodeId = rows[idx].nodeId;
     if (!confirm(`"${rows[idx].name || rows[idx].displayId}" 노드를 삭제하시겠습니까?`)) return;
     setNodes((nds) => nds.filter((n) => n.id !== targetNodeId));
   }, [rows, setNodes]);
 
-  /* ── 추가 ── */
-  const addRow = useCallback(() => {
-    if (!addForm.name.trim()) {
-      alert("이름을 입력해주세요.");
-      return;
+  const startAddAfter = useCallback((idx: number) => {
+    const row = rows[idx];
+    let defaultLevel = row.level;
+    if (row.level === "L4") defaultLevel = "L5";
+    let nextId = "";
+    if (row.displayId) {
+      const parts = row.displayId.split(".");
+      if (defaultLevel === row.level) {
+        const last = parseInt(parts[parts.length - 1]) || 0;
+        nextId = [...parts.slice(0, -1), (last + 1).toString()].join(".");
+      } else {
+        nextId = row.displayId + ".1";
+      }
     }
+    setAddForm({ level: defaultLevel as RowData["level"], displayId: nextId, name: "", description: "", role: "", memo: "" });
+    setAddAfterIdx(idx);
+    setAddMode(true);
+  }, [rows]);
+
+  const addRow = useCallback(() => {
+    if (!addForm.name.trim()) { alert("이름을 입력해주세요."); return; }
     const levelKey = addForm.level.toLowerCase() as "l2" | "l3" | "l4" | "l5";
-    const newId = `${levelKey}-mgr-${Date.now()}`;
+    const newId = levelKey + "-mgr-" + Date.now();
+    let x = 400, y = 300;
+    if (addAfterIdx !== null && addAfterIdx < rows.length) {
+      const refNode = nodes.find(n => n.id === rows[addAfterIdx].nodeId);
+      if (refNode) {
+        x = refNode.position.x + (addForm.level === rows[addAfterIdx].level ? 0 : 200);
+        y = refNode.position.y + 200;
+      }
+    }
     const newNode: Node = {
-      id: newId,
-      type: levelKey,
-      position: { x: 400 + Math.random() * 100, y: 300 + Math.random() * 100 },
+      id: newId, type: levelKey,
+      position: { x, y },
       data: {
-        label: addForm.name.trim(),
-        level: addForm.level,
-        id: addForm.displayId.trim() || `${addForm.level}-${Date.now()}`,
-        description: addForm.description.trim(),
-        role: addForm.role,
-        memo: addForm.memo.trim(),
+        label: addForm.name.trim(), level: addForm.level,
+        id: addForm.displayId.trim() || addForm.level + "-" + Date.now(),
+        description: addForm.description.trim(), role: addForm.role, memo: addForm.memo.trim(),
       },
     };
-    setNodes((nds) => [...nds, newNode]);
+    if (addAfterIdx !== null && addAfterIdx < rows.length) {
+      const afterNodeId = rows[addAfterIdx].nodeId;
+      setNodes((nds) => {
+        const i = nds.findIndex(n => n.id === afterNodeId);
+        if (i === -1) return [...nds, newNode];
+        const copy = [...nds]; copy.splice(i + 1, 0, newNode); return copy;
+      });
+    } else {
+      setNodes((nds) => [...nds, newNode]);
+    }
     setAddForm({ level: "L4", displayId: "", name: "", description: "", role: "", memo: "" });
-    setAddMode(false);
-  }, [addForm, setNodes]);
+    setAddMode(false); setAddAfterIdx(null);
+  }, [addForm, addAfterIdx, rows, nodes, setNodes]);
 
-  /* ── 드래그 앤 드랍 (순서 변경) ── */
-  const handleDragStart = useCallback((idx: number) => {
-    dragIdxRef.current = idx;
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    setDragOverIdx(idx);
-  }, []);
+  const handleDragStart = useCallback((idx: number) => { dragIdxRef.current = idx; }, []);
+  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => { e.preventDefault(); setDragOverIdx(idx); }, []);
 
   const handleDrop = useCallback((dropIdx: number) => {
     const fromIdx = dragIdxRef.current;
-    if (fromIdx === null || fromIdx === dropIdx) {
-      dragIdxRef.current = null;
-      setDragOverIdx(null);
-      return;
-    }
-    // 순서 재배열: node 배열에서 실제 위치를 바꿈
+    if (fromIdx === null || fromIdx === dropIdx) { dragIdxRef.current = null; setDragOverIdx(null); return; }
     const orderedIds = rows.map((r) => r.nodeId);
     const [moved] = orderedIds.splice(fromIdx, 1);
     orderedIds.splice(dropIdx, 0, moved);
-    // 노드 배열을 새 순서로 재정렬
     setNodes((nds) => {
       const map = new Map(nds.map((n) => [n.id, n]));
       const reordered: Node[] = [];
-      for (const id of orderedIds) {
-        const nd = map.get(id);
-        if (nd) {
-          reordered.push(nd);
-          map.delete(id);
-        }
-      }
-      // orderedIds에 없는 나머지 노드 (있을 경우)
+      for (const id of orderedIds) { const nd = map.get(id); if (nd) { reordered.push(nd); map.delete(id); } }
       map.forEach((nd) => reordered.push(nd));
       return reordered;
     });
-    dragIdxRef.current = null;
-    setDragOverIdx(null);
+    dragIdxRef.current = null; setDragOverIdx(null);
   }, [rows, setNodes]);
 
-  /* ── 엑셀(CSV) 내보내기 ── */
+  const handleRenumber = useCallback(() => {
+    if (!confirm("현재 계층 순서 기반으로 모든 ID를 재번호 매기시겠습니까?")) return;
+    renumberIds(nodes, setNodes);
+  }, [nodes, setNodes]);
+
   const exportCsv = useCallback(() => {
-    const header = ["Level", "ID", "이름", "설명", "수행주체", "메모"];
-    const csvRows = rows.map((r) =>
-      [r.level, r.displayId, r.name, r.description, r.role, r.memo].map(csvEscape).join(",")
-    );
+    const header = ["Level", "ID", "이름", "설명", "수행주체", "메모", "주담당자", "소요시간", "시스템", "PainPoint수"];
+    const csvRows = rows.map((r) => {
+      const nd = nodes.find(n => n.id === r.nodeId);
+      const d = nd ? getNodeData(nd) : {};
+      const mainPerson = (d.mainPerson as string) || "";
+      const avgTime = (d.avgTime as string) || "";
+      const sys = d.systems as Record<string, string> | undefined;
+      const sysStr = sys ? Object.entries(sys).filter(([, v]) => v?.trim()).map(([k, v]) => k + ":" + v).join("; ") : ((d.system as string) || "");
+      const pp = d.painPoints as Record<string, string> | undefined;
+      const ppCount = pp ? Object.values(pp).filter(v => v?.trim()).length.toString() : "";
+      return [r.level, r.displayId, r.name, r.description, r.role, r.memo, mainPerson, avgTime, sysStr, ppCount].map(csvEscape).join(",");
+    });
     const bom = "\uFEFF";
     const csvContent = bom + [header.join(","), ...csvRows].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `workflow-nodes-${Date.now()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = url; a.download = "workflow-nodes-" + Date.now() + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [rows]);
+  }, [rows, nodes]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-[900px] max-w-[95vw] max-h-[85vh] flex flex-col border border-gray-200">
-        {/* ═══ Header ═══ */}
+      <div className="bg-white rounded-xl shadow-2xl w-[960px] max-w-[95vw] max-h-[85vh] flex flex-col border border-gray-200">
+        {/* Header */}
         <div className="px-6 py-4 rounded-t-xl bg-gradient-to-r from-[#A62121] to-[#D95578] text-white flex items-center justify-between flex-none">
           <div>
             <h2 className="text-lg font-bold">📋 노드 관리</h2>
-            <p className="text-xs opacity-80 mt-0.5">추가 · 수정 · 삭제 · 드래그로 순서 변경 · 엑셀 내보내기</p>
+            <p className="text-xs opacity-80 mt-0.5">계층 구조 · 추가 · 수정 · 삭제 · 드래그 정렬 · ID 재번호 · 엑셀 내보내기</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={exportCsv}
-              className="px-3 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-              title="CSV(엑셀) 내보내기"
-            >
-              📥 엑셀 내보내기
-            </button>
-            <button
-              onClick={onClose}
-              className="text-2xl font-light opacity-70 hover:opacity-100 transition-opacity ml-2"
-            >
-              ×
-            </button>
+            <button onClick={handleRenumber} className="px-3 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg transition-colors" title="계층 순서 기반 ID 자동 재번호">🔢 ID 재번호</button>
+            <button onClick={exportCsv} className="px-3 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg transition-colors" title="CSV 내보내기">📥 엑셀</button>
+            <button onClick={onClose} className="text-2xl font-light opacity-70 hover:opacity-100 transition-opacity ml-2">×</button>
           </div>
         </div>
 
-        {/* ═══ Toolbar ═══ */}
+        {/* Toolbar */}
         <div className="px-6 py-3 border-b border-gray-100 flex items-center gap-3 flex-none bg-gray-50/50">
-          <button
-            onClick={() => setAddMode(!addMode)}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              addMode
-                ? "bg-red-100 text-red-600 hover:bg-red-200"
-                : "bg-blue-500 text-white hover:bg-blue-600"
-            }`}
-          >
+          <button onClick={() => { setAddMode(!addMode); setAddAfterIdx(null); }} className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${addMode ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-blue-500 text-white hover:bg-blue-600"}`}>
             {addMode ? "✕ 추가 취소" : "➕ 새 노드 추가"}
           </button>
-          <span className="text-xs text-gray-400">
-            총 {rows.length}개 노드 · 드래그로 순서 변경 가능
-          </span>
+          <span className="text-xs text-gray-400">총 {rows.length}개 노드 · ⠿ 드래그로 순서 변경 · ➕ 행 사이 삽입 가능</span>
         </div>
 
-        {/* ═══ Add Form (inline) ═══ */}
+        {/* Add Form */}
         {addMode && (
           <div className="px-6 py-3 border-b border-blue-100 bg-blue-50/50 flex-none">
+            {addAfterIdx !== null && (
+              <div className="text-[10px] text-blue-600 font-medium mb-2">
+                📍 &ldquo;{rows[addAfterIdx]?.name}&rdquo; ({rows[addAfterIdx]?.displayId}) 뒤에 삽입
+              </div>
+            )}
             <div className="flex items-end gap-2 flex-wrap">
-              {/* Level */}
               <div className="w-[80px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">레벨</label>
-                <select
-                  value={addForm.level}
-                  onChange={(e) => setAddForm({ ...addForm, level: e.target.value as RowData["level"] })}
-                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
-                >
-                  {LEVEL_OPTIONS.map((lv) => (
-                    <option key={lv} value={lv}>{lv}</option>
-                  ))}
+                <select value={addForm.level} onChange={(e) => setAddForm({ ...addForm, level: e.target.value as RowData["level"] })} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs">
+                  {LEVEL_OPTIONS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
                 </select>
               </div>
-              {/* ID */}
               <div className="w-[100px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">ID</label>
-                <input
-                  value={addForm.displayId}
-                  onChange={(e) => setAddForm({ ...addForm, displayId: e.target.value })}
-                  placeholder="1.1.5"
-                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
-                />
+                <input value={addForm.displayId} onChange={(e) => setAddForm({ ...addForm, displayId: e.target.value })} placeholder="자동" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
               </div>
-              {/* 이름 */}
               <div className="flex-1 min-w-[140px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">이름 *</label>
-                <input
-                  value={addForm.name}
-                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
-                  placeholder="노드 이름"
-                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
-                  autoFocus
-                />
+                <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="노드 이름" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" autoFocus />
               </div>
-              {/* 설명 */}
               <div className="flex-1 min-w-[120px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">설명</label>
-                <input
-                  value={addForm.description}
-                  onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
-                  placeholder="설명"
-                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
-                />
+                <input value={addForm.description} onChange={(e) => setAddForm({ ...addForm, description: e.target.value })} placeholder="설명" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
               </div>
-              {/* 수행주체 */}
               <div className="w-[110px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">수행주체</label>
-                <select
-                  value={addForm.role}
-                  onChange={(e) => setAddForm({ ...addForm, role: e.target.value })}
-                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
-                >
+                <select value={addForm.role} onChange={(e) => setAddForm({ ...addForm, role: e.target.value })} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs">
                   <option value="">선택</option>
-                  {ROLE_OPTIONS.filter(Boolean).map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
+                  {ROLE_OPTIONS.filter(Boolean).map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
-              {/* 추가 버튼 */}
-              <button
-                onClick={addRow}
-                className="px-4 py-1.5 text-xs font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition whitespace-nowrap"
-              >
-                ✓ 추가
-              </button>
+              <button onClick={addRow} className="px-4 py-1.5 text-xs font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition whitespace-nowrap">✓ 추가</button>
             </div>
           </div>
         )}
 
-        {/* ═══ Table ═══ */}
+        {/* Table */}
         <div className="flex-1 overflow-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
@@ -340,23 +418,22 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                 <th className="w-[90px] py-2 px-2 text-left font-semibold text-gray-600">ID</th>
                 <th className="min-w-[140px] py-2 px-2 text-left font-semibold text-gray-600">이름</th>
                 <th className="min-w-[120px] py-2 px-2 text-left font-semibold text-gray-600">설명</th>
-                <th className="w-[100px] py-2 px-2 text-left font-semibold text-gray-600">수행주체</th>
-                <th className="min-w-[100px] py-2 px-2 text-left font-semibold text-gray-600">메모</th>
-                <th className="w-[80px] py-2 px-2 text-center font-semibold text-gray-600">작업</th>
+                <th className="w-[90px] py-2 px-2 text-left font-semibold text-gray-600">수행주체</th>
+                <th className="min-w-[140px] py-2 px-2 text-left font-semibold text-gray-600">메타</th>
+                <th className="w-[100px] py-2 px-2 text-center font-semibold text-gray-600">작업</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
-                    캔버스에 노드가 없습니다. 위 &quot;새 노드 추가&quot; 버튼으로 추가하세요.
-                  </td>
-                </tr>
+                <tr><td colSpan={8} className="py-12 text-center text-gray-400">캔버스에 노드가 없습니다.</td></tr>
               ) : (
                 rows.map((row, idx) => {
                   const isEditing = editingIdx === idx;
                   const lc = LEVEL_COLORS[row.level] || LEVEL_COLORS.L4;
                   const isDragOver = dragOverIdx === idx;
+                  const indentLevel = { L2: 0, L3: 1, L4: 2, L5: 3 }[row.level] || 0;
+                  const nd = nodes.find(n => n.id === row.nodeId);
+                  const extSummary = nd ? getExtMetaSummary(nd) : "";
 
                   return (
                     <tr
@@ -366,125 +443,61 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                       onDragOver={(e) => handleDragOver(e, idx)}
                       onDragLeave={() => setDragOverIdx(null)}
                       onDrop={() => handleDrop(idx)}
-                      className={`border-b border-gray-100 transition-colors ${
-                        isDragOver ? "bg-blue-50 border-blue-300" : "hover:bg-gray-50/50"
-                      } ${isEditing ? "bg-yellow-50" : ""}`}
+                      className={`border-b border-gray-100 transition-colors ${isDragOver ? "bg-blue-50 border-blue-300" : "hover:bg-gray-50/50"} ${isEditing ? "bg-yellow-50" : ""}`}
                     >
-                      {/* 드래그 핸들 */}
-                      <td className="py-2 px-1 text-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none">
-                        ⠿
-                      </td>
+                      <td className="py-2 px-1 text-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none">⠿</td>
 
                       {isEditing && editForm ? (
-                        /* ── 편집 모드 ── */
                         <>
                           <td className="py-1.5 px-2">
-                            <select
-                              value={editForm.level}
-                              onChange={(e) => setEditForm({ ...editForm, level: e.target.value as RowData["level"] })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                            >
-                              {LEVEL_OPTIONS.map((lv) => (
-                                <option key={lv} value={lv}>{lv}</option>
-                              ))}
+                            <select value={editForm.level} onChange={(e) => setEditForm({ ...editForm, level: e.target.value as RowData["level"] })} className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50">
+                              {LEVEL_OPTIONS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
                             </select>
                           </td>
+                          <td className="py-1.5 px-2"><input value={editForm.displayId} onChange={(e) => setEditForm({ ...editForm, displayId: e.target.value })} className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50" /></td>
+                          <td className="py-1.5 px-2"><input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50" autoFocus /></td>
+                          <td className="py-1.5 px-2"><input value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50" /></td>
                           <td className="py-1.5 px-2">
-                            <input
-                              value={editForm.displayId}
-                              onChange={(e) => setEditForm({ ...editForm, displayId: e.target.value })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                            />
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <input
-                              value={editForm.name}
-                              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                              autoFocus
-                            />
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <input
-                              value={editForm.description}
-                              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                            />
-                          </td>
-                          <td className="py-1.5 px-2">
-                            <select
-                              value={editForm.role}
-                              onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                            >
+                            <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50">
                               <option value="">선택</option>
-                              {ROLE_OPTIONS.filter(Boolean).map((r) => (
-                                <option key={r} value={r}>{r}</option>
-                              ))}
+                              {ROLE_OPTIONS.filter(Boolean).map((r) => <option key={r} value={r}>{r}</option>)}
                             </select>
                           </td>
-                          <td className="py-1.5 px-2">
-                            <input
-                              value={editForm.memo}
-                              onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
-                              className="w-full border border-yellow-300 rounded px-1.5 py-1 text-xs bg-yellow-50"
-                            />
-                          </td>
+                          <td className="py-1.5 px-2 text-[10px] text-gray-400">(보존됨)</td>
                           <td className="py-1.5 px-2 text-center">
                             <div className="flex gap-1 justify-center">
-                              <button
-                                onClick={saveEdit}
-                                className="px-2 py-1 text-[10px] font-bold bg-green-500 text-white rounded hover:bg-green-600 transition"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={cancelEdit}
-                                className="px-2 py-1 text-[10px] font-bold bg-gray-300 text-gray-600 rounded hover:bg-gray-400 transition"
-                              >
-                                ✕
-                              </button>
+                              <button onClick={saveEdit} className="px-2 py-1 text-[10px] font-bold bg-green-500 text-white rounded hover:bg-green-600 transition">✓</button>
+                              <button onClick={cancelEdit} className="px-2 py-1 text-[10px] font-bold bg-gray-300 text-gray-600 rounded hover:bg-gray-400 transition">✕</button>
                             </div>
                           </td>
                         </>
                       ) : (
-                        /* ── 표시 모드 ── */
                         <>
                           <td className="py-2 px-2">
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold"
-                              style={{ backgroundColor: lc.bg, color: lc.text, border: `1px solid ${lc.border}` }}
-                            >
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ backgroundColor: lc.bg, color: lc.text, border: `1px solid ${lc.border}`, marginLeft: `${indentLevel * 12}px` }}>
                               {row.level}
                             </span>
                           </td>
                           <td className="py-2 px-2 font-mono text-gray-500">{row.displayId}</td>
-                          <td className="py-2 px-2 font-medium text-gray-800">{row.name}</td>
-                          <td className="py-2 px-2 text-gray-500 truncate max-w-[200px]" title={row.description}>
-                            {row.description || <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className="py-2 px-2 text-gray-500">
-                            {row.role || <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className="py-2 px-2 text-gray-500 truncate max-w-[150px]" title={row.memo}>
-                            {row.memo || <span className="text-gray-300">—</span>}
+                          <td className="py-2 px-2 font-medium text-gray-800" style={{ paddingLeft: `${8 + indentLevel * 16}px` }}>{row.name}</td>
+                          <td className="py-2 px-2 text-gray-500 truncate max-w-[200px]" title={row.description}>{row.description || <span className="text-gray-300">—</span>}</td>
+                          <td className="py-2 px-2 text-gray-500">{row.role || <span className="text-gray-300">—</span>}</td>
+                          <td className="py-2 px-2">
+                            {extSummary ? (
+                              <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded" title={extSummary}>
+                                📋 {extSummary.length > 30 ? extSummary.slice(0, 30) + "…" : extSummary}
+                              </span>
+                            ) : row.memo ? (
+                              <span className="text-[10px] text-gray-500" title={row.memo}>📝 {row.memo.slice(0, 20)}{row.memo.length > 20 ? "…" : ""}</span>
+                            ) : (
+                              <span className="text-gray-300 text-[10px]">—</span>
+                            )}
                           </td>
                           <td className="py-2 px-2 text-center">
-                            <div className="flex gap-1 justify-center">
-                              <button
-                                onClick={() => startEdit(idx)}
-                                className="px-2 py-1 text-[10px] font-bold bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition"
-                                title="수정"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                onClick={() => deleteRow(idx)}
-                                className="px-2 py-1 text-[10px] font-bold bg-red-100 text-red-600 rounded hover:bg-red-200 transition"
-                                title="삭제"
-                              >
-                                🗑️
-                              </button>
+                            <div className="flex gap-0.5 justify-center">
+                              <button onClick={() => startAddAfter(idx)} className="px-1.5 py-1 text-[10px] font-bold bg-blue-50 text-blue-500 rounded hover:bg-blue-100 transition" title="이 행 뒤에 삽입">➕</button>
+                              <button onClick={() => startEdit(idx)} className="px-1.5 py-1 text-[10px] font-bold bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition" title="수정">✏️</button>
+                              <button onClick={() => deleteRow(idx)} className="px-1.5 py-1 text-[10px] font-bold bg-red-100 text-red-600 rounded hover:bg-red-200 transition" title="삭제">🗑️</button>
                             </div>
                           </td>
                         </>
@@ -497,24 +510,13 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
           </table>
         </div>
 
-        {/* ═══ Footer ═══ */}
+        {/* Footer */}
         <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between flex-none bg-gray-50/50">
-          <span className="text-[10px] text-gray-400">
-            💡 ⠿ 아이콘을 드래그하여 순서를 변경하세요 · 변경사항은 캔버스에 즉시 반영됩니다
-          </span>
+          <span className="text-[10px] text-gray-400">💡 ⠿ 드래그→순서 변경 · ➕ 행 사이 삽입 · 🔢 ID 재번호→계층 기반 자동 번호 · 메타데이터 편집 시 보존</span>
           <div className="flex gap-2">
-            <button
-              onClick={exportCsv}
-              className="px-4 py-2 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
-            >
-              📥 엑셀(CSV) 내보내기
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              닫기
-            </button>
+            <button onClick={handleRenumber} className="px-4 py-2 text-xs font-medium bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition">🔢 ID 재번호</button>
+            <button onClick={exportCsv} className="px-4 py-2 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition">📥 엑셀(CSV)</button>
+            <button onClick={onClose} className="px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition">닫기</button>
           </div>
         </div>
       </div>

@@ -193,22 +193,25 @@ export function extractL3List(
 
 let dropCounter = 0;
 
-/** 캔버스 중앙 부근에 노드 하나를 생성 */
+/** 캔버스 중앙 부근에 노드 하나를 생성 (모든 메타데이터 포함) */
 export function createNodeFromItem(
   level: "l2" | "l3" | "l4" | "l5",
-  item: { id: string; name: string; description?: string },
+  item: { id: string; name: string; description?: string; [key: string]: unknown },
   position: { x: number; y: number }
 ): Node {
   dropCounter++;
+  // item에서 id, name, description 외의 모든 키를 메타데이터로 spread
+  const { id, name, description, ...rest } = item;
   return {
-    id: `${level}-${item.id}-${dropCounter}`,
+    id: `${level}-${id}-${dropCounter}`,
     type: level,
     position,
     data: {
-      label: item.name,
+      label: name,
       level: level.toUpperCase(),
-      id: item.id,
-      description: item.description ?? "",
+      id,
+      description: description ?? "",
+      ...rest,
     },
   };
 }

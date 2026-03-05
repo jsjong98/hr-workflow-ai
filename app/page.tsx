@@ -297,7 +297,7 @@ export default function Home() {
   const addNodeToCanvas = useCallback(
     (
       level: "l2" | "l3" | "l4" | "l5",
-      item: { id: string; name: string; description?: string }
+      item: { id: string; name: string; description?: string; [key: string]: unknown }
     ) => {
       nodeCountRef.current++;
       // Get current viewport center in flow coordinates
@@ -667,7 +667,7 @@ export default function Home() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        addNodeToCanvas("l2", l2);
+                        addNodeToCanvas("l2", { ...l2 });
                       }}
                       className={
                         "px-2 text-[10px] font-bold transition-colors " +
@@ -798,7 +798,7 @@ export default function Home() {
                   <div key={l4.id} className="mb-1">
                     <div className="flex items-stretch">
                       <button
-                        onClick={() => addNodeToCanvas("l4", l4)}
+                        onClick={() => addNodeToCanvas("l4", { ...l4 })}
                         className="flex-1 text-left px-3 py-2.5 text-sm font-bold text-black bg-[#DEDEDE] border-2 border-[#BBBBBB] rounded-l-lg hover:bg-[#CCCCCC] hover:border-[#888888] transition-colors"
                         title={l4.description || l4.name}
                       >
@@ -830,7 +830,7 @@ export default function Home() {
                         {l5Map[l4.id].map((l5) => (
                           <button
                             key={l5.id}
-                            onClick={() => addNodeToCanvas("l5", l5)}
+                            onClick={() => addNodeToCanvas("l5", { ...l5 })}
                             className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-black bg-white border border-[#DEDEDE] rounded hover:bg-[#F5F5F5] hover:border-[#AAAAAA] transition-colors"
                             title={l5.description || l5.name}
                           >
