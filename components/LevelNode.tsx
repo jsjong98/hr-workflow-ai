@@ -59,12 +59,12 @@ export const LEVEL_STYLES = {
     border: "border-[#DEDEDE]",
     badge: "bg-[#555555] text-white",
     shadow: "shadow-sm shadow-[#DEDEDE]/60",
-    font: "text-xl font-bold",
+    font: "text-[15px] font-bold",
     descFont: "text-sm font-medium",
-    minW: "min-w-[520px]",
-    maxW: "max-w-[700px]",
-    py: "py-10 px-9",
-    rounded: "rounded-md",
+    minW: "min-w-[300px]",
+    maxW: "max-w-[380px]",
+    py: "py-0 px-0",
+    rounded: "rounded-none",
     handleTarget: "!bg-[#888888]",
     handleSource: "!bg-[#555555]",
   },
@@ -107,10 +107,69 @@ function hasMeta(d: NodeData): boolean {
   return !!(d.memo || d.role || d.inputData || d.outputData || d.system);
 }
 
-/* ─── Generic level node with 4-directional handles ── */
+/* ─── Helper: get system display name for L5 ── */
+function getL5SystemName(data: NodeData): string {
+  if (data.system) return data.system;
+  if (data.systems) {
+    const activeTags = SYSTEM_TAGS.filter(t => data.systems![t.key]?.trim());
+    if (activeTags.length > 0) return activeTags.map(t => t.label).join(", ");
+  }
+  return "시스템명";
+}
+
+/* ─── L5 전용 2-Box 노드 (위: ID+레이블, 아래: 시스템명) ── */
+function L5NodeBase({ data }: { data: NodeData }) {
+  const s = LEVEL_STYLES.L5;
+  const sysName = getL5SystemName(data);
+
+  return (
+    <div
+      className="min-w-[300px] max-w-[380px] select-none relative shadow-sm shadow-[#DEDEDE]/60 transition-shadow hover:shadow-lg"
+    >
+      {/* ── Target handles ── */}
+      <Handle type="target" position={Position.Top} id="t-top" className="!w-5 !h-5 !bg-transparent !border-0 !-top-2.5" />
+      <Handle type="target" position={Position.Bottom} id="t-bottom" className="!w-5 !h-5 !bg-transparent !border-0 !-bottom-2.5" />
+      <Handle type="target" position={Position.Left} id="t-left" className="!w-5 !h-5 !bg-transparent !border-0 !-left-2.5" />
+      <Handle type="target" position={Position.Right} id="t-right" className="!w-5 !h-5 !bg-transparent !border-0 !-right-2.5" />
+
+      {/* ── Source handles ── */}
+      <Handle type="source" position={Position.Top} id="top" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-top-2.5 !z-10`} />
+      <Handle type="source" position={Position.Bottom} id="bottom" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-bottom-2.5 !z-10`} />
+      <Handle type="source" position={Position.Left} id="left" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`} />
+      <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
+
+      {/* ── 위쪽 박스: ID + 레이블 (흰 배경, 0.25pt 테두리) ── */}
+      <div className="bg-white px-4 py-3 flex flex-col items-center justify-center" style={{ minHeight: 110, border: '0.25pt solid #DEDEDE' }}>
+        <div className="text-[13px] font-bold text-black text-center leading-snug">
+          {data.id || ""}
+        </div>
+        <div className="text-[13px] font-bold text-black text-center leading-snug mt-0.5">
+          {data.label}
+        </div>
+      </div>
+
+      {/* ── 간격: 0.05cm ── */}
+      <div style={{ height: 2 }} />
+
+      {/* ── 아래쪽 박스: 시스템명 (연회색 채우기, 선 없음) ── */}
+      <div className="bg-[#DEDEDE] px-3 py-1.5 flex items-center justify-center" style={{ minHeight: 36 }}>
+        <div className="text-[11px] font-medium text-black text-center">
+          {sysName}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Generic level node with 4-directional handles (L2~L4) ── */
 function LevelNodeBase({ data }: { data: NodeData }) {
   const s = LEVEL_STYLES[data.level] ?? LEVEL_STYLES.L5;
   const metaPresent = hasMeta(data);
+
+  /* L5는 전용 2-box 노드 사용 */
+  if (data.level === "L5") {
+    return <L5NodeBase data={data} />;
+  }
 
   return (
     <div
@@ -207,35 +266,13 @@ function LevelNodeBase({ data }: { data: NodeData }) {
       {/* Role badge (compact) */}
       {data.role && (
         <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
-          data.level === "L4" || data.level === "L5"
+          data.level === "L4"
             ? "bg-black/10 text-black/70"
             : "bg-white/20 text-white/90"
         }`}>
           👤 {data.role}
         </div>
       )}
-
-      {/* 사용 시스템 태그 (L5 전용 — CSV systems 객체) */}
-      {data.systems && (() => {
-        const activeTags = SYSTEM_TAGS.filter(t => data.systems![t.key]?.trim());
-        if (activeTags.length === 0) return null;
-        return (
-          <div className="mt-3 pt-3 border-t border-black/10">
-            <div className="text-[10px] font-semibold text-black/40 mb-1.5 uppercase tracking-wide">사용 시스템</div>
-            <div className="flex flex-wrap gap-1.5">
-              {activeTags.map(t => (
-                <span
-                  key={t.key}
-                  className={`text-xs font-bold px-2.5 py-1 rounded-full ${s.badge}`}
-                  title={data.systems![t.key]}
-                >
-                  🖥️ {t.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

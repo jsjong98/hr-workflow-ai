@@ -1,131 +1,178 @@
 "use client";
 
 /**
- * SwimLaneOverlay — 4-partition horizontal swimlane overlay
+ * SwimLaneOverlay — PPT-proportioned slide frame overlay
  *
- * Rendered as a direct child of <ReactFlow>.
- * Uses useViewport() to get {x, y, zoom} and applies the same CSS
- * transform as .react-flow__viewport so lanes zoom/pan with the canvas.
+ * Uses useNodes() to compute the SAME scale (sc) as the PPT export,
+ * then maps the PPT slide boundary to canvas coordinates.
+ *
+ * X-axis: uses sc (from bbox + scRef) — matches PPT node placement
+ * Y-axis: uses px1 (swim lane height mapping) — matches PPT Phase 2.6
  */
 
-import { useViewport } from "@xyflow/react";
+import { useViewport, useNodes } from "@xyflow/react";
 
 interface Props {
   lanes?: string[];
-  width?: number;
-  height?: number;
+  swimHeight?: number;
 }
 
 const DEFAULT_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
 
-/* 통일된 배경 — 줄무늬 교대 (짝수: 좀 더 진하게, 홀수: 연하게) */
-const LANE_FILLS = [
-  "rgba(180,180,190,0.10)",
-  "rgba(200,200,210,0.06)",
-  "rgba(180,180,190,0.10)",
-  "rgba(200,200,210,0.06)",
-];
-const LANE_BORDER = "#C0C0C040";
-const LABEL_BG   = "#4A4A5A";
-const LABEL_COLOR = "#FFFFFF";
-const LABEL_WIDTH = 64;  // px — 세로 박스 폭
+/* ── PPT constants (must match ExportToolbar) ── */
+const PPT_W         = 13.33;
+const PPT_H         = 7.5;
+const PPT_PAD_X     = 1.25;
+const PPT_PAD_TOP   = 1.575;
+const PPT_PAD_BOT   = 0.35;
+const PPT_SWIM_BAND = 1.535;
+const PPT_SL_BOTTOM = PPT_H - PPT_PAD_BOT + 0.05;  // 7.2"
+
+/* ── Node canvas sizes (must match ExportToolbar LS) ── */
+const NS: Record<string, { w: number; h: number }> = {
+  L2: { w: 720, h: 260 },
+  L3: { w: 660, h: 240 },
+  L4: { w: 600, h: 220 },
+  L5: { w: 540, h: 389 },
+};
+const DEF_NS = NS.L4;
+const SC_REF = 0.787 / DEF_NS.h;  // 0.003577
+
+/* ── Styles ── */
+const FRAME_STROKE  = "#94A3B8";
+const DIVIDER_COLOR = "#B0B0B0";
+const TITLE_FILL    = "rgba(241,245,249,0.5)";
+const OVERFLOW_FILL = "rgba(254,226,226,0.15)";
+const MARGIN_COLOR  = "#CBD5E1";
 
 export default function SwimLaneOverlay({
   lanes = DEFAULT_LANES,
-  width = 6000,
-  height = 2400,
+  swimHeight = 2400,
 }: Props) {
   const { x, y, zoom } = useViewport();
-  const laneH = height / lanes.length;
+  const allNodes = useNodes();
+  const laneH = swimHeight / lanes.length;
+
+  /* ── Y-axis: fixed swim-lane scale ── */
+  const totalSwimIn = PPT_SWIM_BAND * lanes.length;  // 6.14"
+  const px1 = swimHeight / totalSwimIn;              // ~390.9
+  const slTop = PPT_SL_BOTTOM - totalSwimIn;         // ~1.06"
+
+  /* ── X-axis: compute sc from bbox (same as PPT export) ── */
+  let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+  for (const nd of allNodes) {
+    const lv = (nd.data as Record<string, string>)?.level || "L4";
+    const s = NS[lv] || DEF_NS;
+    bMinX = Math.min(bMinX, nd.position.x);
+    bMinY = Math.min(bMinY, nd.position.y);
+    bMaxX = Math.max(bMaxX, nd.position.x + s.w);
+    bMaxY = Math.max(bMaxY, nd.position.y + s.h);
+  }
+  if (!isFinite(bMinX)) { bMinX = 0; bMinY = 0; bMaxX = 3000; bMaxY = swimHeight; }
+  const bRangeX = (bMaxX - bMinX) || 1;
+  const bRangeY = (bMaxY - bMinY) || 1;
+
+  const areaW = PPT_W - 2 * PPT_PAD_X;
+  const areaH = PPT_H - PPT_PAD_TOP - PPT_PAD_BOT;
+  const scFit = Math.min(areaW / bRangeX, areaH / bRangeY);
+  const sc = Math.min(scFit, SC_REF);
+
+  /* ── Frame in canvas coords (X: 1/sc, Y: px1) ── */
+  const frameL = bMinX - PPT_PAD_X / sc;
+  const frameW = PPT_W / sc;
+  const frameT = -(slTop * px1);
+  const frameH = PPT_H * px1;
+
+  const titleH = -frameT;
+  const contentL = PPT_PAD_X / sc;
+  const contentR = (PPT_W - PPT_PAD_X) / sc;
+
+  const extW = frameW + 800;
+  const extH = frameH + 300;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        overflow: "hidden",
-        pointerEvents: "none",
-        zIndex: 1,
-      }}
-    >
-      {/* Inner: apply same transform as .react-flow__viewport */}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          transformOrigin: "0 0",
-          transform: `translate(${x}px, ${y}px) scale(${zoom})`,
-          width,
-          height,
-        }}
-      >
-        {/* Lane band fills + divider lines */}
+    <div style={{
+      position: "absolute", top: 0, left: 0,
+      width: "100%", height: "100%",
+      overflow: "hidden", pointerEvents: "none", zIndex: 1,
+    }}>
+      <div style={{
+        position: "absolute", left: 0, top: 0,
+        transformOrigin: "0 0",
+        transform: `translate(${x}px, ${y}px) scale(${zoom})`,
+      }}>
         <svg
-          width={width}
-          height={height}
-          style={{ position: "absolute", left: 0, top: 0 }}
+          width={extW}
+          height={extH}
+          style={{ position: "absolute", left: frameL, top: frameT }}
         >
-          {lanes.map((_label, i) => {
-            const ly = i * laneH;
-            return (
-              <g key={i}>
-                <rect x={0} y={ly} width={width} height={laneH} fill={LANE_FILLS[i % LANE_FILLS.length]} />
-                {i > 0 && (
-                  <line
-                    x1={0} y1={ly} x2={width} y2={ly}
-                    stroke={LANE_BORDER} strokeWidth={2} strokeDasharray="14 7"
-                  />
-                )}
-              </g>
-            );
-          })}
-          <line
-            x1={0} y1={height} x2={width} y2={height}
-            stroke={LANE_BORDER} strokeWidth={2} strokeDasharray="14 7"
-          />
+          {/* Overflow zones */}
+          <rect x={frameW} y={0} width={extW - frameW} height={frameH} fill={OVERFLOW_FILL} />
+          <rect x={0} y={frameH} width={extW} height={extH - frameH} fill={OVERFLOW_FILL} />
+
+          {/* Title area */}
+          <rect x={1} y={1} width={frameW - 2} height={Math.max(titleH - 1, 0)} fill={TITLE_FILL} />
+
+          {/* Bottom margin */}
+          {(() => {
+            const botY = titleH + swimHeight;
+            const botH = frameH - botY;
+            return botH > 1
+              ? <rect x={1} y={botY} width={frameW - 2} height={botH - 1} fill={TITLE_FILL} />
+              : null;
+          })()}
+
+          {/* Slide frame border */}
+          <rect x={0} y={0} width={frameW} height={frameH}
+            fill="none" stroke={FRAME_STROKE} strokeWidth={2} rx={2} />
+
+          {/* Content margin guides */}
+          <line x1={contentL} y1={titleH} x2={contentL} y2={titleH + swimHeight}
+            stroke={MARGIN_COLOR} strokeWidth={1} strokeDasharray="6 4" opacity={0.5} />
+          <line x1={contentR} y1={titleH} x2={contentR} y2={titleH + swimHeight}
+            stroke={MARGIN_COLOR} strokeWidth={1} strokeDasharray="6 4" opacity={0.5} />
+
+          {/* Swim lane dividers */}
+          {Array.from({ length: lanes.length + 1 }, (_, i) => (
+            <line key={`d${i}`}
+              x1={0} y1={titleH + i * laneH}
+              x2={frameW} y2={titleH + i * laneH}
+              stroke={DIVIDER_COLOR} strokeWidth={1.5} strokeDasharray="10 6" />
+          ))}
+
+          {/* PPT badge */}
+          <rect x={6} y={6} width={120} height={20} rx={3} fill="white" fillOpacity={0.9} />
+          <text x={12} y={20} fontSize={11} fill="#64748B" fontWeight="600"
+            fontFamily="'Noto Sans KR',sans-serif">PPT 슬라이드</text>
+
+          {titleH > 80 && (
+            <text x={frameW / 2} y={titleH / 2 + 4} fontSize={12} fill="#94A3B8"
+              textAnchor="middle" fontFamily="'Noto Sans KR',sans-serif">제목 영역</text>
+          )}
+
+          <text x={frameW + 12} y={titleH + swimHeight / 2} fontSize={11} fill="#EF4444"
+            opacity={0.5} fontWeight="500" fontFamily="'Noto Sans KR',sans-serif">
+            ← PPT 경계
+          </text>
         </svg>
 
-        {/* Lane labels — full-height vertical boxes on the left */}
-        {lanes.map((label, i) => {
-          const ly = i * laneH;
-          return (
-            <div
-              key={"lbl-" + i}
-              style={{
-                position: "absolute",
-                left: 0,
-                top: ly,
-                width: LABEL_WIDTH,
-                height: laneH,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: LABEL_BG,
-                borderRight: "3px solid rgba(255,255,255,0.25)",
-                writingMode: "vertical-rl",
-                textOrientation: "mixed",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 48,
-                  fontWeight: 800,
-                  fontFamily: "'Noto Sans KR', sans-serif",
-                  color: LABEL_COLOR,
-                  whiteSpace: "nowrap",
-                  lineHeight: 1,
-                  letterSpacing: "0.15em",
-                }}
-              >
-                {label}
-              </span>
-            </div>
-          );
-        })}
+        {/* Lane labels */}
+        {lanes.map((label, i) => (
+          <div key={`lbl-${i}`} style={{
+            position: "absolute",
+            left: frameL + 12,
+            top: i * laneH + 10,
+            width: 120, height: 30,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "#FFF", border: "1.5px solid #B0B0B0", borderRadius: 2,
+          }}>
+            <span style={{
+              fontSize: 13, fontWeight: 500,
+              fontFamily: "'Noto Sans KR',sans-serif",
+              color: "#333", whiteSpace: "nowrap", lineHeight: 1,
+            }}>{label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

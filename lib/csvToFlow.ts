@@ -295,12 +295,12 @@ export function buildFlowFromL3(
     target: l3NodeId,
     type: "smoothstep",
     animated: true,
-    style: { stroke: "#a62121", strokeWidth: 2.5 },
+    style: { stroke: "#333333", strokeWidth: 2.5 },
     markerEnd: {
       type: MarkerType.ArrowClosed,
       width: 20,
       height: 20,
-      color: "#a62121",
+      color: "#333333",
     },
   });
 
@@ -331,12 +331,12 @@ export function buildFlowFromL3(
       target: nodeId,
       type: "smoothstep",
       animated: false,
-      style: { stroke: "#d95578", strokeWidth: 2 },
+      style: { stroke: "#333333", strokeWidth: 2 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 18,
         height: 18,
-        color: "#d95578",
+        color: "#333333",
       },
     });
     l4Y += ROW_GAP;
@@ -394,12 +394,12 @@ export function buildFlowFromL3(
         target: l5NodeId,
         type: "smoothstep",
         animated: false,
-        style: { stroke: "#f2a0af", strokeWidth: 1.5 },
+        style: { stroke: "#333333", strokeWidth: 1.5 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           width: 16,
           height: 16,
-          color: "#f2a0af",
+          color: "#333333",
         },
       });
       l5Index++;
@@ -477,9 +477,11 @@ export function buildSwimLaneFlowFromL3(
   }
 
   // L4별로 L5를 수평 배치, 각 L5는 자신의 레인(Y좌표)에 배치
-  const L4_COL_WIDTH = 780;       // L4 그룹 간 X 간격
-  const NODE_X_GAP = 740;         // 같은 레인 내 L5 간 X 간격
-  const L4_START_X = 200;
+  // ※ PPT 슬라이드(13.33"×7.5") 콘텐츠 영역에 맞춘 간격
+  // PPT 콘텐츠 영역 너비 = 10.83" × 390.9 px/in ≈ 4233 canvas px
+  const L4_COL_WIDTH = 560;       // L4 그룹 간 X 간격
+  const NODE_X_GAP = 520;         // 같은 레인 내 L5 간 X 간격
+  const L4_START_X = 490;         // PPT PAD_X(1.25") × 390.9 ≈ 489
   const LANE_PAD_TOP = 60;        // 레인 상단 여백
   const L4_NODE_HEIGHT = 220;     // L4 노드 실제 렌더 높이 근사값
   const L5_LANE_OFFSET = 80;      // L5의 레인 내 추가 오프셋 (비-L4 레인)
@@ -548,8 +550,8 @@ export function buildSwimLaneFlowFromL3(
         target: l5NodeId,
         type: "smoothstep",
         animated: false,
-        style: { stroke: "#f2a0af", strokeWidth: 1.5 },
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#f2a0af" },
+        style: { stroke: "#333333", strokeWidth: 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#333333" },
       });
 
       laneNextX[lane] = x + NODE_X_GAP;
@@ -575,8 +577,8 @@ export function buildSwimLaneFlowFromL3(
       target: l4NodeId,
       type: "smoothstep",
       animated: false,
-      style: { stroke: "#d95578", strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: "#d95578" },
+      style: { stroke: "#333333", strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: "#333333" },
     });
   }
 

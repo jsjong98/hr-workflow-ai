@@ -176,14 +176,19 @@ export default function ExportToolbar({
       /* L3: 해당색 채우기+흰글씨 | L4: light gray 채우기 | L5: 흰바탕+light gray 윤곽 */
       const LIGHT_GRAY = "DEDEDE";
       const FONT_FACE = "Noto Sans KR";
-      const FONT_SIZE = 14;
 
       const LS: Record<string, { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }> = {
-        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
-        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
+        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: 12, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
+        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: 12, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
+        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: 12, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
+        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: 9, pxW: 540, pxH: 389, pptW: 1.24, pptH: 0.894 },
       };
+      /* L5 2-box 고정 치수 (인치) — 스케일링 무시, 항상 이 크기 */
+      const L5_FIXED_W  = 1.240;  // 3.15cm
+      const L5_UPPER_H  = 0.685;  // 1.74cm
+      const L5_LOWER_H  = 0.213;  // 0.54cm
+      const L5_GAP      = 0.020;  // 0.05cm
+      const L5_FIXED_H  = L5_UPPER_H + L5_GAP + L5_LOWER_H; // 0.918" = 2.33cm
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -235,15 +240,35 @@ export default function ExportToolbar({
       /* ═══════════════════════════════════════════
        * SLIDE 2 — Workflow Diagram (Native Shapes)
        * ═══════════════════════════════════════════ */
-      // 슬라이드 제목: 최상위(가장 낮은) 레벨 노드의 ID + 레이블 기반 자동 생성
+      // 슬라이드 제목: 자식 레벨 존재 + 단일 부모 → 부모 정보 + 부모 레벨 프로세스 맵
+      // 예: L5들이 같은 L4에 속함 → "L4_ID L4_Name — L4 프로세스 맵"
       const currentSheet = sheets?.find((s) => s.id === activeSheetId);
       const slideTitle = (() => {
         const levelOrder = ["L2", "L3", "L4", "L5"];
+        const lvCounts: Record<string, number> = {};
+        const lvFirst: Record<string, Node> = {};
+        for (const nd of nodes) {
+          const lv = getLevel(nd);
+          lvCounts[lv] = (lvCounts[lv] || 0) + 1;
+          if (!lvFirst[lv]) lvFirst[lv] = nd;
+        }
+        // 깊은 레벨부터 탐색: 자식 존재 + 부모 1개 → 부모 정보 사용
+        for (let i = levelOrder.length - 1; i >= 1; i--) {
+          const childLv = levelOrder[i];
+          const parentLv = levelOrder[i - 1];
+          if ((lvCounts[childLv] || 0) > 0 && (lvCounts[parentLv] || 0) === 1) {
+            const nd = lvFirst[parentLv];
+            const label = getLabel(nd);
+            const dispId = getDisplayId(nd);
+            return label ? `${dispId} ${label} — ${parentLv} 프로세스 맵` : `${dispId} — ${parentLv} 프로세스 맵`;
+          }
+        }
+        // fallback: 가장 높은 단일 레벨 노드
         for (const lv of levelOrder) {
-          const topNode = nodes.find((n) => getLevel(n) === lv);
-          if (topNode) {
-            const label = getLabel(topNode);
-            const dispId = getDisplayId(topNode);
+          if (lvFirst[lv]) {
+            const nd = lvFirst[lv];
+            const label = getLabel(nd);
+            const dispId = getDisplayId(nd);
             return label ? `${dispId} ${label} — ${lv} 프로세스 맵` : `${dispId} — ${lv} 프로세스 맵`;
           }
         }
@@ -260,37 +285,72 @@ export default function ExportToolbar({
       const isSwimLane = currentSheet?.type === "swimlane";
       const swimLanes = currentSheet?.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
       const SWIM_COLORS = [
-        { fill: "F5DBDB", border: "A6212138", labelBg: "A62121", labelColor: "FFFFFF" },
-        { fill: "FCEEF2", border: "D9557838", labelBg: "D95578", labelColor: "FFFFFF" },
-        { fill: "FDF5F7", border: "F2A0AF45", labelBg: "F2A0AF", labelColor: "333333" },
-        { fill: "F9F5F6", border: "DEDEDE55", labelBg: "DEDEDE", labelColor: "333333" },
+        { fill: "F5F5F5", border: "C0C0C0" },
+        { fill: "FFFFFF", border: "C0C0C0" },
+        { fill: "F5F5F5", border: "C0C0C0" },
+        { fill: "FFFFFF", border: "C0C0C0" },
       ];
-      const SWIM_LABEL_W = 0.45; // vertical label column width
-      const PAD_X = isSwimLane ? 0.55 : 0.4;
+      const SWIM_LABEL_W = 0.45; // vertical label column width (레거시: 점선 시작 x)
+      const PAD_X = isSwimLane ? 1.25 : 0.4; // 레이블 박스(1.05") 뒤로 밀기
       const PAD_TOP = 1.575; // 4cm 상단 여백
       const PAD_BOTTOM = 0.35;
+      // 수영레인 밴드 상수 (Phase 2.6에서도 재사용)
+      const SWIM_BAND_H = 1.535; // 3.9cm per lane (기본 균등 높이)
+      const SL_BAND_BOTTOM = SLIDE_H - PAD_BOTTOM + 0.05; // 7.2"
+      const SL_BAND_TOP = SL_BAND_BOTTOM - SWIM_BAND_H * swimLanes.length; // ~1.06"
+      const TOTAL_SWIM_H = SWIM_BAND_H * swimLanes.length;
+
+      // ── 동적 레인 높이: 2행 레인에 더 많은 공간 배분 ──
+      const dynamicLaneH: number[] = swimLanes.map(() => SWIM_BAND_H);
+      const dynamicLaneTops: number[] = [];
       if (isSwimLane) {
-        const bandTop = PAD_TOP - 0.05;
-        const bandBottom = SLIDE_H - PAD_BOTTOM + 0.05;
-        const bandH = (bandBottom - bandTop) / swimLanes.length;
+        const CL_H = 600; // canvas lane height (csvToFlow: 2400/4)
+        const laneRowCounts: number[] = [];
+        for (let li = 0; li < swimLanes.length; li++) {
+          const ys: number[] = [];
+          for (const nd of nodes) {
+            const idx = Math.min(Math.max(Math.floor(nd.position.y / CL_H), 0), swimLanes.length - 1);
+            if (idx === li) ys.push(nd.position.y);
+          }
+          ys.sort((a, b) => a - b);
+          let rows = 0, lastY = -Infinity;
+          for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
+          laneRowCounts.push(Math.max(rows, 1));
+        }
+        const totalW = laneRowCounts.reduce((s, c) => s + c, 0);
+        const MIN_H = 0.7; // 최소 레인 높이
         for (let i = 0; i < swimLanes.length; i++) {
-          const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
-          const by = bandTop + i * bandH;
-          // Band background (shifted right for label column)
-          s2.addShape("rect", {
-            x: SWIM_LABEL_W, y: by, w: SLIDE_W - SWIM_LABEL_W, h: bandH,
-            fill: { color: sc2.fill },
-            line: { color: sc2.border, width: 0.3, dashType: "dash" },
+          dynamicLaneH[i] = Math.max(TOTAL_SWIM_H * laneRowCounts[i] / totalW, MIN_H);
+        }
+        // 정규화: 합 = TOTAL_SWIM_H
+        const hSum = dynamicLaneH.reduce((s, h) => s + h, 0);
+        for (let i = 0; i < dynamicLaneH.length; i++) dynamicLaneH[i] *= TOTAL_SWIM_H / hSum;
+      }
+      // 레인 상단 좌표 계산
+      { let ct = SL_BAND_TOP; for (let i = 0; i < swimLanes.length; i++) { dynamicLaneTops.push(ct); ct += dynamicLaneH[i]; } }
+
+      if (isSwimLane) {
+        // 수평 구분선: 동적 높이 기반 (점선)
+        let ly = SL_BAND_TOP;
+        for (let i = 0; i <= swimLanes.length; i++) {
+          s2.addShape("line", {
+            x: 0, y: ly, w: SLIDE_W, h: 0,
+            line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
           });
-          // Vertical lane label box (left side, full band height)
+          if (i < swimLanes.length) ly += dynamicLaneH[i];
+        }
+        // 레이블 박스: 각 레인 상단 좌측 (가로 텍스트, 흰색 배경)
+        const LBL_BOX_W = 1.05;
+        const LBL_BOX_H = 0.26;
+        for (let i = 0; i < swimLanes.length; i++) {
+          const labelY = dynamicLaneTops[i] + 0.06;
           s2.addText(swimLanes[i], {
-            x: 0, y: by, w: SWIM_LABEL_W, h: bandH,
+            x: 0.04, y: labelY, w: LBL_BOX_W, h: LBL_BOX_H,
             shape: pptx.ShapeType.rect,
-            fill: { color: "4A4A5A" },
-            line: { color: "4A4A5A", width: 0.3 },
-            fontSize: 9, fontFace: FONT_FACE, bold: true, color: "FFFFFF",
+            fill: { color: "FFFFFF" },
+            line: { color: "B0B0B0", width: 0.5 },
+            fontSize: 9, fontFace: FONT_FACE, color: "333333",
             align: "center", valign: "middle",
-            rotate: 270,
           });
         }
       }
@@ -331,7 +391,12 @@ export default function ExportToolbar({
       const rawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
       for (const nd of nodes) {
         const s = LS[getLevel(nd)] || DEF;
-        rawPos[nd.id] = { rfX: nd.position.x, rfY: nd.position.y, w: s.pxW * sc, h: s.pxH * sc };
+        const isL5 = getLevel(nd) === "L5";
+        rawPos[nd.id] = {
+          rfX: nd.position.x, rfY: nd.position.y,
+          w: isL5 ? L5_FIXED_W : s.pxW * sc,
+          h: isL5 ? L5_FIXED_H : s.pxH * sc,
+        };
       }
 
       // ── Phase 2: 콜럼 정규화 — 같은 X군 안에서 X 스냅 + 세로 등간격 ────────────────
@@ -369,25 +434,92 @@ export default function ExportToolbar({
         }
       }
 
-      // ── Phase 2.5: Cross-column Y 정렬 — 혼자 있는 컬럼 노드 → 연결 노드 median centerY ──
-      for (const grp of pColGrps) {
-        if (grp.length !== 1) continue;
-        const nid = grp[0];
-        const box = nodeBoxes[nid];
-        if (!box) continue;
-        const connCenterYs: number[] = [];
-        for (const e of edges) {
-          const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
-          if (!cid) continue;
-          const cb = nodeBoxes[cid];
-          if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+      // ── Phase 2.5: Cross-column Y 정렬 (수영레인 모드에서는 스킵) ──
+      if (!isSwimLane) {
+        for (const grp of pColGrps) {
+          if (grp.length !== 1) continue;
+          const nid = grp[0];
+          const box = nodeBoxes[nid];
+          if (!box) continue;
+          const connCenterYs: number[] = [];
+          for (const e of edges) {
+            const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
+            if (!cid) continue;
+            const cb = nodeBoxes[cid];
+            if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+          }
+          if (connCenterYs.length === 0) continue;
+          connCenterYs.sort((a, b) => a - b);
+          const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
+          const newY = medianCy - box.h / 2;
+          box.y = Math.max(PAD_TOP, Math.min(newY, SLIDE_H - PAD_BOTTOM - box.h));
         }
-        if (connCenterYs.length === 0) continue;
-        connCenterYs.sort((a, b) => a - b);
-        const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
-        const newY = medianCy - box.h / 2;
-        // 슬라이드 영역 안에 클램프
-        box.y = Math.max(PAD_TOP, Math.min(newY, SLIDE_H - PAD_BOTTOM - box.h));
+      }
+
+      // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
+      if (isSwimLane) {
+        const CANVAS_LANE_H = 600;
+        const laneMap: Record<number, string[]> = {};
+        for (const nd of nodes) {
+          const box = nodeBoxes[nd.id];
+          if (!box) continue;
+          const rfY = nd.position.y;
+          const laneIdx = Math.min(Math.max(Math.floor(rfY / CANVAS_LANE_H), 0), swimLanes.length - 1);
+          if (!laneMap[laneIdx]) laneMap[laneIdx] = [];
+          laneMap[laneIdx].push(nd.id);
+        }
+        for (const [li, ids] of Object.entries(laneMap)) {
+          const laneIdx = Number(li);
+          const laneTop = dynamicLaneTops[laneIdx];
+          const laneH = dynamicLaneH[laneIdx];
+          const pad = 0.06;
+          // 캔버스 Y 범위
+          const items = ids.map(id => {
+            const nd = nodes.find(n => n.id === id)!;
+            return { id, rfY: nd.position.y, h: nodeBoxes[id].h };
+          });
+          const rfYMin = Math.min(...items.map(c => c.rfY));
+          const rfYMax = Math.max(...items.map(c => c.rfY));
+          const rfSpan = rfYMax - rfYMin;
+
+          if (rfSpan < 50) {
+            // 같은 행: 레인 중앙 — 동일 높이 노드들은 동일 Y로 스냅
+            // L5는 커넥터가 upper box 중앙(L5_UPPER_H/2)에 붙으므로,
+            // 동일 row 내 L4/L5 스냅: 커넥터 Y가 일치하도록 보정
+            const l5Items = items.filter(c => {
+              const nd = nodes.find(n => n.id === c.id)!;
+              return getLevel(nd) === "L5";
+            });
+            const otherItems = items.filter(c => {
+              const nd = nodes.find(n => n.id === c.id)!;
+              return getLevel(nd) !== "L5";
+            });
+            // L5 노드: 레인 중앙 정렬 (커넥터Y = y + L5_UPPER_H/2)
+            for (const { id, h } of l5Items) {
+              nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+            }
+            // 비-L5 노드: L5 커넥터Y에 맞춰서 정렬 (connY = y + h/2 == l5ConnY)
+            if (l5Items.length > 0 && otherItems.length > 0) {
+              const l5Y0 = nodeBoxes[l5Items[0].id].y;
+              const l5ConnY = l5Y0 + L5_UPPER_H / 2;
+              for (const { id, h } of otherItems) {
+                nodeBoxes[id].y = l5ConnY - h / 2;
+              }
+            } else {
+              for (const { id, h } of otherItems) {
+                nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+              }
+            }
+          } else {
+            // 비례 매핑: 캔버스 상대위치 → PPT 레인 내 위치 (두 행 그대로 유지)
+            const maxH = Math.max(...items.map(c => c.h));
+            const availSpan = laneH - 2 * pad - maxH;
+            for (const { id, rfY, h } of items) {
+              const ratio = (rfY - rfYMin) / rfSpan;
+              nodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
+            }
+          }
+        }
       }
 
       // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────────────
@@ -398,27 +530,64 @@ export default function ExportToolbar({
         if (!box) continue;
         const dispLabel = getLabel(nd);
         const dispId = getDisplayId(nd);
-        s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-          x: box.x, y: box.y, w: box.w, h: box.h,
-          shape: pptx.ShapeType.rect,
-          fill: { color: s.bg },
-          line: { color: s.border, width: level === "L5" ? 1.5 : 0.5 },
-          fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
-          fontFace: FONT_FACE, valign: "middle", align: "center",
-        });
-        const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-        if (sysMap) {
-          const SYS_KEYS: { key: string; label: string }[] = [
-            { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-            { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
-          ];
-          const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-          if (activeSys.length > 0) {
-            s2.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
-              x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
-              fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
-              fontFace: FONT_FACE, align: "center", bold: true,
-            });
+
+        if (level === "L5") {
+          /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
+          // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
+          s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+            x: box.x, y: box.y, w: L5_FIXED_W, h: L5_UPPER_H,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "FFFFFF" },
+            line: { color: "DEDEDE", width: 0.25 },
+            fontSize: 9, bold: true, color: "000000",
+            fontFace: FONT_FACE, valign: "middle", align: "center",
+          });
+          // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
+          const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+          const sysStr = (nd.data as Record<string, string>).system || "";
+          let sysName = "시스템명";
+          if (sysStr) {
+            sysName = sysStr;
+          } else if (sysMap) {
+            const SYS_KEYS = [
+              { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
+              { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+            ];
+            const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
+            if (active.length > 0) sysName = active.map(k => k.label).join(", ");
+          }
+          s2.addText(sysName, {
+            x: box.x, y: box.y + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "DEDEDE" },
+            line: { width: 0 },
+            fontSize: 7, bold: false, color: "000000",
+            fontFace: FONT_FACE, valign: "middle", align: "center",
+          });
+        } else {
+          /* ── L2~L4: 기존 단일 박스 ── */
+          s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+            x: box.x, y: box.y, w: box.w, h: box.h,
+            shape: pptx.ShapeType.rect,
+            fill: { color: s.bg },
+            line: { color: s.border, width: 0.25 },
+            fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
+            fontFace: FONT_FACE, valign: "middle", align: "center",
+          });
+          const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+          if (sysMap) {
+            const SYS_KEYS: { key: string; label: string }[] = [
+              { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
+              { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+            ];
+            const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
+            if (activeSys.length > 0) {
+              s2.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+                x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
+                fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
+                fontFace: FONT_FACE, align: "center", bold: true,
+              });
+            }
           }
         }
       }
@@ -435,11 +604,16 @@ export default function ExportToolbar({
         srcNodeId: string; tgtNodeId: string;
         srcBox: { x: number; y: number; w: number; h: number };
         tgtBox: { x: number; y: number; w: number; h: number };
+        srcIsL5: boolean; tgtIsL5: boolean;
         isStraight: boolean;  // true=직선, false=꺾인선
         isHorizontal: boolean; // true=가로 우세, false=세로 우세
         bidi: boolean;
       }
       const connectors: ConnectorMeta[] = [];
+
+      // 노드 레벨 룩업
+      const nodeLevelMap: Record<string, string> = {};
+      for (const nd of nodes) nodeLevelMap[nd.id] = getLevel(nd);
 
       const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
         a.y < b.y + b.h && b.y < a.y + a.h;
@@ -460,6 +634,8 @@ export default function ExportToolbar({
         connectors.push({
           srcNodeId: e.source, tgtNodeId: e.target,
           srcBox: src, tgtBox: tgt,
+          srcIsL5: nodeLevelMap[e.source] === "L5",
+          tgtIsL5: nodeLevelMap[e.target] === "L5",
           isStraight, isHorizontal, bidi,
         });
       }
@@ -771,48 +947,23 @@ export default function ExportToolbar({
           if (!srcSid || !tgtSid) continue;
 
           const src = c.srcBox, tgt = c.tgtBox;
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-
-          let x1: number, y1: number, x2: number, y2: number;
-          let stIdx: number, endIdx: number;
-          let prst: string;
-
-          // 연결점 인덱스: 0=top, 1=right, 2=bottom, 3=left (rect preset)
-          if (c.isStraight && c.isHorizontal) {
-            x1 = dx >= 0 ? src.x + src.w : src.x;
-            y1 = srcCy;
-            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
-            y2 = tgtCy;
-            stIdx = dx >= 0 ? 1 : 3;
-            endIdx = dx >= 0 ? 3 : 1;
-            prst = "straightConnector1";
-          } else if (c.isStraight && !c.isHorizontal) {
-            x1 = srcCx;
-            y1 = dy >= 0 ? src.y + src.h : src.y;
-            x2 = tgtCx;
-            y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            stIdx = dy >= 0 ? 2 : 0;
-            endIdx = dy >= 0 ? 0 : 2;
-            prst = "straightConnector1";
-          } else if (c.isHorizontal) {
-            x1 = dx >= 0 ? src.x + src.w : src.x;
-            y1 = srcCy;
-            x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w;
-            y2 = tgtCy;
-            stIdx = dx >= 0 ? 1 : 3;
-            endIdx = dx >= 0 ? 3 : 1;
-            prst = "bentConnector3";
-          } else {
-            x1 = srcCx;
-            y1 = dy >= 0 ? src.y + src.h : src.y;
-            x2 = tgtCx;
-            y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            stIdx = dy >= 0 ? 2 : 0;
-            endIdx = dy >= 0 ? 0 : 2;
-            prst = "bentConnector3";
+          // L5: stCxn이 위쪽 박스를 참조하므로 위쪽 박스 중앙 Y 사용
+          let srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
+          let tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
+          // Y 스냅: 미세한 차이(≤0.08") → 동일 Y (대각선 방지)
+          if (Math.abs(srcConnY - tgtConnY) < 0.08) {
+            const avgY = (srcConnY + tgtConnY) / 2;
+            srcConnY = avgY; tgtConnY = avgY;
           }
+
+          // roundRect 커넥션포인트: idx=3=오른쪽, idx=1=왼쪽
+          const stIdx = 3, endIdx = 1;
+          const x1 = src.x + src.w;  // source right edge
+          const y1 = srcConnY;
+          const x2 = tgt.x;          // target left edge
+          const y2 = tgtConnY;
+          // 같은 행 → 직선, 다른 행 → 꺾인선(bentConnector3)
+          const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
 
           const offX = Math.round(Math.min(x1, x2) * EMU);
           const offY = Math.round(Math.min(y1, y2) * EMU);
@@ -820,7 +971,11 @@ export default function ExportToolbar({
           const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
           const flipH = x2 < x1 ? ' flipH="1"' : "";
           const flipV = y2 < y1 ? ' flipV="1"' : "";
+          // OOXML: tailEnd = 끝점(target) 화살표, headEnd = 시작점(source) 화살표(양방향)
           const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
+          // 엣지 색상: L5↔L5 = 회색(DEDEDE), 나머지 = 검정(333333)
+          const isL5Edge = c.srcIsL5 && c.tgtIsL5;
+          const lineClr = isL5Edge ? "DEDEDE" : "333333";
 
           cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
             + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
@@ -833,9 +988,9 @@ export default function ExportToolbar({
             + `<a:off x="${offX}" y="${offY}"/>`
             + `<a:ext cx="${extCx}" cy="${extCy}"/>`
             + `</a:xfrm>`
-            + `<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom>`
-            + `<a:ln w="12700">`
-            + `<a:solidFill><a:srgbClr val="000000"/></a:solidFill>`
+            + `<a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom>`
+            + `<a:ln w="6350">`
+            + `<a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>`
             + headArrow
             + `<a:tailEnd type="triangle" w="med" len="med"/>`
             + `</a:ln></p:spPr></p:cxnSp>`;
@@ -910,17 +1065,22 @@ export default function ExportToolbar({
 
       const LIGHT_GRAY = "DEDEDE";
       const FONT_FACE = "Noto Sans KR";
-      const FONT_SIZE = 14;
 
       const LS: Record<
         string,
         { bg: string; border: string; text: string; fontSize: number; pxW: number; pxH: number; pptW: number; pptH: number }
       > = {
-        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
-        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: FONT_SIZE, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
-        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
-        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: FONT_SIZE, pxW: 540, pxH: 200, pptW: 1.42, pptH: 0.53 },
+        L2: { bg: "A62121", border: "A62121", text: "FFFFFF", fontSize: 12, pxW: 720, pxH: 260, pptW: 1.90, pptH: 0.68 },
+        L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: 12, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
+        L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: 12, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
+        L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: 9, pxW: 540, pxH: 389, pptW: 1.24, pptH: 0.894 },
       };
+      /* L5 2-box 고정 치수 (인치) — 스케일링 무시, 항상 이 크기 */
+      const L5_FIXED_W_ALL  = 1.240;  // 3.15cm
+      const L5_UPPER_H_ALL  = 0.685;  // 1.74cm
+      const L5_LOWER_H_ALL  = 0.213;  // 0.54cm
+      const L5_GAP_ALL      = 0.020;  // 0.05cm
+      const L5_FIXED_H_ALL  = L5_UPPER_H_ALL + L5_GAP_ALL + L5_LOWER_H_ALL; // 0.918"
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -968,17 +1128,17 @@ export default function ExportToolbar({
 
       /* ── 시트별 다이어그램 슬라이드 ── */
       const SWIM_COLORS = [
-        { fill: "F5DBDB", border: "A6212138" },
-        { fill: "FCEEF2", border: "D9557838" },
-        { fill: "FDF5F7", border: "F2A0AF45" },
-        { fill: "F9F5F6", border: "DEDEDE55" },
+        { fill: "F5F5F5", border: "C0C0C0" },
+        { fill: "FFFFFF", border: "C0C0C0" },
+        { fill: "F5F5F5", border: "C0C0C0" },
+        { fill: "FFFFFF", border: "C0C0C0" },
       ];
       const SWIM_LABEL_W = 0.45;
 
       // 슬라이드별 커넥터 메타 수집
       const allSlideConnectors: {
         slideIndex: number;
-        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; isStraight: boolean; isHorizontal: boolean; bidi: boolean }[];
+        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
       }[] = [];
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
@@ -1003,9 +1163,40 @@ export default function ExportToolbar({
         const bRangeX = (bMaxX - bMinX) || 1;
         const bRangeY = (bMaxY - bMinY) || 1;
 
-        const sPadX = isSwimLane ? 0.55 : 0.4;
+        const sPadX = isSwimLane ? 1.25 : 0.4; // 레이블 박스(1.05") 뒤로 밀기
         const sPadTop = 1.575; // 4cm 상단 여백
         const sPadBottom = 0.35;
+        // 수영레인 밴드 상수
+        const SWIM_BAND_H_S = 1.535; // 3.9cm per lane (기본 균등 높이)
+        const SL_BOTTOM_S = SLIDE_H - sPadBottom + 0.05;
+        const SL_TOP_S = SL_BOTTOM_S - SWIM_BAND_H_S * swimLanes.length;
+        const TOTAL_SWIM_H_S = SWIM_BAND_H_S * swimLanes.length;
+
+        // ── 동적 레인 높이: 2행 레인에 더 많은 공간 배분 ──
+        const dynLH_S: number[] = swimLanes.map(() => SWIM_BAND_H_S);
+        const dynLT_S: number[] = [];
+        if (isSwimLane) {
+          const CL_H_S = 600;
+          const lrc: number[] = [];
+          for (let li = 0; li < swimLanes.length; li++) {
+            const ys: number[] = [];
+            for (const nd of sNodes) {
+              const idx = Math.min(Math.max(Math.floor(nd.position.y / CL_H_S), 0), swimLanes.length - 1);
+              if (idx === li) ys.push(nd.position.y);
+            }
+            ys.sort((a, b) => a - b);
+            let rows = 0, lastY = -Infinity;
+            for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
+            lrc.push(Math.max(rows, 1));
+          }
+          const tw = lrc.reduce((s, c) => s + c, 0);
+          const MN = 0.7;
+          for (let i = 0; i < swimLanes.length; i++) dynLH_S[i] = Math.max(TOTAL_SWIM_H_S * lrc[i] / tw, MN);
+          const hs = dynLH_S.reduce((s, h) => s + h, 0);
+          for (let i = 0; i < dynLH_S.length; i++) dynLH_S[i] *= TOTAL_SWIM_H_S / hs;
+        }
+        { let ct = SL_TOP_S; for (let i = 0; i < swimLanes.length; i++) { dynLT_S.push(ct); ct += dynLH_S[i]; } }
+
         const sAreaW = SLIDE_W - 2 * sPadX;
         const sAreaH = SLIDE_H - sPadTop - sPadBottom;
         const scFit = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
@@ -1020,16 +1211,39 @@ export default function ExportToolbar({
 
         const NODE_FONT_SIZE_S = 12; // 노드 폰트 12pt 고정
 
-        // 슬라이드 제목: 최상위 레벨 노드 ID + 레이블 기반
+        // 슬라이드 제목: 자식 레벨 존재 + 단일 부모 → 부모 정보 + 부모 레벨 프로세스 맵
         const sLevelOrder = ["L2", "L3", "L4", "L5"];
         let sheetSlideTitle = sheet.name;
-        for (const lv of sLevelOrder) {
-          const topNode = sNodes.find((n) => getLevel(n) === lv);
-          if (topNode) {
-            const label = getLabel(topNode);
-            const dispId = getDisplayId(topNode);
-            sheetSlideTitle = label ? `${dispId} ${label} — ${lv} 프로세스 맵` : `${dispId} — ${lv} 프로세스 맵`;
-            break;
+        {
+          const lc: Record<string, number> = {};
+          const lf: Record<string, Node> = {};
+          for (const nd of sNodes) {
+            const lv = getLevel(nd);
+            lc[lv] = (lc[lv] || 0) + 1;
+            if (!lf[lv]) lf[lv] = nd;
+          }
+          let found = false;
+          for (let i = sLevelOrder.length - 1; i >= 1 && !found; i--) {
+            const childLv = sLevelOrder[i];
+            const parentLv = sLevelOrder[i - 1];
+            if ((lc[childLv] || 0) > 0 && (lc[parentLv] || 0) === 1) {
+              const nd = lf[parentLv];
+              const label = getLabel(nd);
+              const dispId = getDisplayId(nd);
+              sheetSlideTitle = label ? `${dispId} ${label} — ${parentLv} 프로세스 맵` : `${dispId} — ${parentLv} 프로세스 맵`;
+              found = true;
+            }
+          }
+          if (!found) {
+            for (const lv of sLevelOrder) {
+              if (lf[lv]) {
+                const nd = lf[lv];
+                const label = getLabel(nd);
+                const dispId = getDisplayId(nd);
+                sheetSlideTitle = label ? `${dispId} ${label} — ${lv} 프로세스 맵` : `${dispId} — ${lv} 프로세스 맵`;
+                break;
+              }
+            }
           }
         }
         slide.addText(sheetSlideTitle, {
@@ -1037,26 +1251,27 @@ export default function ExportToolbar({
           fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
         });
 
-        // 수영레인 배경
+        // 수영레인 배경: 동적 높이 기반
         if (isSwimLane) {
-          const bandTop = sPadTop - 0.05;
-          const bandBottom = SLIDE_H - sPadBottom + 0.05;
-          const bandH = (bandBottom - bandTop) / swimLanes.length;
-          for (let i = 0; i < swimLanes.length; i++) {
-            const sc2 = SWIM_COLORS[i % SWIM_COLORS.length];
-            const by = bandTop + i * bandH;
-            slide.addShape("rect", {
-              x: SWIM_LABEL_W, y: by, w: SLIDE_W - SWIM_LABEL_W, h: bandH,
-              fill: { color: sc2.fill },
-              line: { color: sc2.border, width: 0.3, dashType: "dash" },
+          let ly = SL_TOP_S;
+          for (let i = 0; i <= swimLanes.length; i++) {
+            slide.addShape("line", {
+              x: 0, y: ly, w: SLIDE_W, h: 0,
+              line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
             });
+            if (i < swimLanes.length) ly += dynLH_S[i];
+          }
+          const LBL_BOX_W_S = 1.05;
+          const LBL_BOX_H_S = 0.26;
+          for (let i = 0; i < swimLanes.length; i++) {
+            const labelY = dynLT_S[i] + 0.06;
             slide.addText(swimLanes[i], {
-              x: 0, y: by, w: SWIM_LABEL_W, h: bandH,
+              x: 0.04, y: labelY, w: LBL_BOX_W_S, h: LBL_BOX_H_S,
               shape: pptx.ShapeType.rect,
-              fill: { color: "4A4A5A" },
-              line: { color: "4A4A5A", width: 0.3 },
-              fontSize: 9, fontFace: FONT_FACE, bold: true, color: "FFFFFF",
-              align: "center", valign: "middle", rotate: 270,
+              fill: { color: "FFFFFF" },
+              line: { color: "B0B0B0", width: 0.5 },
+              fontSize: 9, fontFace: FONT_FACE, color: "333333",
+              align: "center", valign: "middle",
             });
           }
         }
@@ -1065,7 +1280,12 @@ export default function ExportToolbar({
         const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
         for (const nd of sNodes) {
           const sv = LS[getLevel(nd)] || DEF;
-          sRawPos[nd.id] = { rfX: nd.position.x, rfY: nd.position.y, w: sv.pxW * scRatio, h: sv.pxH * scRatio };
+          const isL5 = getLevel(nd) === "L5";
+          sRawPos[nd.id] = {
+            rfX: nd.position.x, rfY: nd.position.y,
+            w: isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
+            h: isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
+          };
         }
 
         // ── Phase 2: 컬럼 정규화 (X스냅 + 세로 등간격) ─────────────────────────
@@ -1102,7 +1322,8 @@ export default function ExportToolbar({
           }
         }
 
-        // ── Phase 2.5: Cross-column Y 정렬 — 혼자 있는 컬럼 노드 → 연결 노드 median centerY ──
+        // ── Phase 2.5: Cross-column Y 정렬 (수영레인 모드에서는 스킵) ──
+        if (!isSwimLane) {
         for (const grp of sColGrps) {
           if (grp.length !== 1) continue;
           const nid = grp[0];
@@ -1121,6 +1342,66 @@ export default function ExportToolbar({
           const newY = medianCy - box.h / 2;
           box.y = Math.max(sPadTop, Math.min(newY, SLIDE_H - 0.35 - box.h));
         }
+        } // end if(!isSwimLane)
+
+        // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
+        if (isSwimLane) {
+          const CANVAS_LANE_H = 600;
+          const laneMap2: Record<number, string[]> = {};
+          for (const nd of sNodes) {
+            const box = nodeBoxes[nd.id];
+            if (!box) continue;
+            const rfY = nd.position.y;
+            const laneIdx = Math.min(Math.max(Math.floor(rfY / CANVAS_LANE_H), 0), swimLanes.length - 1);
+            if (!laneMap2[laneIdx]) laneMap2[laneIdx] = [];
+            laneMap2[laneIdx].push(nd.id);
+          }
+          for (const [li, ids] of Object.entries(laneMap2)) {
+            const laneIdx = Number(li);
+            const laneTop = dynLT_S[laneIdx];
+            const laneH = dynLH_S[laneIdx];
+            const pad = 0.06;
+            const items = ids.map(id => {
+              const nd = sNodes.find(n => n.id === id)!;
+              return { id, rfY: nd.position.y, h: nodeBoxes[id].h };
+            });
+            const rfYMin = Math.min(...items.map(c => c.rfY));
+            const rfYMax = Math.max(...items.map(c => c.rfY));
+            const rfSpan = rfYMax - rfYMin;
+            if (rfSpan < 50) {
+              // 같은 행: L5/비-L5 커넥터 Y 일치 스냅
+              const l5Items = items.filter(c => {
+                const nd = sNodes.find(n => n.id === c.id)!;
+                return getLevel(nd) === "L5";
+              });
+              const otherItems = items.filter(c => {
+                const nd = sNodes.find(n => n.id === c.id)!;
+                return getLevel(nd) !== "L5";
+              });
+              for (const { id, h } of l5Items) {
+                nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+              }
+              if (l5Items.length > 0 && otherItems.length > 0) {
+                const l5Y0 = nodeBoxes[l5Items[0].id].y;
+                const l5ConnY = l5Y0 + L5_UPPER_H_ALL / 2;
+                for (const { id, h } of otherItems) {
+                  nodeBoxes[id].y = l5ConnY - h / 2;
+                }
+              } else {
+                for (const { id, h } of otherItems) {
+                  nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+                }
+              }
+            } else {
+              const maxH = Math.max(...items.map(c => c.h));
+              const availSpan = laneH - 2 * pad - maxH;
+              for (const { id, rfY, h } of items) {
+                const ratio = (rfY - rfYMin) / rfSpan;
+                nodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
+              }
+            }
+          }
+        }
 
         // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────
         for (const nd of sNodes) {
@@ -1130,27 +1411,63 @@ export default function ExportToolbar({
           if (!box) continue;
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
-          slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-            x: box.x, y: box.y, w: box.w, h: box.h,
-            shape: pptx.ShapeType.rect,
-            fill: { color: sv.bg },
-            line: { color: sv.border, width: level === "L5" ? 1.5 : 0.5 },
-            fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
-            fontFace: FONT_FACE, valign: "middle", align: "center",
-          });
-          const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-          if (sysMap) {
-            const SYS_KEYS: { key: string; label: string }[] = [
-              { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-              { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
-            ];
-            const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-            if (activeSys.length > 0) {
-              slide.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
-                x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
-                fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
-                fontFace: FONT_FACE, align: "center", bold: true,
-              });
+
+          if (level === "L5") {
+            /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
+            slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+              x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFFFFF" },
+              line: { color: "DEDEDE", width: 0.25 },
+              fontSize: 9, bold: true, color: "000000",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+            const sysStr = (nd.data as Record<string, string>).system || "";
+            let sysName = "시스템명";
+            if (sysStr) {
+              sysName = sysStr;
+            } else if (sysMap) {
+              const SYS_KEYS = [
+                { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
+                { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+              ];
+              const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
+              if (active.length > 0) sysName = active.map(k => k.label).join(", ");
+            }
+            // 아래쪽 박스: DEDEDE 채우기, 선 없음
+            slide.addText(sysName, {
+              x: box.x, y: box.y + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DEDEDE" },
+              line: { width: 0 },
+              fontSize: 7, bold: false, color: "000000",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+          } else {
+            /* ── L2~L4: 기존 단일 박스 ── */
+            slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+              x: box.x, y: box.y, w: box.w, h: box.h,
+              shape: pptx.ShapeType.rect,
+              fill: { color: sv.bg },
+              line: { color: sv.border, width: 0.25 },
+              fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+            if (sysMap) {
+              const SYS_KEYS: { key: string; label: string }[] = [
+                { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
+                { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+              ];
+              const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
+              if (activeSys.length > 0) {
+                slide.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+                  x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
+                  fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
+                  fontFace: FONT_FACE, align: "center", bold: true,
+                });
+              }
             }
           }
         }
@@ -1161,6 +1478,7 @@ export default function ExportToolbar({
             srcNodeId: string; tgtNodeId: string;
             srcBox: { x: number; y: number; w: number; h: number };
             tgtBox: { x: number; y: number; w: number; h: number };
+            srcIsL5: boolean; tgtIsL5: boolean;
             isStraight: boolean; isHorizontal: boolean; bidi: boolean;
           }
           const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
@@ -1180,7 +1498,14 @@ export default function ExportToolbar({
             const sameCol = xOverlap(src, tgt);
             const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
             const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
-            sheetConnectors.push({ srcNodeId: e.source, tgtNodeId: e.target, srcBox: src, tgtBox: tgt, isStraight, isHorizontal, bidi });
+            const srcNd = sNodes.find(n => n.id === e.source);
+            const tgtNd = sNodes.find(n => n.id === e.target);
+            sheetConnectors.push({
+              srcNodeId: e.source, tgtNodeId: e.target, srcBox: src, tgtBox: tgt,
+              srcIsL5: srcNd ? getLevel(srcNd) === "L5" : false,
+              tgtIsL5: tgtNd ? getLevel(tgtNd) === "L5" : false,
+              isStraight, isHorizontal, bidi,
+            });
           }
           allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes } });
           slideIdx++;
@@ -1241,29 +1566,23 @@ export default function ExportToolbar({
           const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
           if (!srcSid || !tgtSid) continue;
           const src = c.srcBox, tgt = c.tgtBox;
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const dx = tgtCx - srcCx, dy = tgtCy - srcCy;
-          let x1: number, y1: number, x2: number, y2: number, stIdx: number, endIdx: number, prst: string;
-          if (c.isStraight && c.isHorizontal) {
-            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy; x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-            stIdx = dx >= 0 ? 1 : 3; endIdx = dx >= 0 ? 3 : 1; prst = "straightConnector1";
-          } else if (c.isStraight) {
-            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y; x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            stIdx = dy >= 0 ? 2 : 0; endIdx = dy >= 0 ? 0 : 2; prst = "straightConnector1";
-          } else if (c.isHorizontal) {
-            x1 = dx >= 0 ? src.x + src.w : src.x; y1 = srcCy; x2 = dx >= 0 ? tgt.x : tgt.x + tgt.w; y2 = tgtCy;
-            stIdx = dx >= 0 ? 1 : 3; endIdx = dx >= 0 ? 3 : 1; prst = "bentConnector3";
-          } else {
-            x1 = srcCx; y1 = dy >= 0 ? src.y + src.h : src.y; x2 = tgtCx; y2 = dy >= 0 ? tgt.y : tgt.y + tgt.h;
-            stIdx = dy >= 0 ? 2 : 0; endIdx = dy >= 0 ? 0 : 2; prst = "bentConnector3";
+          let srcConnY2 = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
+          let tgtConnY2 = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
+          if (Math.abs(srcConnY2 - tgtConnY2) < 0.08) {
+            const avgY = (srcConnY2 + tgtConnY2) / 2;
+            srcConnY2 = avgY; tgtConnY2 = avgY;
           }
+          const stIdx = 3, endIdx = 1;
+          const x1 = src.x + src.w, y1 = srcConnY2, x2 = tgt.x, y2 = tgtConnY2;
+          const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
-          const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
-          const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-          const flipH = x2 < x1 ? ' flipH="1"' : "", flipV = y2 < y1 ? ' flipV="1"' : "";
-          const headArr = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
-          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH}${flipV}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>${headArr}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
+          const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
+          const extCy2 = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
+          const flipH2 = x2 < x1 ? ' flipH="1"' : "", flipV2 = y2 < y1 ? ' flipV="1"' : "";
+          const headArr2 = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
+          const isL5Edge2 = c.srcIsL5 && c.tgtIsL5;
+          const lineClr2 = isL5Edge2 ? "DEDEDE" : "333333";
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH2}${flipV2}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
           nextId++;
         }
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
