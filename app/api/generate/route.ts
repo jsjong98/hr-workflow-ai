@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-init: 빌드 시 env 없어도 안전
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? "" });
+  }
+  return _openai;
+}
 
 /* ═══ System prompt for FRESH workflow generation ═══ */
 const SYSTEM_PROMPT_GENERATE = `You are an expert HR workflow architect. You receive a structured HR process (L2→L3→L4→L5 hierarchy) and must design the optimal workflow.
@@ -95,7 +100,7 @@ export async function POST(request: Request) {
 
       const userMessage = `현재 워크플로우:\n${workflowContext}\n\n사용자 요청: ${prompt}`;
 
-      const completion = await openai.chat.completions.create({
+      const completion = await getOpenAI().chat.completions.create({
         model: "gpt-4o",
         response_format: { type: "json_object" },
         messages: [
@@ -121,7 +126,7 @@ export async function POST(request: Request) {
       ? `다음 HR 프로세스의 최적 워크플로우를 설계해주세요:\n\n${processData}\n\n${prompt || "논리적 순서에 맞게 배치하고 연결해주세요."}`
       : prompt;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       response_format: { type: "json_object" },
       messages: [
