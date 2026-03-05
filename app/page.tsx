@@ -26,6 +26,7 @@ import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBa
 import SwimLaneOverlay from "@/components/SwimLaneOverlay";
 import PwcLogo from "@/components/PwcLogo";
 import AddNodeModal, { type NewNodeData } from "@/components/AddNodeModal";
+import NodeManagerPanel from "@/components/NodeManagerPanel";
 import {
   parseCsv,
   extractL2List,
@@ -215,6 +216,9 @@ export default function Home() {
 
   /* ── Add Node Modal ──────────────────────── */
   const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
+
+  /* ── Node Manager Panel ──────────────────── */
+  const [nodeManagerOpen, setNodeManagerOpen] = useState(false);
 
   /* ═══════════════════════════════════════════════
    * CSV Load
@@ -767,6 +771,13 @@ export default function Home() {
                 >
                   {"➕ 새 노드"}
                 </button>
+                <button
+                  onClick={() => setNodeManagerOpen(true)}
+                  className="text-[10px] font-medium bg-emerald-500 text-white rounded px-2 py-1.5 hover:bg-emerald-600 transition"
+                  title="노드 관리 (추가/수정/삭제/정렬/엑셀)"
+                >
+                  {"📋 관리"}
+                </button>
               </div>
               {/* Export toolbar */}
               <div className="px-4 py-2 border-b border-gray-100">
@@ -849,6 +860,12 @@ export default function Home() {
                     className="mt-3 text-xs font-medium bg-blue-500 text-white rounded-lg px-4 py-2 hover:bg-blue-600 transition"
                   >
                     ➕ 새 노드 직접 추가
+                  </button>
+                  <button
+                    onClick={() => setNodeManagerOpen(true)}
+                    className="mt-2 text-xs font-medium bg-emerald-500 text-white rounded-lg px-4 py-2 hover:bg-emerald-600 transition"
+                  >
+                    📋 노드 관리
                   </button>
                 </div>
               </div>
@@ -985,6 +1002,12 @@ export default function Home() {
                     >
                       ➕ 새 노드 추가
                     </button>
+                    <button
+                      onClick={() => setNodeManagerOpen(true)}
+                      className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
+                    >
+                      📋 노드 관리
+                    </button>
                   </div>
                 </Panel>
               </ReactFlow>
@@ -1030,6 +1053,14 @@ export default function Home() {
         isOpen={addNodeModalOpen}
         onClose={() => setAddNodeModalOpen(false)}
         onAdd={handleAddCustomNode}
+      />
+
+      {/* ═══ Node Manager Panel (global overlay) ═══ */}
+      <NodeManagerPanel
+        isOpen={nodeManagerOpen}
+        onClose={() => setNodeManagerOpen(false)}
+        nodes={nodes}
+        setNodes={setNodes}
       />
     </div>
   );
