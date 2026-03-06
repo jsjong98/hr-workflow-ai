@@ -341,6 +341,25 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     setToast("🔀 계층 정렬 완료");
   }, [setNodes]);
 
+  /* ── 캔버스 배치 순서로 정렬 (좌→우, 상→하) ── */
+  const handleSortByCanvas = useCallback(() => {
+    setNodes((nds: Node[]) => {
+      const ROW_TOLERANCE = 60; // Y좌표 차이가 이 이내면 같은 행으로 간주
+      const sorted = [...nds].sort((a, b) => {
+        const ay = a.position?.y ?? 0;
+        const by = b.position?.y ?? 0;
+        // 같은 행이면 X좌표 기준 왼→오
+        if (Math.abs(ay - by) < ROW_TOLERANCE) {
+          return (a.position?.x ?? 0) - (b.position?.x ?? 0);
+        }
+        // 다른 행이면 Y좌표 기준 위→아래
+        return ay - by;
+      });
+      return sorted;
+    });
+    setToast("📐 캔버스 순서 정렬 완료");
+  }, [setNodes]);
+
   const handleRenumber = useCallback(() => {
     if (!confirm("현재 보이는 리스트 순서 기반으로 모든 ID를 재번호 매기시겠습니까?")) return;
     renumberIds(nodes, setNodes);
@@ -395,6 +414,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
             {addMode ? "✕ 추가 취소" : "➕ 새 노드 추가"}
           </button>
           <button onClick={handleSortByHierarchy} className="px-3 py-2 text-xs font-medium bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors" title="ID 기준 계층 정렬">🔀 계층 정렬</button>
+          <button onClick={handleSortByCanvas} className="px-3 py-2 text-xs font-medium bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors" title="캔버스 배치(좌→우, 상→하) 순서로 정렬">📐 캔버스 순서</button>
           <span className="text-xs text-gray-400">총 {rows.length}개 노드 · ⠿ 드래그로 순서 변경 · ➕ 행 사이 삽입 가능</span>
         </div>
 
