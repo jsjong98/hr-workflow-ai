@@ -25,7 +25,15 @@ import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
 import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBar";
 import SwimLaneOverlay from "@/components/SwimLaneOverlay";
 import PwcLogo from "@/components/PwcLogo";
-import InlineNodeList from "@/components/InlineNodeList";
+
+/* ═══ 수동 추가 데이터 항목 ═══ */
+export interface ManualItem {
+  id: string;
+  name: string;
+  description: string;
+  level: "L2" | "L3" | "L4" | "L5";
+  role: string;
+}
 import {
   parseCsv,
   extractL2List,
@@ -217,8 +225,28 @@ export default function Home() {
   /* ── Search ────────────────────────────────── */
   const [searchTerm, setSearchTerm] = useState("");
 
-  /* ── Left panel view mode ──────────────────── */
-  const [leftView, setLeftView] = useState<"palette" | "nodes">("palette");
+  /* ── Manual Data Items (independent of canvas nodes) ── */
+  const [manualItems, setManualItems] = useState<ManualItem[]>([]);
+  const [addDataMode, setAddDataMode] = useState(false);
+  const [addDataForm, setAddDataForm] = useState({ level: "L5" as ManualItem["level"], id: "", name: "", description: "", role: "" });
+
+  const handleAddManualItem = useCallback(() => {
+    if (!addDataForm.name.trim()) { alert("이름을 입력해주세요."); return; }
+    const newItem: ManualItem = {
+      id: addDataForm.id.trim() || `${addDataForm.level}-M${Date.now()}`,
+      name: addDataForm.name.trim(),
+      description: addDataForm.description.trim(),
+      level: addDataForm.level,
+      role: addDataForm.role,
+    };
+    setManualItems(prev => [...prev, newItem]);
+    setAddDataForm({ level: "L5", id: "", name: "", description: "", role: "" });
+    setAddDataMode(false);
+  }, [addDataForm]);
+
+  const handleDeleteManualItem = useCallback((id: string) => {
+    setManualItems(prev => prev.filter(item => item.id !== id));
+  }, []);
 
   /* ═══════════════════════════════════════════════
    * CSV Load
@@ -692,50 +720,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* L4 / L5 Palette + Node Manager */}
+        {/* L4 / L5 Palette */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* ── Tab Bar ── */}
-          <div className="px-3 py-1.5 border-b border-gray-200 flex gap-1 flex-none bg-gray-50/80">
-            <button
-              onClick={() => setLeftView("palette")}
-              className={`flex-1 px-2 py-1.5 text-[10px] font-bold rounded-md transition-colors ${
-                leftView === "palette"
-                  ? "bg-white text-[#A62121] shadow-sm border border-gray-200"
-                  : "text-gray-500 hover:bg-gray-200/60"
-              }`}
-            >
-              📂 데이터
-            </button>
-            <button
-              onClick={() => setLeftView("nodes")}
-              className={`flex-1 px-2 py-1.5 text-[10px] font-bold rounded-md transition-colors ${
-                leftView === "nodes"
-                  ? "bg-white text-emerald-700 shadow-sm border border-gray-200"
-                  : "text-gray-500 hover:bg-gray-200/60"
-              }`}
-            >
-              {`➕ 데이터 추가 (${nodes.length})`}
-            </button>
-          </div>
-
-          {leftView === "nodes" ? (
-            /* ── Inline Node Manager ── */
-            <>
-              <InlineNodeList nodes={nodes} setNodes={setNodes} />
-              {(selectedL3 || nodes.length > 0) && (
-                <div className="px-4 py-2 border-t border-gray-100 flex-none">
-                  <ExportToolbar
-                    nodes={nodes}
-                    edges={edges}
-                    reactFlowWrapper={reactFlowWrapper}
-                    sheets={sheets}
-                    getSheetData={getSheetData}
-                    activeSheetId={activeSheetId}
-                  />
-                </div>
-              )}
-            </>
-          ) : selectedL3 ? (
+          {selectedL3 ? (
             <>
               <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
                 <input
@@ -838,118 +825,204 @@ export default function Home() {
                   </div>
                 ))}
 
-                {/* ── 수동 추가된 항목 (빨간색 표시) ── */}
-                {(() => {
-                  const manualNodes = nodes.filter(n => !!(n.data as Record<string, unknown>)?.isManual);
-                  if (manualNodes.length === 0) return null;
-                  const LEVEL_BG: Record<string, string> = {
-                    l2: "bg-[#A62121]/10 border-[#A62121]/30",
-                    l3: "bg-[#D95578]/10 border-[#D95578]/30",
-                    l4: "bg-red-50 border-red-200",
-                    l5: "bg-red-50/50 border-red-100",
-                  };
-                  return (
-                    <div className="mt-3 pt-2 border-t border-dashed border-red-200">
-                      <p className="text-[9px] font-bold text-red-500 px-2 mb-1.5 flex items-center gap-1">
-                        🔴 수동 추가 항목 ({manualNodes.length}개)
-                      </p>
-                      <div className="space-y-0.5">
-                        {manualNodes.map((mn) => {
-                          const d = mn.data as Record<string, unknown>;
-                          const level = ((d.level as string) || "L4").toLowerCase();
-                          const displayId = (d.id as string) || mn.id;
-                          const name = (d.label as string) || (d.name as string) || "";
-                          const desc = (d.description as string) || "";
-                          const bg = LEVEL_BG[level] || LEVEL_BG.l4;
-                          return (
-                            <button
-                              key={mn.id}
-                              onClick={() => {
-                                // 캔버스에서 해당 노드를 포커스
-                                rfInstanceRef.current?.fitView({
-                                  nodes: [{ id: mn.id }],
-                                  padding: 0.5,
-                                  maxZoom: 1.5,
-                                  duration: 300,
-                                });
-                              }}
-                              className={`w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 ${bg} border rounded hover:brightness-95 transition-colors`}
-                              title={`${name}${desc ? " — " + desc : ""} (수동 추가)`}
-                            >
-                              <span className="text-[8px] text-red-400 font-mono mr-1">
-                                {displayId}
-                              </span>
-                              <span className="text-[8px] text-red-300 mr-1">
-                                {(d.level as string) || "L4"}
-                              </span>
-                              {name}
-                            </button>
-                          );
-                        })}
+                {/* ── 수동 추가된 데이터 (빨간색 표시) ── */}
+                {manualItems.length > 0 && (
+                  <div className="mt-3 pt-2 border-t border-dashed border-red-200">
+                    <p className="text-[9px] font-bold text-red-500 px-2 mb-1.5">
+                      🔴 수동 추가 ({manualItems.length}개)
+                    </p>
+                    <div className="space-y-0.5">
+                      {manualItems.map((mi) => (
+                        <div key={mi.id} className="flex items-stretch group">
+                          <button
+                            onClick={() => addNodeToCanvas(mi.level.toLowerCase() as "l2" | "l3" | "l4" | "l5", { id: mi.id, name: mi.name, description: mi.description, role: mi.role, isManual: true })}
+                            className="flex-1 text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-l hover:bg-red-100 transition-colors"
+                            title={`${mi.name}${mi.description ? " — " + mi.description : ""} (클릭→캔버스 추가)`}
+                          >
+                            <span className="text-[8px] text-red-400 font-mono mr-1">{mi.id}</span>
+                            <span className="text-[8px] text-red-300 mr-1">{mi.level}</span>
+                            {mi.name}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteManualItem(mi.id)}
+                            className="px-1.5 bg-red-50 border-y border-r border-red-200 rounded-r text-red-300 hover:text-red-600 hover:bg-red-100 text-[9px] transition-colors opacity-0 group-hover:opacity-100"
+                            title="삭제"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── 데이터 추가 버튼 / 폼 ── */}
+                <div className="mt-3 pt-2 border-t border-gray-200">
+                  {addDataMode ? (
+                    <div className="space-y-1.5 bg-blue-50/50 rounded-lg p-2 border border-blue-100">
+                      <p className="text-[9px] font-bold text-blue-600">➕ 새 데이터 추가</p>
+                      <div className="flex gap-1">
+                        <select
+                          value={addDataForm.level}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, level: e.target.value as ManualItem["level"] })}
+                          className="w-14 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                        >
+                          <option value="L2">L2</option>
+                          <option value="L3">L3</option>
+                          <option value="L4">L4</option>
+                          <option value="L5">L5</option>
+                        </select>
+                        <input
+                          value={addDataForm.id}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, id: e.target.value })}
+                          placeholder="ID (자동)"
+                          className="w-16 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                        />
+                        <input
+                          value={addDataForm.name}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, name: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleAddManualItem(); }}
+                          placeholder="이름 *"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="flex gap-1">
+                        <input
+                          value={addDataForm.description}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, description: e.target.value })}
+                          placeholder="설명"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                        />
+                        <input
+                          value={addDataForm.role}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, role: e.target.value })}
+                          placeholder="수행주체"
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                        />
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={handleAddManualItem} className="flex-1 px-2 py-1 text-[10px] font-bold bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                          ✓ 추가
+                        </button>
+                        <button onClick={() => { setAddDataMode(false); setAddDataForm({ level: "L5", id: "", name: "", description: "", role: "" }); }} className="px-2 py-1 text-[10px] font-bold bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition-colors">
+                          취소
+                        </button>
                       </div>
                     </div>
-                  );
-                })()}
+                  ) : (
+                    <button
+                      onClick={() => setAddDataMode(true)}
+                      className="w-full text-center px-2 py-2 text-[10px] font-bold text-blue-600 bg-blue-50 border border-dashed border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      ➕ 데이터 추가
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           ) : (
             <div className="flex-1 flex flex-col">
-              {(() => {
-                const manualNodes = nodes.filter(n => !!(n.data as Record<string, unknown>)?.isManual);
-                if (manualNodes.length > 0) {
-                  return (
-                    <div className="flex-1 overflow-y-auto px-2 py-2">
-                      <div className="px-2 mb-2">
-                        <p className="text-xs text-gray-400 mb-1">
-                          ← L3 프로세스를 선택하면 L4·L5 목록 표시
-                        </p>
-                      </div>
-                      <div className="border-t border-dashed border-red-200 pt-2">
-                        <p className="text-[9px] font-bold text-red-500 px-2 mb-1.5 flex items-center gap-1">
-                          🔴 수동 추가 항목 ({manualNodes.length}개)
-                        </p>
-                        <div className="space-y-0.5">
-                          {manualNodes.map((mn) => {
-                            const d = mn.data as Record<string, unknown>;
-                            const displayId = (d.id as string) || mn.id;
-                            const name = (d.label as string) || (d.name as string) || "";
-                            return (
-                              <button
-                                key={mn.id}
-                                onClick={() => {
-                                  rfInstanceRef.current?.fitView({
-                                    nodes: [{ id: mn.id }],
-                                    padding: 0.5, maxZoom: 1.5, duration: 300,
-                                  });
-                                }}
-                                className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded hover:brightness-95 transition-colors"
-                              >
-                                <span className="text-[8px] text-red-400 font-mono mr-1">{displayId}</span>
-                                <span className="text-[8px] text-red-300 mr-1">{(d.level as string) || "L4"}</span>
-                                {name}
-                              </button>
-                            );
-                          })}
+              <div className="flex-1 flex flex-col items-center justify-center px-4">
+                <p className="text-xs text-gray-400 text-center">
+                  ← L3 프로세스를 선택하면
+                  <br />
+                  하위 L4·L5 목록이 표시됩니다
+                </p>
+
+                {/* 수동 추가된 항목이 있으면 여기에도 표시 */}
+                {manualItems.length > 0 && (
+                  <div className="w-full mt-4 border-t border-dashed border-red-200 pt-2">
+                    <p className="text-[9px] font-bold text-red-500 mb-1.5">
+                      🔴 수동 추가 ({manualItems.length}개)
+                    </p>
+                    <div className="space-y-0.5">
+                      {manualItems.map((mi) => (
+                        <div key={mi.id} className="flex items-stretch group">
+                          <button
+                            onClick={() => addNodeToCanvas(mi.level.toLowerCase() as "l2" | "l3" | "l4" | "l5", { id: mi.id, name: mi.name, description: mi.description, role: mi.role, isManual: true })}
+                            className="flex-1 text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-l hover:bg-red-100 transition-colors"
+                          >
+                            <span className="text-[8px] text-red-400 font-mono mr-1">{mi.id}</span>
+                            <span className="text-[8px] text-red-300 mr-1">{mi.level}</span>
+                            {mi.name}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteManualItem(mi.id)}
+                            className="px-1.5 bg-red-50 border-y border-r border-red-200 rounded-r text-red-300 hover:text-red-600 hover:bg-red-100 text-[9px] transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            ✕
+                          </button>
                         </div>
-                      </div>
-                    </div>
-                  );
-                }
-                return (
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center px-4">
-                      <p className="text-xs text-gray-400">
-                        ← L3 프로세스를 선택하면
-                        <br />
-                        하위 L4·L5 목록이 표시됩니다
-                      </p>
-                      <p className="text-[10px] text-gray-300 mt-2">
-                        또는 상단 &lsquo;➕ 데이터 추가&rsquo; 탭에서 직접 관리
-                      </p>
+                      ))}
                     </div>
                   </div>
-                );
-              })()}
+                )}
+
+                {/* 데이터 추가 버튼 */}
+                <div className="w-full mt-3">
+                  {addDataMode ? (
+                    <div className="space-y-1.5 bg-blue-50/50 rounded-lg p-2 border border-blue-100">
+                      <p className="text-[9px] font-bold text-blue-600">➕ 새 데이터 추가</p>
+                      <div className="flex gap-1">
+                        <select
+                          value={addDataForm.level}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, level: e.target.value as ManualItem["level"] })}
+                          className="w-14 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                        >
+                          <option value="L2">L2</option>
+                          <option value="L3">L3</option>
+                          <option value="L4">L4</option>
+                          <option value="L5">L5</option>
+                        </select>
+                        <input
+                          value={addDataForm.id}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, id: e.target.value })}
+                          placeholder="ID"
+                          className="w-16 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                        />
+                        <input
+                          value={addDataForm.name}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, name: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleAddManualItem(); }}
+                          placeholder="이름 *"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="flex gap-1">
+                        <input
+                          value={addDataForm.description}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, description: e.target.value })}
+                          placeholder="설명"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                        />
+                        <input
+                          value={addDataForm.role}
+                          onChange={(e) => setAddDataForm({ ...addDataForm, role: e.target.value })}
+                          placeholder="수행주체"
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                        />
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={handleAddManualItem} className="flex-1 px-2 py-1 text-[10px] font-bold bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                          ✓ 추가
+                        </button>
+                        <button onClick={() => { setAddDataMode(false); setAddDataForm({ level: "L5", id: "", name: "", description: "", role: "" }); }} className="px-2 py-1 text-[10px] font-bold bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition-colors">
+                          취소
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setAddDataMode(true)}
+                      className="w-full text-center px-2 py-2 text-[10px] font-bold text-blue-600 bg-blue-50 border border-dashed border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      ➕ 데이터 추가
+                    </button>
+                  )}
+                </div>
+              </div>
               {nodes.length > 0 && (
                 <div className="px-4 py-2 border-t border-gray-100">
                   <ExportToolbar
@@ -1083,10 +1156,10 @@ export default function Home() {
                     <div>🔄 화살표 우클릭 → 양방향 전환</div>
                     <div>⌫ Delete 키로 선택 항목 삭제</div>
                     <button
-                      onClick={() => setLeftView("nodes")}
+                      onClick={() => setAddDataMode(true)}
                       className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
                     >
-                      ➕ 데이터 추가 (좌측 탭)
+                      ➕ 데이터 추가 (좌측 패널)
                     </button>
                   </div>
                 </Panel>
