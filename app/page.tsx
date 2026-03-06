@@ -248,6 +248,128 @@ export default function Home() {
     setManualItems(prev => prev.filter(item => item.id !== id));
   }, []);
 
+  /* ═══ 캔버스 노드 x좌표 기준 ID 재번호 ═══ */
+  const handleRenumberByPosition = useCallback(() => {
+    setNodes((nds) => {
+      // 1) L4 노드 처리: x좌표 순서로 정렬 → L3 parent 기준으로 재번호
+      const l4Nodes = nds.filter((n) => n.type === "l4").sort((a, b) => a.position.x - b.position.x);
+      // 2) L5 노드 처리: x좌표 순서로 정렬 → L4 parent 기준으로 재번호
+      const l5Nodes = nds.filter((n) => n.type === "l5").sort((a, b) => a.position.x - b.position.x);
+
+      if (l4Nodes.length === 0 && l5Nodes.length === 0) {
+        alert("캔버스에 L4/L5 노드가 없습니다.");
+        return nds;
+      }
+
+      const updatedMap = new Map<string, Record<string, unknown>>();
+
+      // ── 헬퍼: ID에서 부모 prefix 추출 (1.1.1.1 → 1.1.1) ──
+      const getParentPrefix = (id: string): string | null => {
+        const parts = id.split(".");
+        if (parts.length >= 2 && parts.every((p) => /^\d+$/.test(p))) {
+          return parts.slice(0, -1).join(".");
+        }
+        return null;
+      };
+
+      // ── L4 재번호 ──
+      if (l4Nodes.length > 0) {
+        // L4 parent = L3 prefix (e.g., "1.1.1" from "1.1.1.x" or "1.1" from "1.1.x")
+        const l4Parents: Record<string, typeof l4Nodes> = {};
+        let defaultL4Parent = selectedL3 || null;
+
+        for (const n of l4Nodes) {
+          const d = n.data as Record<string, unknown>;
+          const id = (d.id as string) || "";
+          const parent = getParentPrefix(id);
+          if (parent) {
+            if (!l4Parents[parent]) l4Parents[parent] = [];
+            l4Parents[parent].push(n);
+            if (!defaultL4Parent) defaultL4Parent = parent;
+          } else {
+            // 수동 추가 등 계층 ID가 없는 노드 → default parent에 배정
+            const key = defaultL4Parent || "_manual";
+            if (!l4Parents[key]) l4Parents[key] = [];
+            l4Parents[key].push(n);
+          }
+        }
+
+        for (const [parent, group] of Object.entries(l4Parents)) {
+          if (parent === "_manual") continue;
+          group.forEach((n, i) => {
+            const newId = `${parent}.${i + 1}`;
+            updatedMap.set(n.id, { id: newId });
+          });
+        }
+      }
+
+      // ── L5 재번호 ──
+      if (l5Nodes.length > 0) {
+        const l5Parents: Record<string, typeof l5Nodes> = {};
+        // L4 parent map: 새 ID로 매핑된 L4 parent를 활용
+        let defaultL5Parent: string | null = null;
+
+        for (const n of l5Nodes) {
+          const d = n.data as Record<string, unknown>;
+          const id = (d.id as string) || "";
+          const parent = getParentPrefix(id);
+          if (parent) {
+            if (!l5Parents[parent]) l5Parents[parent] = [];
+            l5Parents[parent].push(n);
+            if (!defaultL5Parent) defaultL5Parent = parent;
+          } else {
+            // 계층 ID 없는 노드 → 가장 가까운 x좌표의 계층 노드에서 parent 추론
+            let inferredParent: string | null = null;
+            let minDist = Infinity;
+            for (const other of l5Nodes) {
+              if (other.id === n.id) continue;
+              const otherId = ((other.data as Record<string, unknown>).id as string) || "";
+              const otherParent = getParentPrefix(otherId);
+              if (otherParent) {
+                const dist = Math.abs(other.position.x - n.position.x);
+                if (dist < minDist) {
+                  minDist = dist;
+                  inferredParent = otherParent;
+                }
+              }
+            }
+            const key = inferredParent || defaultL5Parent || "_manual";
+            if (!l5Parents[key]) l5Parents[key] = [];
+            l5Parents[key].push(n);
+          }
+        }
+
+        for (const [parent, group] of Object.entries(l5Parents)) {
+          if (parent === "_manual") continue;
+          // 이미 x순 정렬됨
+          group.forEach((n, i) => {
+            const newId = `${parent}.${i + 1}`;
+            const existing = updatedMap.get(n.id) || {};
+            updatedMap.set(n.id, { ...existing, id: newId });
+          });
+        }
+      }
+
+      if (updatedMap.size === 0) {
+        alert("재번호할 수 있는 노드가 없습니다.");
+        return nds;
+      }
+
+      // 3) 업데이트 적용
+      const result = nds.map((n) => {
+        const updates = updatedMap.get(n.id);
+        if (!updates) return n;
+        const d = { ...(n.data as Record<string, unknown>) };
+        if (updates.id) d.id = updates.id;
+        return { ...n, data: d };
+      });
+
+      const count = updatedMap.size;
+      alert(`✅ ${count}개 노드 ID가 x좌표 순서로 재번호되었습니다.`);
+      return result;
+    });
+  }, [selectedL3, setNodes]);
+
   /* ═══════════════════════════════════════════════
    * CSV Load
    * ═══════════════════════════════════════════════ */
@@ -753,6 +875,13 @@ export default function Home() {
                   {"🤖 AI Workflow"}
                 </button>
                 <button
+                  onClick={handleRenumberByPosition}
+                  className="text-[10px] font-medium bg-amber-500 text-white rounded px-2 py-1.5 hover:bg-amber-600 transition"
+                  title="캔버스 노드를 x좌표(왼→오) 순서로 ID 재번호"
+                >
+                  {"🔢"}
+                </button>
+                <button
                   onClick={handleClearCanvas}
                   className="text-[10px] font-medium bg-gray-200 text-gray-600 rounded px-2 py-1.5 hover:bg-gray-300 transition"
                 >
@@ -1156,8 +1285,14 @@ export default function Home() {
                     <div>🔄 화살표 우클릭 → 양방향 전환</div>
                     <div>⌫ Delete 키로 선택 항목 삭제</div>
                     <button
+                      onClick={handleRenumberByPosition}
+                      className="mt-1 w-full text-[10px] font-bold bg-amber-500 text-white rounded px-2 py-1 hover:bg-amber-600 transition"
+                    >
+                      🔢 ID 재번호 (x좌표 순)
+                    </button>
+                    <button
                       onClick={() => setAddDataMode(true)}
-                      className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
+                      className="mt-0.5 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
                     >
                       ➕ 데이터 추가 (좌측 패널)
                     </button>
