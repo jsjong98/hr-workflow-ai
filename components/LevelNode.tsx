@@ -167,6 +167,23 @@ function L5NodeBase({ data }: { data: NodeData }) {
           {sysName}
         </div>
       </div>
+
+      {/* ── Meta indicator icons ── */}
+      {(data.memo || data.role || data.inputData || data.outputData || data.system) && (
+        <div className="absolute top-1 left-1 flex items-center gap-1">
+          {data.memo && <span className="text-[10px]" title="메모">📝</span>}
+          {data.role && !data.role.startsWith("기타:") && <span className="text-[10px]" title={`수행: ${data.role}`}>👤</span>}
+          {data.inputData && <span className="text-[10px]" title="Input">📥</span>}
+          {data.outputData && <span className="text-[10px]" title="Output">📤</span>}
+        </div>
+      )}
+
+      {/* ── Memo yellow box ── */}
+      {data.memo && (
+        <div className="mt-1 w-full bg-yellow-100 border border-yellow-300 rounded px-2 py-1 text-[9px] text-yellow-900 leading-snug line-clamp-3">
+          📝 {data.memo}
+        </div>
+      )}
     </div>
   );
 }
