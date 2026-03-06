@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { L2Node, L3Node, L4Node, L5Node } from "@/components/LevelNode";
+import { L2Node, L3Node, L4Node, L5Node, DecisionNode } from "@/components/LevelNode";
 import ChatPanel from "@/components/ChatPanel";
 import ExportToolbar from "@/components/ExportToolbar";
 import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
@@ -61,7 +61,7 @@ interface SheetData {
 export default function Home() {
   /* ── nodeTypes ─────────────────────────────── */
   const nodeTypes = useMemo(
-    () => ({ l2: L2Node, l3: L3Node, l4: L4Node, l5: L5Node }),
+    () => ({ l2: L2Node, l3: L3Node, l4: L4Node, l5: L5Node, decision: DecisionNode }),
     []
   );
 
@@ -681,28 +681,78 @@ export default function Home() {
     [setNodes]
   );
 
+  /* ═══ Add Decision (판정 로직) node to canvas ═══ */
+  const decisionCountRef = useRef(0);
+  const addDecisionNode = useCallback(() => {
+    decisionCountRef.current++;
+    const dId = `decision-${decisionCountRef.current}`;
+
+    // viewport center
+    let x = 400, y = 300;
+    if (rfInstanceRef.current) {
+      const vp = rfInstanceRef.current.getViewport();
+      const wrapper = document.querySelector('.react-flow') as HTMLElement;
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        x = (rect.width / 2 - vp.x) / vp.zoom;
+        y = (rect.height / 2 - vp.y) / vp.zoom;
+      }
+    }
+    x += (Math.random() - 0.5) * 80;
+    y += (Math.random() - 0.5) * 60;
+
+    const promptName = prompt("판정 로직 이름을 입력하세요:", "판정 조건");
+    if (promptName === null) return; // cancelled
+
+    const decisionNode: Node = {
+      id: dId,
+      type: "decision",
+      position: { x, y },
+      data: {
+        label: promptName || "판정 조건",
+        level: "DECISION",
+        id: dId,
+        description: "",
+      },
+    };
+
+    setNodes((nds) => [...nds, decisionNode]);
+    nodeCountRef.current++;
+  }, [setNodes]);
+
   /* ═══ Edge connect (drag handles) ═══ */
   const onConnect = useCallback(
     (connection: Connection) => {
+      // Decision 노드에서 나오는 Yes/No 핸들 감지
+      const sourceHandleId = connection.sourceHandle || "";
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const isDecisionSource = sourceNode?.type === "decision";
+      const isYes = isDecisionSource && sourceHandleId === "yes";
+      const isNo = isDecisionSource && sourceHandleId === "no";
+
+      const edgeColor = isYes ? "#22C55E" : isNo ? "#EF4444" : "#000000";
+      const edgeLabel = isYes ? "Yes" : isNo ? "No" : undefined;
+
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
             type: "smoothstep",
             animated: false,
-            style: { stroke: "#000000", strokeWidth: 1.5 },
+            style: { stroke: edgeColor, strokeWidth: isDecisionSource ? 2 : 1.5 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
               width: 16,
               height: 16,
-              color: "#000000",
+              color: edgeColor,
             },
+            ...(edgeLabel ? { label: edgeLabel, labelStyle: { fontWeight: 700, fontSize: 12, fill: edgeColor }, labelBgStyle: { fill: "white", fillOpacity: 0.9 }, labelBgPadding: [6, 4] as [number, number], labelBgBorderRadius: 4 } : {}),
           },
           eds
         )
       );
     },
-    [setEdges]
+    [setEdges, nodes]
   );
 
   /* ═══ Toggle edge direction (right-click) ═══ */
@@ -907,6 +957,7 @@ export default function Home() {
             { l: "L3", c: "bg-[#D95578] text-white" },
             { l: "L4", c: "bg-[#DEDEDE] text-black font-bold" },
             { l: "L5", c: "bg-white text-black font-bold border border-[#DEDEDE]" },
+            { l: "◇ 판정", c: "bg-[#F4B8C8] text-[#3B0716] font-bold border border-[#D95578]" },
           ].map((i) => (
             <span
               key={i.l}
@@ -1099,6 +1150,13 @@ export default function Home() {
                   title="캔버스 노드를 x좌표(왼→오) 순서로 ID 재번호"
                 >
                   {"🔢"}
+                </button>
+                <button
+                  onClick={addDecisionNode}
+                  className="text-[10px] font-medium bg-pink-200 text-pink-800 rounded px-2 py-1.5 hover:bg-pink-300 transition border border-pink-300"
+                  title="판정 로직 (마름모) 노드 추가"
+                >
+                  {"◇"}
                 </button>
                 <button
                   onClick={handleClearCanvas}
@@ -1524,6 +1582,8 @@ export default function Home() {
                         return "#DEDEDE";
                       case "l5":
                         return "#FFFFFF";
+                      case "decision":
+                        return "#F4B8C8";
                       default:
                         return "#d1d5db";
                     }
@@ -1564,6 +1624,12 @@ export default function Home() {
                       className="mt-1 w-full text-[10px] font-bold bg-amber-500 text-white rounded px-2 py-1 hover:bg-amber-600 transition"
                     >
                       🔢 ID 재번호 (x좌표 순)
+                    </button>
+                    <button
+                      onClick={addDecisionNode}
+                      className="mt-0.5 w-full text-[10px] font-bold bg-pink-200 text-pink-800 rounded px-2 py-1 hover:bg-pink-300 transition border border-pink-300"
+                    >
+                      ◇ 판정 로직 추가
                     </button>
                     <button
                       onClick={() => setAddDataMode(true)}

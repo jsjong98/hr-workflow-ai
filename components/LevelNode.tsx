@@ -298,4 +298,115 @@ export const L5Node = memo(({ data }: { data: NodeData }) => (
 ));
 L5Node.displayName = "L5Node";
 
+/* ─── Decision (판정 로직) 마름모 노드 ── */
+interface DecisionNodeData {
+  label: string;
+  description?: string;
+  id?: string;
+  memo?: string;
+  level?: string;
+}
+
+function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
+  /* L3(#D95578) 보다 옅은 색상 */
+  const bgColor = "#F4B8C8";        // 옅은 핑크
+  const borderColor = "#D95578";     // L3 기준 테두리
+  const textColor = "#3B0716";
+
+  return (
+    <div
+      className="select-none relative"
+      style={{ width: 220, height: 220 }}
+    >
+      {/* ── Target handles ── */}
+      <Handle type="target" position={Position.Top} id="t-top"
+        className="!w-5 !h-5 !bg-transparent !border-0"
+        style={{ top: -10, left: '50%', transform: 'translateX(-50%)' }}
+      />
+      <Handle type="target" position={Position.Bottom} id="t-bottom"
+        className="!w-5 !h-5 !bg-transparent !border-0"
+        style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
+      />
+      <Handle type="target" position={Position.Left} id="t-left"
+        className="!w-5 !h-5 !bg-transparent !border-0"
+        style={{ left: -10, top: '50%', transform: 'translateY(-50%)' }}
+      />
+      <Handle type="target" position={Position.Right} id="t-right"
+        className="!w-5 !h-5 !bg-transparent !border-0"
+        style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
+      />
+
+      {/* ── Source handles (Yes → bottom, No → right) ── */}
+      <Handle type="source" position={Position.Bottom} id="yes"
+        className="!w-5 !h-5 !bg-[#22C55E] !border-2 !border-white !z-10"
+        style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
+      />
+      <Handle type="source" position={Position.Right} id="no"
+        className="!w-5 !h-5 !bg-[#EF4444] !border-2 !border-white !z-10"
+        style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
+      />
+      <Handle type="source" position={Position.Top} id="top"
+        className="!w-5 !h-5 !bg-[#D95578] !border-2 !border-white !z-10"
+        style={{ top: -10, left: '50%', transform: 'translateX(-50%)' }}
+      />
+      <Handle type="source" position={Position.Left} id="left"
+        className="!w-5 !h-5 !bg-[#D95578] !border-2 !border-white !z-10"
+        style={{ left: -10, top: '50%', transform: 'translateY(-50%)' }}
+      />
+
+      {/* ── Diamond SVG ── */}
+      <svg
+        viewBox="0 0 220 220"
+        width="220"
+        height="220"
+        className="absolute inset-0 drop-shadow-lg"
+      >
+        <polygon
+          points="110,8 212,110 110,212 8,110"
+          fill={bgColor}
+          stroke={borderColor}
+          strokeWidth="2.5"
+        />
+      </svg>
+
+      {/* ── Content overlay ── */}
+      <div
+        className="absolute inset-0 flex flex-col items-center justify-center px-8"
+        style={{ color: textColor }}
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1">
+          ◆ 판정 로직
+        </span>
+        <div className="text-[14px] font-bold text-center leading-snug">
+          {data.label || "판정 조건"}
+        </div>
+        {data.description && (
+          <div className="text-[11px] text-center mt-1 opacity-70 leading-tight line-clamp-2">
+            {data.description}
+          </div>
+        )}
+      </div>
+
+      {/* ── Yes/No 라벨 표시 ── */}
+      <div
+        className="absolute text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded"
+        style={{ bottom: -26, left: '50%', transform: 'translateX(-50%)' }}
+      >
+        Yes ↓
+      </div>
+      <div
+        className="absolute text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded"
+        style={{ right: -32, top: '50%', transform: 'translateY(-50%)' }}
+      >
+        No →
+      </div>
+    </div>
+  );
+}
+
+export const DecisionNode = memo(({ data }: { data: DecisionNodeData }) => (
+  <DecisionNodeBase data={data} />
+));
+DecisionNode.displayName = "DecisionNode";
+
 export default LevelNodeBase;

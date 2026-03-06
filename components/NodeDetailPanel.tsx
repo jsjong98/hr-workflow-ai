@@ -155,6 +155,7 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
     L3: { bg: "bg-[#D95578]", text: "text-white", border: "border-[#F2A0AF]" },
     L4: { bg: "bg-[#F2A0AF]", text: "text-[#3B0716]", border: "border-[#D95578]" },
     L5: { bg: "bg-[#F2DCE0]", text: "text-[#3B0716]", border: "border-[#F2A0AF]" },
+    DECISION: { bg: "bg-[#F4B8C8]", text: "text-[#3B0716]", border: "border-[#D95578]" },
   };
   const lc = levelColors[level] || levelColors.L4;
 
