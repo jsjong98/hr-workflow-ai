@@ -230,6 +230,12 @@ export default function Home() {
   const [addDataMode, setAddDataMode] = useState(false);
   const [addDataForm, setAddDataForm] = useState({ level: "L5" as ManualItem["level"], id: "", name: "", description: "", role: "" });
 
+  /* ── Palette Edit Mode ── */
+  const [paletteEditMode, setPaletteEditMode] = useState(false);
+  const [editingPaletteItem, setEditingPaletteItem] = useState<string | null>(null);
+  const [editPaletteForm, setEditPaletteForm] = useState({ name: "", description: "" });
+  const [dragSource, setDragSource] = useState<{ type: "l4" | "l5"; l4Id: string; idx: number } | null>(null);
+
   const handleAddManualItem = useCallback(() => {
     if (!addDataForm.name.trim()) { alert("이름을 입력해주세요."); return; }
     const newItem: ManualItem = {
@@ -369,6 +375,126 @@ export default function Home() {
       return result;
     });
   }, [selectedL3, setNodes]);
+
+  /* ═══ 팔레트 ID 재번호 (현재 l4List/l5Map 순서 기준) ═══ */
+  const renumberPaletteIds = useCallback(
+    (srcL4: L4Item[], srcL5: Record<string, L5Item[]>) => {
+      if (srcL4.length === 0) return { l4s: srcL4, l5m: srcL5 };
+      const firstId = srcL4[0].id;
+      const parts = firstId.split(".");
+      const prefix = parts.length >= 2 ? parts.slice(0, -1).join(".") : "1";
+      const l4s: L4Item[] = [];
+      const l5m: Record<string, L5Item[]> = {};
+      srcL4.forEach((l4, i) => {
+        const newL4Id = `${prefix}.${i + 1}`;
+        l4s.push({ ...l4, id: newL4Id });
+        const l5s = srcL5[l4.id] || [];
+        l5m[newL4Id] = l5s.map((l5, j) => ({ ...l5, id: `${newL4Id}.${j + 1}` }));
+      });
+      return { l4s, l5m };
+    },
+    []
+  );
+
+  /* ═══ L4 드래그 순서 변경 ═══ */
+  const handleL4Reorder = useCallback(
+    (fromIdx: number, toIdx: number) => {
+      if (fromIdx === toIdx) return;
+      const list = [...l4List];
+      const [moved] = list.splice(fromIdx, 1);
+      list.splice(toIdx, 0, moved);
+      const { l4s, l5m } = renumberPaletteIds(list, l5Map);
+      setL4List(l4s);
+      setL5Map(l5m);
+      if (expandedL4) {
+        const oldL4 = l4List[fromIdx];
+        const newL4 = l4s.find((l) => l.name === oldL4?.name);
+        if (newL4 && expandedL4 === oldL4?.id) setExpandedL4(newL4.id);
+      }
+    },
+    [l4List, l5Map, expandedL4, renumberPaletteIds]
+  );
+
+  /* ═══ L5 드래그 순서 변경 (같은 L4 내 또는 L4 간 이동) ═══ */
+  const handleL5Reorder = useCallback(
+    (fromL4Id: string, fromIdx: number, toL4Id: string, toIdx: number) => {
+      const updatedL5Map = { ...l5Map };
+      if (fromL4Id === toL4Id) {
+        const items = [...(updatedL5Map[fromL4Id] || [])];
+        const [moved] = items.splice(fromIdx, 1);
+        items.splice(toIdx, 0, moved);
+        updatedL5Map[fromL4Id] = items;
+      } else {
+        const fromItems = [...(updatedL5Map[fromL4Id] || [])];
+        const toItems = [...(updatedL5Map[toL4Id] || [])];
+        const [moved] = fromItems.splice(fromIdx, 1);
+        toItems.splice(toIdx, 0, moved);
+        updatedL5Map[fromL4Id] = fromItems;
+        updatedL5Map[toL4Id] = toItems;
+      }
+      const { l4s, l5m } = renumberPaletteIds(l4List, updatedL5Map);
+      setL4List(l4s);
+      setL5Map(l5m);
+    },
+    [l4List, l5Map, renumberPaletteIds]
+  );
+
+  /* ═══ 팔레트 항목 수정 시작 ═══ */
+  const handleStartPaletteEdit = useCallback(
+    (id: string, name: string, desc: string) => {
+      setEditingPaletteItem(id);
+      setEditPaletteForm({ name, description: desc });
+    },
+    []
+  );
+
+  /* ═══ 팔레트 항목 수정 저장 ═══ */
+  const handleSavePaletteEdit = useCallback(() => {
+    if (!editingPaletteItem) return;
+    const { name, description } = editPaletteForm;
+    const isL4 = l4List.some((l4) => l4.id === editingPaletteItem);
+    if (isL4) {
+      setL4List((prev) =>
+        prev.map((l4) =>
+          l4.id === editingPaletteItem ? { ...l4, name, description } : l4
+        )
+      );
+    } else {
+      setL5Map((prev) => {
+        const m = { ...prev };
+        for (const key of Object.keys(m)) {
+          m[key] = m[key].map((l5) =>
+            l5.id === editingPaletteItem ? { ...l5, name, description } : l5
+          );
+        }
+        return m;
+      });
+    }
+    setEditingPaletteItem(null);
+  }, [editingPaletteItem, editPaletteForm, l4List]);
+
+  /* ═══ 팔레트 항목 삭제 ═══ */
+  const handleDeletePaletteItem = useCallback(
+    (id: string, type: "l4" | "l5") => {
+      if (type === "l4") {
+        const newL4 = l4List.filter((l4) => l4.id !== id);
+        const newL5Map = { ...l5Map };
+        delete newL5Map[id];
+        const { l4s, l5m } = renumberPaletteIds(newL4, newL5Map);
+        setL4List(l4s);
+        setL5Map(l5m);
+      } else {
+        const newL5Map = { ...l5Map };
+        for (const key of Object.keys(newL5Map)) {
+          newL5Map[key] = newL5Map[key].filter((l5) => l5.id !== id);
+        }
+        const { l4s, l5m } = renumberPaletteIds(l4List, newL5Map);
+        setL4List(l4s);
+        setL5Map(l5m);
+      }
+    },
+    [l4List, l5Map, renumberPaletteIds]
+  );
 
   /* ═══════════════════════════════════════════════
    * CSV Load
@@ -875,6 +1001,17 @@ export default function Home() {
                   {"🤖 AI Workflow"}
                 </button>
                 <button
+                  onClick={() => { setPaletteEditMode(!paletteEditMode); setEditingPaletteItem(null); }}
+                  className={`text-[10px] font-medium rounded px-2 py-1.5 transition ${
+                    paletteEditMode
+                      ? "bg-orange-500 text-white hover:bg-orange-600 ring-2 ring-orange-300"
+                      : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                  }`}
+                  title="팔레트 항목 수정/순서변경/삭제 모드"
+                >
+                  {"✏️"}
+                </button>
+                <button
                   onClick={handleRenumberByPosition}
                   className="text-[10px] font-medium bg-amber-500 text-white rounded px-2 py-1.5 hover:bg-amber-600 transition"
                   title="캔버스 노드를 x좌표(왼→오) 순서로 ID 재번호"
@@ -900,6 +1037,157 @@ export default function Home() {
                 />
               </div>
               <div className="flex-1 overflow-y-auto px-2 py-2">
+                {paletteEditMode ? (
+                  /* ═══ EDIT MODE ═══ */
+                  <>
+                    <div className="flex items-center justify-between px-2 mb-2">
+                      <p className="text-[10px] font-bold text-orange-600 flex items-center gap-1">
+                        ✏️ 수정 모드 <span className="font-normal text-orange-400">— 드래그로 순서 변경</span>
+                      </p>
+                      <button
+                        onClick={() => { setPaletteEditMode(false); setEditingPaletteItem(null); }}
+                        className="text-[10px] font-bold bg-orange-500 text-white rounded px-2 py-0.5 hover:bg-orange-600 transition"
+                      >
+                        ✓ 완료
+                      </button>
+                    </div>
+                    {l4List.map((l4, l4Idx) => (
+                      <div key={l4.id} className="mb-2">
+                        {/* ── L4 Header (draggable) ── */}
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            setDragSource({ type: "l4", l4Id: l4.id, idx: l4Idx });
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-t-2", "border-t-orange-400"); }}
+                          onDragLeave={(e) => { e.currentTarget.classList.remove("border-t-2", "border-t-orange-400"); }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.currentTarget.classList.remove("border-t-2", "border-t-orange-400");
+                            if (dragSource?.type === "l4") {
+                              handleL4Reorder(dragSource.idx, l4Idx);
+                            }
+                            setDragSource(null);
+                          }}
+                          className="flex items-center gap-1 group cursor-grab active:cursor-grabbing"
+                        >
+                          <span className="text-gray-400 text-[10px] flex-none select-none">☰</span>
+                          {editingPaletteItem === l4.id ? (
+                            <div className="flex-1 flex gap-1 items-center">
+                              <input
+                                value={editPaletteForm.name}
+                                onChange={(e) => setEditPaletteForm({ ...editPaletteForm, name: e.target.value })}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleSavePaletteEdit(); if (e.key === "Escape") setEditingPaletteItem(null); }}
+                                className="flex-1 text-[11px] font-bold border border-orange-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                                autoFocus
+                              />
+                              <button onClick={handleSavePaletteEdit} className="text-[9px] text-white bg-orange-500 rounded px-1.5 py-0.5 hover:bg-orange-600">저장</button>
+                              <button onClick={() => setEditingPaletteItem(null)} className="text-[9px] text-gray-500 hover:text-gray-700">취소</button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex-1 min-w-0 px-2 py-1.5 text-[11px] font-bold text-black bg-[#DEDEDE] border border-[#BBBBBB] rounded truncate">
+                                <span className="text-[8px] text-gray-500 font-mono mr-1">{l4.id}</span>
+                                {l4.name}
+                              </div>
+                              <button
+                                onClick={() => handleStartPaletteEdit(l4.id, l4.name, l4.description || "")}
+                                className="text-[9px] text-orange-500 hover:text-orange-700 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                                title="수정"
+                              >✏️</button>
+                              <button
+                                onClick={() => { if (confirm(`L4 "${l4.name}" 및 하위 L5를 삭제하시겠습니까?`)) handleDeletePaletteItem(l4.id, "l4"); }}
+                                className="text-[9px] text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                                title="삭제"
+                              >🗑️</button>
+                            </>
+                          )}
+                        </div>
+                        {/* ── L5 items (always expanded in edit mode, draggable) ── */}
+                        <div className="ml-4 mt-0.5 space-y-0.5">
+                          {(l5Map[l4.id] || []).map((l5, l5Idx) => (
+                            <div
+                              key={l5.id}
+                              draggable
+                              onDragStart={(e) => {
+                                setDragSource({ type: "l5", l4Id: l4.id, idx: l5Idx });
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-t-2", "border-t-blue-400"); }}
+                              onDragLeave={(e) => { e.currentTarget.classList.remove("border-t-2", "border-t-blue-400"); }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.currentTarget.classList.remove("border-t-2", "border-t-blue-400");
+                                if (dragSource?.type === "l5") {
+                                  handleL5Reorder(dragSource.l4Id, dragSource.idx, l4.id, l5Idx);
+                                }
+                                setDragSource(null);
+                              }}
+                              className="flex items-center gap-1 group cursor-grab active:cursor-grabbing"
+                            >
+                              <span className="text-gray-300 text-[9px] flex-none select-none">⠿</span>
+                              {editingPaletteItem === l5.id ? (
+                                <div className="flex-1 space-y-0.5">
+                                  <input
+                                    value={editPaletteForm.name}
+                                    onChange={(e) => setEditPaletteForm({ ...editPaletteForm, name: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSavePaletteEdit(); if (e.key === "Escape") setEditingPaletteItem(null); }}
+                                    className="w-full text-[10px] border border-blue-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                    autoFocus
+                                    placeholder="이름"
+                                  />
+                                  <div className="flex gap-1">
+                                    <input
+                                      value={editPaletteForm.description}
+                                      onChange={(e) => setEditPaletteForm({ ...editPaletteForm, description: e.target.value })}
+                                      className="flex-1 text-[9px] border border-gray-200 rounded px-1 py-0.5"
+                                      placeholder="설명"
+                                    />
+                                    <button onClick={handleSavePaletteEdit} className="text-[8px] text-white bg-blue-500 rounded px-1 py-0.5">저장</button>
+                                    <button onClick={() => setEditingPaletteItem(null)} className="text-[8px] text-gray-500">취소</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex-1 min-w-0 px-2 py-1 text-[10px] font-semibold text-black bg-white border border-[#DEDEDE] rounded truncate">
+                                    <span className="text-[8px] text-gray-400 font-mono mr-1">{l5.id}</span>
+                                    {l5.name}
+                                  </div>
+                                  <button
+                                    onClick={() => handleStartPaletteEdit(l5.id, l5.name, l5.description || "")}
+                                    className="text-[8px] text-orange-500 hover:text-orange-700 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                                  >✏️</button>
+                                  <button
+                                    onClick={() => { if (confirm(`"${l5.name}" 삭제?`)) handleDeletePaletteItem(l5.id, "l5"); }}
+                                    className="text-[8px] text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                                  >🗑️</button>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                          {/* Drop zone at the end of L5 list */}
+                          <div
+                            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-t-2", "border-t-blue-400"); }}
+                            onDragLeave={(e) => { e.currentTarget.classList.remove("border-t-2", "border-t-blue-400"); }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.currentTarget.classList.remove("border-t-2", "border-t-blue-400");
+                              if (dragSource?.type === "l5") {
+                                const toIdx = (l5Map[l4.id] || []).length;
+                                handleL5Reorder(dragSource.l4Id, dragSource.idx, l4.id, toIdx);
+                              }
+                              setDragSource(null);
+                            }}
+                            className="h-2 rounded"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  /* ═══ NORMAL MODE ═══ */
+                  <>
                 <p className="text-[9px] text-gray-400 px-2 mb-1">
                   💡 항목 클릭 → 캔버스 추가 · Handle 드래그 → 화살표 연결
                 </p>
@@ -1048,6 +1336,8 @@ export default function Home() {
                     </button>
                   )}
                 </div>
+                </>
+                )}
               </div>
             </>
           ) : (
