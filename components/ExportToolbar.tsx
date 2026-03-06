@@ -501,6 +501,10 @@ export default function ExportToolbar({
       }
 
       // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────────────
+      // 노드별 그룹화를 위한 EMU 좌표 수집
+      interface NodeShapeMeta { x: number; y: number; w: number; h: number }
+      const nodeGroupShapes: Record<string, NodeShapeMeta[]> = {};
+
       for (const nd of nodes) {
         const level = getLevel(nd);
         const s = LS[level] || DEF;
@@ -508,6 +512,7 @@ export default function ExportToolbar({
         if (!box) continue;
         const dispLabel = getLabel(nd);
         const dispId = getDisplayId(nd);
+        const shapeList: NodeShapeMeta[] = [];
 
         if (level === "DECISION") {
           /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
@@ -519,6 +524,7 @@ export default function ExportToolbar({
             fontSize: 11, bold: true, color: "3B0716",
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
+          shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
         } else if (level === "L5") {
           /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
           // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
@@ -530,6 +536,7 @@ export default function ExportToolbar({
             fontSize: 9, bold: true, color: "000000",
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
+          shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: L5_UPPER_H });
           // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           const sysStr = (nd.data as Record<string, string>).system || "";
@@ -552,6 +559,7 @@ export default function ExportToolbar({
             fontSize: 7, bold: false, color: "000000",
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
+          shapeList.push({ x: box.x, y: box.y + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
         } else {
           /* ── L2~L4: 기존 단일 박스 ── */
           s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -562,6 +570,7 @@ export default function ExportToolbar({
             fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
             fontFace: FONT_FACE, valign: "middle", align: "center",
           });
+          shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           if (sysMap) {
             const SYS_KEYS: { key: string; label: string }[] = [
@@ -575,6 +584,7 @@ export default function ExportToolbar({
                 fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
                 fontFace: FONT_FACE, align: "center", bold: true,
               });
+              shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
             }
           }
         }
@@ -596,8 +606,29 @@ export default function ExportToolbar({
               fontSize: 7, color: "1D4ED8",
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
+            shapeList.push({ x: box.x + (box.w - tagW) / 2, y: box.y - tagH - 0.02, w: tagW, h: tagH });
           }
         }
+
+        // Memo yellow box (노란색 네모 칸, 9pt)
+        const memoStr = (nd.data as Record<string, string>).memo || "";
+        if (memoStr) {
+          const memoW = Math.max(box.w, 1.0);
+          const memoH = 0.28;
+          s2.addText(memoStr, {
+            x: box.x, y: box.y + box.h + 0.04,
+            w: memoW, h: memoH,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "FFF9C4" },
+            line: { color: "FBC02D", width: 0.5 },
+            fontSize: 9, color: "6D4C00",
+            fontFace: FONT_FACE, valign: "middle", align: "left",
+            margin: [0, 4, 0, 4],
+          });
+          shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
+        }
+        // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
+        if (shapeList.length > 1) nodeGroupShapes[nd.id] = shapeList;
       }
 
       // ── Phase 4: 엣지 메타 수집 (실제 그리기는 PPTX 후처리에서 진짜 커넥터로) ──────
@@ -1043,6 +1074,69 @@ export default function ExportToolbar({
         }
       }
 
+      // ── JSZip 후처리: 도형 그룹화 (노드별 관련 도형을 <p:grpSp>로 묶음) ──────
+      if (Object.keys(nodeGroupShapes).length > 0) {
+        let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
+        if (grpSlideXml) {
+          let grpMaxId = 0;
+          for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
+            const n = parseInt(m.match(/\d+/)![0]);
+            if (n > grpMaxId) grpMaxId = n;
+          }
+          let grpNextId = grpMaxId + 1;
+
+          for (const shapes of Object.values(nodeGroupShapes)) {
+            if (shapes.length < 2) continue;
+            const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+            const matched: string[] = [];
+            const tol = Math.round(EMU * 0.02);
+
+            for (const sm of shapes) {
+              const tx = Math.round(sm.x * EMU), ty = Math.round(sm.y * EMU);
+              for (const blk of spBlocks) {
+                if (matched.includes(blk)) continue;
+                const om = blk.match(/<a:off\s([^>]*)\/?>/);
+                if (!om) continue;
+                const xm = om[1].match(/x="(\d+)"/), ym = om[1].match(/y="(\d+)"/);
+                if (!xm || !ym) continue;
+                if (Math.abs(parseInt(xm[1]) - tx) < tol && Math.abs(parseInt(ym[1]) - ty) < tol) {
+                  matched.push(blk); break;
+                }
+              }
+            }
+            if (matched.length < 2) continue;
+
+            // Compute bounding box in EMU
+            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            for (const blk of matched) {
+              const om = blk.match(/<a:off\s([^>]*)\/?>/);
+              const em = blk.match(/<a:ext\s([^>]*)\/?>/);
+              if (!om || !em) continue;
+              const bx = parseInt(om[1].match(/x="(\d+)"/)![1]);
+              const by = parseInt(om[1].match(/y="(\d+)"/)![1]);
+              const bcx = parseInt(em[1].match(/cx="(\d+)"/)![1]);
+              const bcy = parseInt(em[1].match(/cy="(\d+)"/)![1]);
+              gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
+              gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
+            }
+
+            // Remove matched shapes from XML, then insert group
+            for (const blk of matched) grpSlideXml = grpSlideXml.replace(blk, "");
+            const grpSp = `<p:grpSp>`
+              + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+              + `<p:grpSpPr><a:xfrm>`
+              + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+              + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+              + `</a:xfrm></p:grpSpPr>`
+              + matched.join("")
+              + `</p:grpSp>`;
+            grpNextId++;
+            grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
+          }
+          zip.file(slide2Path, grpSlideXml);
+        }
+      }
+
       // 다운로드
       const finalBlob = await zip.generateAsync({
         type: "blob",
@@ -1177,6 +1271,7 @@ export default function ExportToolbar({
         slideIndex: number;
         connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
+        nodeGroupShapes: Record<string, { x: number; y: number; w: number; h: number }[]>;
       }[] = [];
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
 
@@ -1495,6 +1590,9 @@ export default function ExportToolbar({
         }
 
         // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────
+        interface GrpShapeMeta { x: number; y: number; w: number; h: number }
+        const sheetGroupShapes: Record<string, GrpShapeMeta[]> = {};
+
         for (const nd of sNodes) {
           const level = getLevel(nd);
           const sv = LS[level] || DEF;
@@ -1502,6 +1600,7 @@ export default function ExportToolbar({
           if (!box) continue;
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
+          const shapeList: GrpShapeMeta[] = [];
 
           if (level === "DECISION") {
             /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
@@ -1513,6 +1612,7 @@ export default function ExportToolbar({
               fontSize: 11, bold: true, color: "3B0716",
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
+            shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
           } else if (level === "L5") {
             /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -1523,6 +1623,7 @@ export default function ExportToolbar({
               fontSize: 9, bold: true, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
+            shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             const sysStr = (nd.data as Record<string, string>).system || "";
             let sysName = "시스템명";
@@ -1545,6 +1646,7 @@ export default function ExportToolbar({
               fontSize: 7, bold: false, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
+            shapeList.push({ x: box.x, y: box.y + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
           } else {
             /* ── L2~L4: 기존 단일 박스 ── */
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -1555,6 +1657,7 @@ export default function ExportToolbar({
               fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
+            shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             if (sysMap) {
               const SYS_KEYS: { key: string; label: string }[] = [
@@ -1568,6 +1671,7 @@ export default function ExportToolbar({
                   fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
                   fontFace: FONT_FACE, align: "center", bold: true,
                 });
+                shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
               }
             }
           }
@@ -1589,8 +1693,29 @@ export default function ExportToolbar({
                 fontSize: 7, color: "1D4ED8",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
               });
+              shapeList.push({ x: box.x + (box.w - tagW) / 2, y: box.y - tagH - 0.02, w: tagW, h: tagH });
             }
           }
+
+          // Memo yellow box (노란색 네모 칸, 9pt)
+          const memoStr = (nd.data as Record<string, string>).memo || "";
+          if (memoStr) {
+            const memoW = Math.max(box.w, 1.0);
+            const memoH = 0.28;
+            slide.addText(memoStr, {
+              x: box.x, y: box.y + box.h + 0.04,
+              w: memoW, h: memoH,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFF9C4" },
+              line: { color: "FBC02D", width: 0.5 },
+              fontSize: 9, color: "6D4C00",
+              fontFace: FONT_FACE, valign: "middle", align: "left",
+              margin: [0, 4, 0, 4],
+            });
+            shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
+          }
+          // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
+          if (shapeList.length > 1) sheetGroupShapes[nd.id] = shapeList;
         }
 
         // ── Phase 4: 엣지 메타 수집 (JSZip 후처리에서 진짜 커넥터로) ─────
@@ -1633,7 +1758,7 @@ export default function ExportToolbar({
               label: e.label ? String(e.label) : undefined,
             });
           }
-          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes } });
+          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes }, nodeGroupShapes: { ...sheetGroupShapes } });
           slideIdx++;
         }
 
@@ -1740,6 +1865,67 @@ export default function ExportToolbar({
         }
 
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
+
+        // ── 도형 그룹화: 노드별 관련 도형을 <p:grpSp>로 묶음 ──────
+        if (sc.nodeGroupShapes && Object.keys(sc.nodeGroupShapes).length > 0) {
+          let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
+          if (grpSlideXml) {
+            let grpMaxId = 0;
+            for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
+              const n = parseInt(m.match(/\d+/)![0]);
+              if (n > grpMaxId) grpMaxId = n;
+            }
+            let grpNextId = grpMaxId + 1;
+
+            for (const shapes of Object.values(sc.nodeGroupShapes)) {
+              if (shapes.length < 2) continue;
+              const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+              const matched: string[] = [];
+              const tol = Math.round(EMU * 0.02);
+
+              for (const sm of shapes) {
+                const tx = Math.round(sm.x * EMU), ty = Math.round(sm.y * EMU);
+                for (const blk of spBlocks) {
+                  if (matched.includes(blk)) continue;
+                  const om = blk.match(/<a:off\s([^>]*)\/?>/);
+                  if (!om) continue;
+                  const xm = om[1].match(/x="(\d+)"/), ym = om[1].match(/y="(\d+)"/);
+                  if (!xm || !ym) continue;
+                  if (Math.abs(parseInt(xm[1]) - tx) < tol && Math.abs(parseInt(ym[1]) - ty) < tol) {
+                    matched.push(blk); break;
+                  }
+                }
+              }
+              if (matched.length < 2) continue;
+
+              let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+              for (const blk of matched) {
+                const om = blk.match(/<a:off\s([^>]*)\/?>/);
+                const em = blk.match(/<a:ext\s([^>]*)\/?>/);
+                if (!om || !em) continue;
+                const bx = parseInt(om[1].match(/x="(\d+)"/)![1]);
+                const by = parseInt(om[1].match(/y="(\d+)"/)![1]);
+                const bcx = parseInt(em[1].match(/cx="(\d+)"/)![1]);
+                const bcy = parseInt(em[1].match(/cy="(\d+)"/)![1]);
+                gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
+                gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
+              }
+
+              for (const blk of matched) grpSlideXml = grpSlideXml.replace(blk, "");
+              const grpSp = `<p:grpSp>`
+                + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+                + `<p:grpSpPr><a:xfrm>`
+                + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+                + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+                + `</a:xfrm></p:grpSpPr>`
+                + matched.join("")
+                + `</p:grpSp>`;
+              grpNextId++;
+              grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
+            }
+            zip.file(slidePath, grpSlideXml);
+          }
+        }
       }
 
       const finalBlob = await zip.generateAsync({

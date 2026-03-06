@@ -280,6 +280,13 @@ function LevelNodeBase({ data }: { data: NodeData }) {
           {data.role.slice(3)}
         </div>
       )}
+
+      {/* Memo yellow box */}
+      {data.memo && (
+        <div className="mt-2 w-full bg-yellow-100 border border-yellow-300 rounded px-2 py-1.5 text-[9px] text-yellow-900 leading-snug line-clamp-3">
+          📝 {data.memo}
+        </div>
+      )}
     </div>
   );
 }
@@ -407,6 +414,16 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
       >
         No →
       </div>
+
+      {/* Memo yellow box */}
+      {data.memo && (
+        <div
+          className="absolute bg-yellow-100 border border-yellow-300 rounded px-2 py-1 text-[9px] text-yellow-900 leading-snug"
+          style={{ top: 228, left: '50%', transform: 'translateX(-50%)', width: 180, maxHeight: 60, overflow: 'hidden' }}
+        >
+          📝 {data.memo}
+        </div>
+      )}
     </div>
   );
 }
