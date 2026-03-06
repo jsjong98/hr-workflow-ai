@@ -524,6 +524,7 @@ export default function ExportToolbar({
             line: { color: "D95578", width: 1.5 },
             fontSize: 11, bold: true, color: "3B0716",
             fontFace: FONT_FACE, valign: "middle", align: "center",
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
         } else if (level === "L5") {
@@ -536,6 +537,7 @@ export default function ExportToolbar({
             line: { color: "DEDEDE", width: 0.25 },
             fontSize: 9, bold: true, color: "000000",
             fontFace: FONT_FACE, valign: "middle", align: "center",
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: L5_UPPER_H });
           // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
@@ -559,6 +561,7 @@ export default function ExportToolbar({
             line: { width: 0 },
             fontSize: 7, bold: false, color: "000000",
             fontFace: FONT_FACE, valign: "middle", align: "center",
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
         } else {
@@ -570,6 +573,7 @@ export default function ExportToolbar({
             line: { color: s.border, width: 0.25 },
             fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
             fontFace: FONT_FACE, valign: "middle", align: "center",
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
@@ -584,6 +588,7 @@ export default function ExportToolbar({
                 x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
                 fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
                 fontFace: FONT_FACE, align: "center", bold: true,
+                objectName: `GRP_${nd.id}_${shapeList.length}`,
               });
               shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
             }
@@ -607,6 +612,7 @@ export default function ExportToolbar({
               line: { color: "93C5FD", width: 0.5 },
               fontSize: 7, color: "1D4ED8",
               fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
           }
@@ -626,6 +632,7 @@ export default function ExportToolbar({
             fontSize: 9, color: "6D4C00",
             fontFace: FONT_FACE, valign: "middle", align: "left",
             margin: [0, 4, 0, 4],
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
         }
@@ -1076,7 +1083,7 @@ export default function ExportToolbar({
         }
       }
 
-      // ── JSZip 후처리: 도형 그룹화 (노드별 관련 도형을 <p:grpSp>로 묶음) ──────
+      // ── JSZip 후처리: 도형 그룹화 (objectName 기반 매칭) ──────
       if (Object.keys(nodeGroupShapes).length > 0) {
         let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
         if (grpSlideXml) {
@@ -1087,21 +1094,18 @@ export default function ExportToolbar({
           }
           let grpNextId = grpMaxId + 1;
 
-          for (const shapes of Object.values(nodeGroupShapes)) {
+          for (const [nodeId, shapes] of Object.entries(nodeGroupShapes)) {
             if (shapes.length < 2) continue;
+            // objectName 기반으로 <p:sp> 블록 매칭
             const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
             const matched: string[] = [];
-            const tol = Math.round(EMU * 0.02);
 
-            for (const sm of shapes) {
-              const tx = Math.round(sm.x * EMU), ty = Math.round(sm.y * EMU);
+            for (let i = 0; i < shapes.length; i++) {
+              const targetName = `GRP_${nodeId}_${i}`;
               for (const blk of spBlocks) {
                 if (matched.includes(blk)) continue;
-                const om = blk.match(/<a:off\s([^>]*)\/?>/);
-                if (!om) continue;
-                const xm = om[1].match(/x="(\d+)"/), ym = om[1].match(/y="(\d+)"/);
-                if (!xm || !ym) continue;
-                if (Math.abs(parseInt(xm[1]) - tx) < tol && Math.abs(parseInt(ym[1]) - ty) < tol) {
+                // name="GRP_nodeId_N" 패턴으로 매칭
+                if (blk.includes(`name="${targetName}"`)) {
                   matched.push(blk); break;
                 }
               }
@@ -1613,6 +1617,7 @@ export default function ExportToolbar({
               line: { color: "D95578", width: 1.5 },
               fontSize: 11, bold: true, color: "3B0716",
               fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
           } else if (level === "L5") {
@@ -1624,6 +1629,7 @@ export default function ExportToolbar({
               line: { color: "DEDEDE", width: 0.25 },
               fontSize: 9, bold: true, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
@@ -1647,6 +1653,7 @@ export default function ExportToolbar({
               line: { width: 0 },
               fontSize: 7, bold: false, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
           } else {
@@ -1658,6 +1665,7 @@ export default function ExportToolbar({
               line: { color: sv.border, width: 0.25 },
               fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
               fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
@@ -1672,6 +1680,7 @@ export default function ExportToolbar({
                   x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
                   fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
                   fontFace: FONT_FACE, align: "center", bold: true,
+                  objectName: `GRP_${nd.id}_${shapeList.length}`,
                 });
                 shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
               }
@@ -1695,6 +1704,7 @@ export default function ExportToolbar({
                 line: { color: "93C5FD", width: 0.5 },
                 fontSize: 7, color: "1D4ED8",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_${nd.id}_${shapeList.length}`,
               });
               shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
             }
@@ -1714,6 +1724,7 @@ export default function ExportToolbar({
               fontSize: 9, color: "6D4C00",
               fontFace: FONT_FACE, valign: "middle", align: "left",
               margin: [0, 4, 0, 4],
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
           }
@@ -1869,7 +1880,7 @@ export default function ExportToolbar({
 
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
 
-        // ── 도형 그룹화: 노드별 관련 도형을 <p:grpSp>로 묶음 ──────
+        // ── 도형 그룹화: objectName 기반 매칭 ──────
         if (sc.nodeGroupShapes && Object.keys(sc.nodeGroupShapes).length > 0) {
           let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
           if (grpSlideXml) {
@@ -1880,21 +1891,16 @@ export default function ExportToolbar({
             }
             let grpNextId = grpMaxId + 1;
 
-            for (const shapes of Object.values(sc.nodeGroupShapes)) {
+            for (const [nodeId, shapes] of Object.entries(sc.nodeGroupShapes)) {
               if (shapes.length < 2) continue;
               const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
               const matched: string[] = [];
-              const tol = Math.round(EMU * 0.02);
 
-              for (const sm of shapes) {
-                const tx = Math.round(sm.x * EMU), ty = Math.round(sm.y * EMU);
+              for (let i = 0; i < shapes.length; i++) {
+                const targetName = `GRP_${nodeId}_${i}`;
                 for (const blk of spBlocks) {
                   if (matched.includes(blk)) continue;
-                  const om = blk.match(/<a:off\s([^>]*)\/?>/);
-                  if (!om) continue;
-                  const xm = om[1].match(/x="(\d+)"/), ym = om[1].match(/y="(\d+)"/);
-                  if (!xm || !ym) continue;
-                  if (Math.abs(parseInt(xm[1]) - tx) < tol && Math.abs(parseInt(ym[1]) - ty) < tol) {
+                  if (blk.includes(`name="${targetName}"`)) {
                     matched.push(blk); break;
                   }
                 }

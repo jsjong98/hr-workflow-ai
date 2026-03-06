@@ -108,17 +108,22 @@ export default function Home() {
     return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current); };
   }, [nodes, edges]);
 
-  // Keyboard handler: Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z)
+  // Keyboard handler: Ctrl+Z / Ctrl+Y / ⌘+Z / ⌘+Shift+Z
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Skip if user is typing in an input/textarea
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // contentEditable도 skip
+      if ((e.target as HTMLElement)?.isContentEditable) return;
       const isMod = e.ctrlKey || e.metaKey;
       if (!isMod) return;
 
-      if (e.key === "z" && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+
+      if (key === "z" && !e.shiftKey) {
         e.preventDefault();
+        e.stopPropagation();
         const stack = undoStackRef.current;
         if (stack.length === 0) return;
         // Flush pending debounce
@@ -134,8 +139,9 @@ export default function Home() {
         setEdges(parsed.edges);
         setTimeout(() => { isRestoringRef.current = false; }, 600);
       }
-      if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+      if (key === "y" || (key === "z" && e.shiftKey)) {
         e.preventDefault();
+        e.stopPropagation();
         const stack = redoStackRef.current;
         if (stack.length === 0) return;
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -149,8 +155,8 @@ export default function Home() {
         setTimeout(() => { isRestoringRef.current = false; }, 600);
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   }, [setNodes, setEdges]);
 
   /* ── Sheet (multi-tab) State ───────────────── */
@@ -799,6 +805,26 @@ export default function Home() {
       const targetLevel = targetNode ? ((targetNode.data as Record<string, unknown>).level as string) : "";
       const edgeColor = targetLevel === "L5" ? "#999999" : "#000000";
 
+      // DECISION 노드에서 나가는 연결이면 자동으로 라벨 입력 프롬프트
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const sourceLevel = sourceNode ? ((sourceNode.data as Record<string, unknown>).level as string) : "";
+      let edgeLabel: string | undefined;
+      let edgeLabelStyle: Record<string, unknown> | undefined;
+      let edgeLabelBgStyle: Record<string, unknown> | undefined;
+      let edgeLabelBgPadding: [number, number] | undefined;
+      let edgeLabelBgBorderRadius: number | undefined;
+
+      if (sourceLevel === "DECISION") {
+        const lbl = prompt("분기 라벨을 입력하세요 (예: Yes / No / 승인 / 반려):", "");
+        if (lbl && lbl.trim()) {
+          edgeLabel = lbl.trim();
+          edgeLabelStyle = { fontWeight: 700, fontSize: 13, fill: "#d32f2f" };
+          edgeLabelBgStyle = { fill: "#fff8e1", fillOpacity: 0.95, stroke: "#d32f2f", strokeWidth: 1 };
+          edgeLabelBgPadding = [8, 6];
+          edgeLabelBgBorderRadius = 6;
+        }
+      }
+
       setEdges((eds) =>
         addEdge(
           {
@@ -812,6 +838,13 @@ export default function Home() {
               height: 16,
               color: edgeColor,
             },
+            ...(edgeLabel ? {
+              label: edgeLabel,
+              labelStyle: edgeLabelStyle,
+              labelBgStyle: edgeLabelBgStyle,
+              labelBgPadding: edgeLabelBgPadding,
+              labelBgBorderRadius: edgeLabelBgBorderRadius,
+            } : {}),
           },
           eds
         )
@@ -826,7 +859,12 @@ export default function Home() {
       const currentLabel = (edge.label as string) || "";
       const newLabel = prompt("엣지 라벨을 입력하세요 (비워두면 삭제):", currentLabel);
       if (newLabel === null) return; // cancelled
+
+      // DECISION 노드에서 나가는 엣지면 빨간 글씨 + 노란 배경
+      const sourceNode = nodes.find((n) => n.id === edge.source);
+      const isFromDecision = sourceNode ? ((sourceNode.data as Record<string, unknown>).level as string) === "DECISION" : false;
       const color = ((edge.style as Record<string, unknown>)?.stroke as string) || "#000000";
+
       setEdges((eds) =>
         eds.map((e) => {
           if (e.id !== edge.id) return e;
@@ -834,6 +872,16 @@ export default function Home() {
             // 라벨 삭제
             const { label: _, labelStyle: _ls, labelBgStyle: _lbs, labelBgPadding: _lbp, labelBgBorderRadius: _lbr, ...rest } = e;
             return rest;
+          }
+          if (isFromDecision) {
+            return {
+              ...e,
+              label: newLabel.trim(),
+              labelStyle: { fontWeight: 700, fontSize: 13, fill: "#d32f2f" },
+              labelBgStyle: { fill: "#fff8e1", fillOpacity: 0.95, stroke: "#d32f2f", strokeWidth: 1 },
+              labelBgPadding: [8, 6] as [number, number],
+              labelBgBorderRadius: 6,
+            };
           }
           return {
             ...e,
@@ -846,7 +894,7 @@ export default function Home() {
         })
       );
     },
-    [setEdges]
+    [setEdges, nodes]
   );
 
   /* ═══ Toggle edge direction (right-click) ═══ */
