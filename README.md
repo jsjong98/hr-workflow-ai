@@ -69,19 +69,23 @@ ZIP 다운로드 사용 시 아래 입력 (경로는 실제 압축 해제 위치
 cd ~/Downloads/hr-workflow-ai
 ```
 
-#### 🪟 Windows — 명령 프롬프트(cmd) 열기
+#### 🪟 Windows — 명령 프롬프트(cmd) **관리자 권한**으로 열기
 
-> ⚠️ **반드시 "명령 프롬프트"를 사용하세요!**  
+> ⚠️ **반드시 "명령 프롬프트"를 관리자 권한으로 실행하세요!**  
+> 일반 권한으로 열면 npm 설치 시 권한 오류가 발생합니다.  
 > PowerShell(파란색/보라색 창)에서는 npm이 차단될 수 있습니다.
 
-**명령 프롬프트 여는 법:**
-1. 키보드에서 **`Win + R`** 누르기 (Win = 윈도우 로고 키)
-2. **`cmd`** 입력 후 **Enter**
-3. **검은색 창**이 열리면 성공 ✅
+**🔑 관리자 권한 명령 프롬프트 여는 법:**
+1. **시작 메뉴**에서 **`cmd`** 검색
+2. **"명령 프롬프트"** 가 나오면 → **우클릭** → **"관리자 권한으로 실행"** 클릭
+3. **"이 앱이 디바이스를 변경할 수 있도록 허용하시겠어요?"** → **예** 클릭
+4. 창 제목에 **"관리자: 명령 프롬프트"** 라고 나오면 성공 ✅
 
-| ❌ 파란색/보라색 창 | ✅ 검은색 창 |
-|------|------|
-| PowerShell (npm 차단됨) | 명령 프롬프트 (정상 작동) |
+> 💡 **간편 방법:** `Win + R` → `cmd` 입력 → **`Ctrl + Shift + Enter`** (관리자 실행 단축키)
+
+| ❌ 파란색/보라색 창 | ❌ 일반 검은색 창 | ✅ 관리자 검은색 창 |
+|------|------|------|
+| PowerShell (npm 차단됨) | 권한 부족 오류 가능 | **"관리자: 명령 프롬프트"** ← 이것을 사용! |
 
 ZIP 다운로드 사용 시 아래 입력:
 ```
@@ -164,8 +168,8 @@ npm run dev
 | `npm: command not found` | Node.js 미설치 | 0단계 Node.js 설치 후 **터미널을 새로 열기** |
 | `npm ERR! enoent` / `no such file` | 잘못된 폴더에서 실행 | `cd hr-workflow-ai` 폴더로 이동 후 `ls package.json` (Mac) 또는 `dir package.json` (Windows)으로 확인 |
 | 여러 줄 붙여넣기 시 오류 | 명령어를 한꺼번에 복사함 | **반드시 한 줄씩** 복사 → 붙여넣기 → Enter → 완료 확인 → 다음 줄 |
-| PowerShell에서 npm 차단 | Windows PowerShell 보안 정책 | `Win + R` → `cmd` → Enter로 **명령 프롬프트(검은 창)** 사용 |
-| `EACCES` 권한 오류 (Mac) | 권한 부족 | 명령어 앞에 `sudo` 추가: `sudo npm install --legacy-peer-deps` |
+| PowerShell에서 npm 차단 | Windows PowerShell 보안 정책 | **관리자 권한 명령 프롬프트** 사용 (시작 → `cmd` 검색 → 우클릭 → 관리자 권한으로 실행) |
+| `EACCES` / `EPERM` 권한 오류 | 관리자 권한 없이 실행 | **Windows:** 관리자 권한 cmd 사용 / **Mac:** `sudo npm install --legacy-peer-deps` |
 | 포트 3000 사용 중 | 이미 실행 중인 서버 | 기존 터미널에서 `Ctrl + C`로 종료 후 다시 `npm run dev` |
 
 ---
