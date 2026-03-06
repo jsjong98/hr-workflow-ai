@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { toPng, toSvg } from "html-to-image";
 import { saveAs } from "file-saver";
 import PptxGenJS from "pptxgenjs";
 import JSZip from "jszip";
@@ -29,75 +28,6 @@ export default function ExportToolbar({
   activeSheetId,
 }: ExportToolbarProps) {
   const isExporting = useRef(false);
-
-  /* ═══ PNG Export ═══ */
-  const handleExportPNG = useCallback(async () => {
-    if (isExporting.current) return;
-    isExporting.current = true;
-    try {
-      const el = reactFlowWrapper.current?.querySelector(
-        ".react-flow__viewport"
-      ) as HTMLElement;
-      if (!el) {
-        alert("캔버스를 찾을 수 없습니다.");
-        return;
-      }
-      const dataUrl = await toPng(el, {
-        backgroundColor: "#f3f4f6",
-        quality: 1,
-        pixelRatio: 2,
-        filter: (node) => {
-          // Exclude minimap, controls, panel overlays from export
-          const exclude = ["react-flow__minimap", "react-flow__controls", "react-flow__panel"];
-          return !exclude.some((cls) =>
-            (node as HTMLElement)?.classList?.contains(cls)
-          );
-        },
-      });
-      const link = document.createElement("a");
-      link.download = `hr-workflow-${Date.now()}.png`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error("PNG export error:", err);
-      alert("PNG 내보내기에 실패했습니다.");
-    } finally {
-      isExporting.current = false;
-    }
-  }, [reactFlowWrapper]);
-
-  /* ═══ SVG Export ═══ */
-  const handleExportSVG = useCallback(async () => {
-    if (isExporting.current) return;
-    isExporting.current = true;
-    try {
-      const el = reactFlowWrapper.current?.querySelector(
-        ".react-flow__viewport"
-      ) as HTMLElement;
-      if (!el) {
-        alert("캔버스를 찾을 수 없습니다.");
-        return;
-      }
-      const dataUrl = await toSvg(el, {
-        backgroundColor: "#f3f4f6",
-        filter: (node) => {
-          const exclude = ["react-flow__minimap", "react-flow__controls", "react-flow__panel"];
-          return !exclude.some((cls) =>
-            (node as HTMLElement)?.classList?.contains(cls)
-          );
-        },
-      });
-      const link = document.createElement("a");
-      link.download = `hr-workflow-${Date.now()}.svg`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error("SVG export error:", err);
-      alert("SVG 내보내기에 실패했습니다.");
-    } finally {
-      isExporting.current = false;
-    }
-  }, [reactFlowWrapper]);
 
   /* ═══ JSON Save (multi-sheet aware) ═══ */
   const handleSaveJSON = useCallback(() => {
@@ -1608,21 +1538,45 @@ export default function ExportToolbar({
     }
   }, [nodes, edges, sheets, getSheetData, activeSheetId]);
 
+  /* ═══ Excel (CSV) Export ═══ */
+  const handleExportExcel = useCallback(() => {
+    if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
+    const HEADER = ["Level", "ID", "Name", "Description", "Role", "Memo", "System", "InputOutput"];
+    const levelOrder: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
+    const sorted = [...nodes].sort((a, b) => {
+      const la = levelOrder[(a.data?.level as string) ?? ""] ?? 9;
+      const lb = levelOrder[(b.data?.level as string) ?? ""] ?? 9;
+      if (la !== lb) return la - lb;
+      return String(a.data?.id ?? "").localeCompare(String(b.data?.id ?? ""), undefined, { numeric: true });
+    });
+    const rows = sorted.map((n) => {
+      const d = n.data as Record<string, unknown>;
+      return [
+        d.level ?? "", d.id ?? "", d.label ?? d.name ?? "",
+        d.description ?? "", d.role ?? "", d.memo ?? "",
+        d.system ?? "", d.inputOutput ?? "",
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
+    });
+    const csv = "\uFEFF" + [HEADER.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    saveAs(blob, `hr-workflow-${Date.now()}.csv`);
+  }, [nodes]);
+
   return (
     <div className="flex gap-1">
       <button
-        onClick={handleExportPNG}
-        className="text-[10px] font-medium bg-green-600 text-white rounded px-2 py-1.5 hover:bg-green-700 transition"
-        title="PNG 이미지 저장"
+        onClick={handleSaveJSON}
+        className="text-[10px] font-medium bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 transition"
+        title="JSON 저장"
       >
-        🖼️ PNG
+        💾 저장
       </button>
       <button
-        onClick={handleExportSVG}
-        className="text-[10px] font-medium bg-teal-600 text-white rounded px-2 py-1.5 hover:bg-teal-700 transition"
-        title="SVG 이미지 저장"
+        onClick={handleLoadJSON}
+        className="text-[10px] font-medium bg-gray-500 text-white rounded px-2 py-1.5 hover:bg-gray-600 transition"
+        title="JSON 불러오기"
       >
-        📐 SVG
+        📂 불러오기
       </button>
       <button
         onClick={handleExportPPT}
@@ -1639,18 +1593,11 @@ export default function ExportToolbar({
         📋 전체 PPT
       </button>
       <button
-        onClick={handleSaveJSON}
-        className="text-[10px] font-medium bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 transition"
-        title="JSON 저장"
+        onClick={handleExportExcel}
+        className="text-[10px] font-medium bg-emerald-600 text-white rounded px-2 py-1.5 hover:bg-emerald-700 transition"
+        title="Excel (CSV) 내보내기"
       >
-        💾 저장
-      </button>
-      <button
-        onClick={handleLoadJSON}
-        className="text-[10px] font-medium bg-gray-500 text-white rounded px-2 py-1.5 hover:bg-gray-600 transition"
-        title="JSON 불러오기"
-      >
-        📂 불러오기
+        📗 Excel
       </button>
     </div>
   );

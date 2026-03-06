@@ -25,7 +25,6 @@ import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
 import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBar";
 import SwimLaneOverlay from "@/components/SwimLaneOverlay";
 import PwcLogo from "@/components/PwcLogo";
-import AddNodeModal, { type NewNodeData } from "@/components/AddNodeModal";
 import NodeManagerPanel from "@/components/NodeManagerPanel";
 import {
   parseCsv,
@@ -214,9 +213,6 @@ export default function Home() {
   /* ── Search ────────────────────────────────── */
   const [searchTerm, setSearchTerm] = useState("");
 
-  /* ── Add Node Modal ──────────────────────── */
-  const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
-
   /* ── Node Manager Panel ──────────────────── */
   const [nodeManagerOpen, setNodeManagerOpen] = useState(false);
 
@@ -316,7 +312,9 @@ export default function Home() {
       x += (Math.random() - 0.5) * 80;
       y += (Math.random() - 0.5) * 60;
       const node = createNodeFromItem(level, item, { x, y });
-      setNodes((nds) => [...nds, node]);
+      setNodes((nds) => {
+        return [...nds, node];
+      });
     },
     [setNodes]
   );
@@ -423,42 +421,6 @@ export default function Home() {
     setEdges([]);
     nodeCountRef.current = 0;
   }, [setNodes, setEdges]);
-
-  /* ═══ Add custom node from modal ═══ */
-  const handleAddCustomNode = useCallback(
-    (data: NewNodeData) => {
-      const levelKey = data.level.toLowerCase() as "l2" | "l3" | "l4" | "l5";
-      nodeCountRef.current++;
-      // Get viewport center
-      let x = 400, y = 300;
-      if (rfInstanceRef.current) {
-        const vp = rfInstanceRef.current.getViewport();
-        const wrapper = document.querySelector('.react-flow') as HTMLElement;
-        if (wrapper) {
-          const rect = wrapper.getBoundingClientRect();
-          x = (rect.width / 2 - vp.x) / vp.zoom;
-          y = (rect.height / 2 - vp.y) / vp.zoom;
-        }
-      }
-      x += (Math.random() - 0.5) * 80;
-      y += (Math.random() - 0.5) * 60;
-      const node = {
-        id: `${levelKey}-custom-${Date.now()}-${nodeCountRef.current}`,
-        type: levelKey,
-        position: { x, y },
-        data: {
-          label: data.name,
-          level: data.level,
-          id: data.id,
-          description: data.description,
-          memo: data.memo,
-          role: data.role,
-        },
-      };
-      setNodes((nds) => [...nds, node]);
-    },
-    [setNodes]
-  );
 
   /* ═══ Apply workflow from Chat AI ═══ */
   const handleApplyWorkflow = useCallback(
@@ -765,18 +727,11 @@ export default function Home() {
                   {"🗑️"}
                 </button>
                 <button
-                  onClick={() => setAddNodeModalOpen(true)}
-                  className="text-[10px] font-medium bg-blue-500 text-white rounded px-2 py-1.5 hover:bg-blue-600 transition"
-                  title="새 노드 직접 추가"
-                >
-                  {"➕ 새 노드"}
-                </button>
-                <button
                   onClick={() => setNodeManagerOpen(true)}
                   className="text-[10px] font-medium bg-emerald-500 text-white rounded px-2 py-1.5 hover:bg-emerald-600 transition"
                   title="노드 관리 (추가/수정/삭제/정렬/엑셀)"
                 >
-                  {"📋 관리"}
+                  {"📋 노드 관리"}
                 </button>
               </div>
               {/* Export toolbar */}
@@ -856,14 +811,8 @@ export default function Home() {
                     하위 L4·L5 목록이 표시됩니다
                   </p>
                   <button
-                    onClick={() => setAddNodeModalOpen(true)}
-                    className="mt-3 text-xs font-medium bg-blue-500 text-white rounded-lg px-4 py-2 hover:bg-blue-600 transition"
-                  >
-                    ➕ 새 노드 직접 추가
-                  </button>
-                  <button
                     onClick={() => setNodeManagerOpen(true)}
-                    className="mt-2 text-xs font-medium bg-emerald-500 text-white rounded-lg px-4 py-2 hover:bg-emerald-600 transition"
+                    className="mt-3 text-xs font-medium bg-emerald-500 text-white rounded-lg px-4 py-2 hover:bg-emerald-600 transition"
                   >
                     📋 노드 관리
                   </button>
@@ -997,12 +946,6 @@ export default function Home() {
                     <div>🔄 화살표 우클릭 → 양방향 전환</div>
                     <div>⌫ Delete 키로 선택 항목 삭제</div>
                     <button
-                      onClick={() => setAddNodeModalOpen(true)}
-                      className="mt-1 w-full text-[10px] font-bold bg-blue-500 text-white rounded px-2 py-1 hover:bg-blue-600 transition"
-                    >
-                      ➕ 새 노드 추가
-                    </button>
-                    <button
                       onClick={() => setNodeManagerOpen(true)}
                       className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
                     >
@@ -1047,13 +990,6 @@ export default function Home() {
           onProcessDataConsumed={() => setChatInitData("")}
         />
       </div>
-
-      {/* ═══ Add Node Modal (global overlay) ═══ */}
-      <AddNodeModal
-        isOpen={addNodeModalOpen}
-        onClose={() => setAddNodeModalOpen(false)}
-        onAdd={handleAddCustomNode}
-      />
 
       {/* ═══ Node Manager Panel (global overlay) ═══ */}
       <NodeManagerPanel

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Node } from "@xyflow/react";
 
 /* ═══ 타입 ═══ */
@@ -19,7 +19,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   nodes: Node[];
-  setNodes: (updater: (nds: Node[]) => Node[]) => void;
+  setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
 }
 
 /* ═══ 레벨 색상 ═══ */
@@ -106,7 +106,7 @@ function buildHierarchicalRows(nodes: Node[]): RowData[] {
 }
 
 /* ═══ ID 자동 재번호 ═══ */
-function renumberIds(nodes: Node[], setNodes: (updater: (nds: Node[]) => Node[]) => void) {
+function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateAction<Node[]>>) {
   const rows = buildHierarchicalRows(nodes);
   const idMap = new Map<string, string>();
   const levelDepth: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
@@ -197,10 +197,20 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     level: "L4", displayId: "", name: "", description: "", role: "", memo: "",
   });
   const [addAfterIdx, setAddAfterIdx] = useState<number | null>(null);
-  const dragIdxRef = useRef<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const dragFromRef = useRef<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   const rows: RowData[] = useMemo(() => buildHierarchicalRows(nodes), [nodes]);
+
+  /* ── 토스트 자동 닫기 ── */
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
 
   const startEdit = useCallback((idx: number) => {
     setEditingIdx(idx);
@@ -232,6 +242,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     );
     setEditingIdx(null);
     setEditForm(null);
+    setToast("✅ 수정 완료");
   }, [editingIdx, editForm, rows, setNodes]);
 
   const cancelEdit = useCallback(() => { setEditingIdx(null); setEditForm(null); }, []);
@@ -239,7 +250,8 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
   const deleteRow = useCallback((idx: number) => {
     const targetNodeId = rows[idx].nodeId;
     if (!confirm(`"${rows[idx].name || rows[idx].displayId}" 노드를 삭제하시겠습니까?`)) return;
-    setNodes((nds) => nds.filter((n) => n.id !== targetNodeId));
+    setNodes((nds: Node[]) => nds.filter((n) => n.id !== targetNodeId));
+    setToast("🗑️ 삭제 완료");
   }, [rows, setNodes]);
 
   const startAddAfter = useCallback((idx: number) => {
@@ -267,7 +279,8 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     const newId = levelKey + "-mgr-" + Date.now();
     let x = 400, y = 300;
     if (addAfterIdx !== null && addAfterIdx < rows.length) {
-      const refNode = nodes.find(n => n.id === rows[addAfterIdx].nodeId);
+      const refNodeId = rows[addAfterIdx].nodeId;
+      const refNode = nodes.find(n => n.id === refNodeId);
       if (refNode) {
         x = refNode.position.x + (addForm.level === rows[addAfterIdx].level ? 0 : 200);
         y = refNode.position.y + 200;
@@ -284,40 +297,63 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     };
     if (addAfterIdx !== null && addAfterIdx < rows.length) {
       const afterNodeId = rows[addAfterIdx].nodeId;
-      setNodes((nds) => {
+      setNodes((nds: Node[]) => {
         const i = nds.findIndex(n => n.id === afterNodeId);
         if (i === -1) return [...nds, newNode];
         const copy = [...nds]; copy.splice(i + 1, 0, newNode); return copy;
       });
     } else {
-      setNodes((nds) => [...nds, newNode]);
+      setNodes((nds: Node[]) => [...nds, newNode]);
     }
+    const addedName = addForm.name.trim();
     setAddForm({ level: "L4", displayId: "", name: "", description: "", role: "", memo: "" });
     setAddMode(false); setAddAfterIdx(null);
+    setToast(`✅ "${addedName}" 추가 완료`);
+    // 스크롤 맨 아래로 (orphan으로 추가된 새 행 보이게)
+    setTimeout(() => {
+      tableRef.current?.scrollTo({ top: tableRef.current.scrollHeight, behavior: "smooth" });
+    }, 100);
   }, [addForm, addAfterIdx, rows, nodes, setNodes]);
 
-  const handleDragStart = useCallback((idx: number) => { dragIdxRef.current = idx; }, []);
-  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => { e.preventDefault(); setDragOverIdx(idx); }, []);
+  const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
+    dragFromRef.current = idx;
+    e.dataTransfer.effectAllowed = "move";
+    // setData required for Firefox
+    e.dataTransfer.setData("text/plain", String(idx));
+  }, []);
+  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIdx(idx);
+  }, []);
+  const handleDragEnd = useCallback(() => {
+    dragFromRef.current = null;
+    setDragOverIdx(null);
+  }, []);
 
-  const handleDrop = useCallback((dropIdx: number) => {
-    const fromIdx = dragIdxRef.current;
-    if (fromIdx === null || fromIdx === dropIdx) { dragIdxRef.current = null; setDragOverIdx(null); return; }
+  const handleDrop = useCallback((e: React.DragEvent, dropIdx: number) => {
+    e.preventDefault();
+    const fromIdx = dragFromRef.current;
+    dragFromRef.current = null;
+    setDragOverIdx(null);
+    if (fromIdx === null || fromIdx === dropIdx) return;
     const orderedIds = rows.map((r) => r.nodeId);
     const [moved] = orderedIds.splice(fromIdx, 1);
     orderedIds.splice(dropIdx, 0, moved);
-    setNodes((nds) => {
+    setNodes((nds: Node[]) => {
       const map = new Map(nds.map((n) => [n.id, n]));
       const reordered: Node[] = [];
       for (const id of orderedIds) { const nd = map.get(id); if (nd) { reordered.push(nd); map.delete(id); } }
       map.forEach((nd) => reordered.push(nd));
       return reordered;
     });
-    dragIdxRef.current = null; setDragOverIdx(null);
+    setToast("↕️ 순서 변경 완료");
   }, [rows, setNodes]);
 
   const handleRenumber = useCallback(() => {
     if (!confirm("현재 계층 순서 기반으로 모든 ID를 재번호 매기시겠습니까?")) return;
     renumberIds(nodes, setNodes);
+    setToast("🔢 ID 재번호 완료");
   }, [nodes, setNodes]);
 
   const exportCsv = useCallback(() => {
@@ -341,6 +377,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     a.href = url; a.download = "workflow-nodes-" + Date.now() + ".csv";
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setToast("📥 CSV 내보내기 완료");
   }, [rows, nodes]);
 
   if (!isOpen) return null;
@@ -390,7 +427,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
               </div>
               <div className="flex-1 min-w-[140px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">이름 *</label>
-                <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="노드 이름" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" autoFocus />
+                <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") addRow(); }} placeholder="노드 이름" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" autoFocus />
               </div>
               <div className="flex-1 min-w-[120px]">
                 <label className="block text-[10px] font-semibold text-gray-500 mb-1">설명</label>
@@ -408,8 +445,15 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
           </div>
         )}
 
+        {/* Toast */}
+        {toast && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-xs font-medium px-4 py-2 rounded-lg shadow-lg">
+            {toast}
+          </div>
+        )}
+
         {/* Table */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto" ref={tableRef}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-gray-100 border-b border-gray-200">
               <tr>
@@ -439,11 +483,12 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                     <tr
                       key={row.nodeId}
                       draggable={!isEditing}
-                      onDragStart={() => handleDragStart(idx)}
+                      onDragStart={(e) => handleDragStart(e, idx)}
                       onDragOver={(e) => handleDragOver(e, idx)}
                       onDragLeave={() => setDragOverIdx(null)}
-                      onDrop={() => handleDrop(idx)}
-                      className={`border-b border-gray-100 transition-colors ${isDragOver ? "bg-blue-50 border-blue-300" : "hover:bg-gray-50/50"} ${isEditing ? "bg-yellow-50" : ""}`}
+                      onDrop={(e) => handleDrop(e, idx)}
+                      onDragEnd={handleDragEnd}
+                      className={`border-b border-gray-100 transition-colors ${isDragOver ? "bg-blue-50 border-t-2 border-t-blue-400" : "hover:bg-gray-50/50"} ${isEditing ? "bg-yellow-50" : ""}`}
                     >
                       <td className="py-2 px-1 text-center cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none">⠿</td>
 
