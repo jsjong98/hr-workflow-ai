@@ -82,6 +82,77 @@ export default function Home() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const nodeCountRef = useRef(0);
 
+  /* ── Undo / Redo ───────────────────────────── */
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  const isRestoringRef = useRef(false);
+  const currentSnapRef = useRef<string>("");
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track current state + debounced history push
+  useEffect(() => {
+    if (isRestoringRef.current) return;
+    const snap = JSON.stringify({ nodes, edges });
+    // Debounced: push previous snapshot to undo stack after 500ms of no changes
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      if (currentSnapRef.current && snap !== currentSnapRef.current) {
+        undoStackRef.current.push(currentSnapRef.current);
+        if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+        redoStackRef.current = [];
+      }
+      currentSnapRef.current = snap;
+    }, 500);
+    // Always keep currentSnap up to date for undo reference
+    currentSnapRef.current = snap;
+    return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current); };
+  }, [nodes, edges]);
+
+  // Keyboard handler: Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        const stack = undoStackRef.current;
+        if (stack.length === 0) return;
+        // Flush pending debounce
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        // Push current to redo
+        redoStackRef.current.push(currentSnapRef.current);
+        // Pop previous
+        const prev = stack.pop()!;
+        currentSnapRef.current = prev;
+        const parsed = JSON.parse(prev);
+        isRestoringRef.current = true;
+        setNodes(parsed.nodes);
+        setEdges(parsed.edges);
+        setTimeout(() => { isRestoringRef.current = false; }, 600);
+      }
+      if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        const stack = redoStackRef.current;
+        if (stack.length === 0) return;
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        undoStackRef.current.push(currentSnapRef.current);
+        const next = stack.pop()!;
+        currentSnapRef.current = next;
+        const parsed = JSON.parse(next);
+        isRestoringRef.current = true;
+        setNodes(parsed.nodes);
+        setEdges(parsed.edges);
+        setTimeout(() => { isRestoringRef.current = false; }, 600);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [setNodes, setEdges]);
+
   /* ── Sheet (multi-tab) State ───────────────── */
   const [sheets, setSheets] = useState<Sheet[]>([
     { id: "sheet-1", name: "시트 1", type: "blank" },

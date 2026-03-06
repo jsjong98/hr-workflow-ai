@@ -119,6 +119,8 @@ export default function ExportToolbar({
       const L5_LOWER_H  = 0.213;  // 0.54cm
       const L5_GAP      = 0.020;  // 0.05cm
       const L5_FIXED_H  = L5_UPPER_H + L5_GAP + L5_LOWER_H; // 0.918" = 2.33cm
+      const DECISION_W = 0.787;  // 2cm
+      const DECISION_H = 0.787;  // 2cm
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -367,10 +369,11 @@ export default function ExportToolbar({
       for (const nd of nodes) {
         const s = LS[getLevel(nd)] || DEF;
         const isL5 = getLevel(nd) === "L5";
+        const isDec = getLevel(nd) === "DECISION";
         rawPos[nd.id] = {
           rfX: nd.position.x, rfY: nd.position.y,
-          w: isL5 ? L5_FIXED_W : s.pxW * sc,
-          h: isL5 ? L5_FIXED_H : s.pxH * sc,
+          w: isDec ? DECISION_W : isL5 ? L5_FIXED_W : s.pxW * sc,
+          h: isDec ? DECISION_H : isL5 ? L5_FIXED_H : s.pxH * sc,
         };
       }
 
@@ -506,7 +509,17 @@ export default function ExportToolbar({
         const dispLabel = getLabel(nd);
         const dispId = getDisplayId(nd);
 
-        if (level === "L5") {
+        if (level === "DECISION") {
+          /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
+          s2.addText(dispLabel || "판정 조건", {
+            x: box.x, y: box.y, w: DECISION_W, h: DECISION_H,
+            shape: pptx.ShapeType.diamond,
+            fill: { color: "F2A0AF" },
+            line: { color: "D95578", width: 1.5 },
+            fontSize: 11, bold: true, color: "3B0716",
+            fontFace: FONT_FACE, valign: "middle", align: "center",
+          });
+        } else if (level === "L5") {
           /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
           // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
           s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -565,6 +578,26 @@ export default function ExportToolbar({
             }
           }
         }
+
+        // Custom role tag (기타:value → light blue pill above node)
+        const roleStr = (nd.data as Record<string, string>).role || "";
+        if (roleStr.startsWith("기타:")) {
+          const customName = roleStr.slice(3);
+          if (customName) {
+            const tagW = 0.622; // 1.58cm
+            const tagH = 0.15;  // 0.38cm
+            s2.addText(customName, {
+              x: box.x + (box.w - tagW) / 2,
+              y: box.y - tagH - 0.02,
+              w: tagW, h: tagH,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DBEAFE" },
+              line: { color: "93C5FD", width: 0.5 },
+              fontSize: 7, color: "1D4ED8",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+          }
+        }
       }
 
       // ── Phase 4: 엣지 메타 수집 (실제 그리기는 PPTX 후처리에서 진짜 커넥터로) ──────
@@ -580,9 +613,11 @@ export default function ExportToolbar({
         srcBox: { x: number; y: number; w: number; h: number };
         tgtBox: { x: number; y: number; w: number; h: number };
         srcIsL5: boolean; tgtIsL5: boolean;
+        srcIsDec: boolean; tgtIsDec: boolean;
         isStraight: boolean;  // true=직선, false=꺾인선
         isHorizontal: boolean; // true=가로 우세, false=세로 우세
         bidi: boolean;
+        label?: string;
       }
       const connectors: ConnectorMeta[] = [];
 
@@ -611,7 +646,10 @@ export default function ExportToolbar({
           srcBox: src, tgtBox: tgt,
           srcIsL5: nodeLevelMap[e.source] === "L5",
           tgtIsL5: nodeLevelMap[e.target] === "L5",
+          srcIsDec: nodeLevelMap[e.source] === "DECISION",
+          tgtIsDec: nodeLevelMap[e.target] === "DECISION",
           isStraight, isHorizontal, bidi,
+          label: e.label ? String(e.label) : undefined,
         });
       }
 
@@ -931,8 +969,8 @@ export default function ExportToolbar({
             srcConnY = avgY; tgtConnY = avgY;
           }
 
-          // roundRect 커넥션포인트: idx=3=오른쪽, idx=1=왼쪽
-          const stIdx = 3, endIdx = 1;
+          // roundRect=right:3,left:1 | diamond=right:1,left:3
+          const stIdx = c.srcIsDec ? 1 : 3, endIdx = c.tgtIsDec ? 3 : 1;
           const x1 = src.x + src.w;  // source right edge
           const y1 = srcConnY;
           const x2 = tgt.x;          // target left edge
@@ -969,6 +1007,33 @@ export default function ExportToolbar({
             + headArrow
             + `<a:tailEnd type="triangle" w="med" len="med"/>`
             + `</a:ln></p:spPr></p:cxnSp>`;
+          nextId++;
+        }
+
+        // Yes/No label text boxes near connectors
+        for (const c of connectors) {
+          if (!c.label) continue;
+          const src = c.srcBox, tgt = c.tgtBox;
+          const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
+          const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
+          const x1 = src.x + src.w, x2 = tgt.x;
+          const midX = (x1 + x2) / 2;
+          const midY = (srcCY + tgtCY) / 2;
+          const lblW = 0.35, lblH = 0.18;
+          const lx = Math.round((midX - lblW / 2) * EMU);
+          const ly = Math.round((midY - lblH - 0.04) * EMU);
+          const lcx = Math.round(lblW * EMU);
+          const lcy = Math.round(lblH * EMU);
+          cxnXml += `<p:sp><p:nvSpPr><p:cNvPr id="${nextId}" name="Label ${nextId}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`
+            + `<p:spPr><a:xfrm><a:off x="${lx}" y="${ly}"/><a:ext cx="${lcx}" cy="${lcy}"/></a:xfrm>`
+            + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
+            + `<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>`
+            + `<a:ln w="3175"><a:solidFill><a:srgbClr val="999999"/></a:solidFill></a:ln>`
+            + `</p:spPr><p:txBody>`
+            + `<a:bodyPr wrap="square" anchor="ctr" anchorCtr="1" lIns="0" tIns="0" rIns="0" bIns="0"/>`
+            + `<a:p><a:pPr algn="ctr"/><a:r>`
+            + `<a:rPr lang="en-US" sz="800" b="1" dirty="0"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:rPr>`
+            + `<a:t>${c.label}</a:t></a:r></a:p></p:txBody></p:sp>`;
           nextId++;
         }
 
@@ -1049,6 +1114,7 @@ export default function ExportToolbar({
         L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: 12, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
         L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: 12, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
         L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: 9, pxW: 540, pxH: 389, pptW: 1.24, pptH: 0.894 },
+        DECISION: { bg: "F2A0AF", border: "D95578", text: "3B0716", fontSize: 11, pxW: 220, pxH: 220, pptW: 0.787, pptH: 0.787 },
       };
       /* L5 2-box 고정 치수 (인치) — 스케일링 무시, 항상 이 크기 */
       const L5_FIXED_W_ALL  = 1.240;  // 3.15cm
@@ -1056,6 +1122,8 @@ export default function ExportToolbar({
       const L5_LOWER_H_ALL  = 0.213;  // 0.54cm
       const L5_GAP_ALL      = 0.020;  // 0.05cm
       const L5_FIXED_H_ALL  = L5_UPPER_H_ALL + L5_GAP_ALL + L5_LOWER_H_ALL; // 0.918"
+      const DECISION_W_ALL = 0.787;  // 2cm
+      const DECISION_H_ALL = 0.787;  // 2cm
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -1107,7 +1175,7 @@ export default function ExportToolbar({
       // 슬라이드별 커넥터 메타 수집
       const allSlideConnectors: {
         slideIndex: number;
-        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean }[];
+        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
       }[] = [];
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
@@ -1303,10 +1371,11 @@ export default function ExportToolbar({
         for (const nd of sNodes) {
           const sv = LS[getLevel(nd)] || DEF;
           const isL5 = getLevel(nd) === "L5";
+          const isDec = getLevel(nd) === "DECISION";
           sRawPos[nd.id] = {
             rfX: nd.position.x, rfY: nd.position.y,
-            w: isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
-            h: isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
+            w: isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
+            h: isDec ? DECISION_H_ALL : isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
           };
         }
 
@@ -1434,7 +1503,17 @@ export default function ExportToolbar({
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
 
-          if (level === "L5") {
+          if (level === "DECISION") {
+            /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
+            slide.addText(dispLabel || "판정 조건", {
+              x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL,
+              shape: pptx.ShapeType.diamond,
+              fill: { color: "F2A0AF" },
+              line: { color: "D95578", width: 1.5 },
+              fontSize: 11, bold: true, color: "3B0716",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+          } else if (level === "L5") {
             /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
               x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
@@ -1492,6 +1571,26 @@ export default function ExportToolbar({
               }
             }
           }
+
+          // Custom role tag (기타:value → light blue pill above node)
+          const roleStr = (nd.data as Record<string, string>).role || "";
+          if (roleStr.startsWith("기타:")) {
+            const customName = roleStr.slice(3);
+            if (customName) {
+              const tagW = 0.622; // 1.58cm
+              const tagH = 0.15;  // 0.38cm
+              slide.addText(customName, {
+                x: box.x + (box.w - tagW) / 2,
+                y: box.y - tagH - 0.02,
+                w: tagW, h: tagH,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: { color: "93C5FD", width: 0.5 },
+                fontSize: 7, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+              });
+            }
+          }
         }
 
         // ── Phase 4: 엣지 메타 수집 (JSZip 후처리에서 진짜 커넥터로) ─────
@@ -1501,7 +1600,9 @@ export default function ExportToolbar({
             srcBox: { x: number; y: number; w: number; h: number };
             tgtBox: { x: number; y: number; w: number; h: number };
             srcIsL5: boolean; tgtIsL5: boolean;
+            srcIsDec: boolean; tgtIsDec: boolean;
             isStraight: boolean; isHorizontal: boolean; bidi: boolean;
+            label?: string;
           }
           const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
             a.y < b.y + b.h && b.y < a.y + a.h;
@@ -1526,7 +1627,10 @@ export default function ExportToolbar({
               srcNodeId: e.source, tgtNodeId: e.target, srcBox: src, tgtBox: tgt,
               srcIsL5: srcNd ? getLevel(srcNd) === "L5" : false,
               tgtIsL5: tgtNd ? getLevel(tgtNd) === "L5" : false,
+              srcIsDec: srcNd ? getLevel(srcNd) === "DECISION" : false,
+              tgtIsDec: tgtNd ? getLevel(tgtNd) === "DECISION" : false,
               isStraight, isHorizontal, bidi,
+              label: e.label ? String(e.label) : undefined,
             });
           }
           allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes } });
@@ -1594,7 +1698,7 @@ export default function ExportToolbar({
             const avgY = (srcConnY2 + tgtConnY2) / 2;
             srcConnY2 = avgY; tgtConnY2 = avgY;
           }
-          const stIdx = 3, endIdx = 1;
+          const stIdx = c.srcIsDec ? 1 : 3, endIdx = c.tgtIsDec ? 3 : 1;
           const x1 = src.x + src.w, y1 = srcConnY2, x2 = tgt.x, y2 = tgtConnY2;
           const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
@@ -1607,6 +1711,34 @@ export default function ExportToolbar({
           cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH2}${flipV2}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
           nextId++;
         }
+
+        // Yes/No label text boxes near connectors
+        for (const c of sc.connectors) {
+          if (!c.label) continue;
+          const src = c.srcBox, tgt = c.tgtBox;
+          const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
+          const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
+          const x1 = src.x + src.w, x2 = tgt.x;
+          const midX = (x1 + x2) / 2;
+          const midY = (srcCY + tgtCY) / 2;
+          const lblW = 0.35, lblH = 0.18;
+          const lx = Math.round((midX - lblW / 2) * EMU);
+          const ly = Math.round((midY - lblH - 0.04) * EMU);
+          const lcx = Math.round(lblW * EMU);
+          const lcy = Math.round(lblH * EMU);
+          cxnXml += `<p:sp><p:nvSpPr><p:cNvPr id="${nextId}" name="Label ${nextId}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`
+            + `<p:spPr><a:xfrm><a:off x="${lx}" y="${ly}"/><a:ext cx="${lcx}" cy="${lcy}"/></a:xfrm>`
+            + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
+            + `<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>`
+            + `<a:ln w="3175"><a:solidFill><a:srgbClr val="999999"/></a:solidFill></a:ln>`
+            + `</p:spPr><p:txBody>`
+            + `<a:bodyPr wrap="square" anchor="ctr" anchorCtr="1" lIns="0" tIns="0" rIns="0" bIns="0"/>`
+            + `<a:p><a:pPr algn="ctr"/><a:r>`
+            + `<a:rPr lang="en-US" sz="800" b="1" dirty="0"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:rPr>`
+            + `<a:t>${c.label}</a:t></a:r></a:p></p:txBody></p:sp>`;
+          nextId++;
+        }
+
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
       }
 

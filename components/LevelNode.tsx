@@ -264,13 +264,20 @@ function LevelNodeBase({ data }: { data: NodeData }) {
       )}
 
       {/* Role badge (compact) */}
-      {data.role && (
+      {data.role && !data.role.startsWith("기타:") && (
         <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
           data.level === "L4"
             ? "bg-black/10 text-black/70"
             : "bg-white/20 text-white/90"
         }`}>
           👤 {data.role}
+        </div>
+      )}
+
+      {/* Custom role tag (기타:value) — light blue pill */}
+      {data.role?.startsWith("기타:") && (
+        <div className="mt-2 inline-block text-[9px] px-2.5 py-1 rounded-full font-semibold bg-sky-100 text-sky-700 border border-sky-200">
+          {data.role.slice(3)}
         </div>
       )}
     </div>

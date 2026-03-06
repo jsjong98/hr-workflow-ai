@@ -200,28 +200,39 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
             👤 수행 주체
           </legend>
           <div className="flex flex-wrap gap-1.5">
-            {ROLE_OPTIONS.map((role) => (
-              <button
-                key={role}
-                onClick={() => setMeta({ ...meta, role: meta.role === role ? "" : role })}
-                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                  meta.role === role
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
-                }`}
-              >
-                {role}
-              </button>
-            ))}
+            {ROLE_OPTIONS.map((role) => {
+              const isActive = role === "기타"
+                ? (meta.role === "기타" || (meta.role?.startsWith("기타:") ?? false))
+                : meta.role === role;
+              return (
+                <button
+                  key={role}
+                  onClick={() => {
+                    if (role === "기타") {
+                      setMeta({ ...meta, role: isActive ? "" : "기타" });
+                    } else {
+                      setMeta({ ...meta, role: meta.role === role ? "" : role });
+                    }
+                  }}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  {role}
+                </button>
+              );
+            })}
           </div>
           {/* Custom role input */}
-          {meta.role === "기타" && (
+          {(meta.role === "기타" || (meta.role?.startsWith("기타:") ?? false)) && (
             <input
               type="text"
-              placeholder="직접 입력..."
+              placeholder="직접 입력... (예: 큐벡스)"
               className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              value={meta.role === "기타" ? "" : meta.role || ""}
-              onChange={(e) => setMeta({ ...meta, role: e.target.value || "기타" })}
+              value={meta.role?.startsWith("기타:") ? meta.role.slice(3) : ""}
+              onChange={(e) => setMeta({ ...meta, role: e.target.value ? `기타:${e.target.value}` : "기타" })}
             />
           )}
         </fieldset>
