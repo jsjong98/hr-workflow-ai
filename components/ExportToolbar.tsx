@@ -589,16 +589,17 @@ export default function ExportToolbar({
           }
         }
 
-        // Custom role tag (기타:value → light blue pill above node)
+        // Custom role tag (기타:value → top-right overlap)
         const roleStr = (nd.data as Record<string, string>).role || "";
         if (roleStr.startsWith("기타:")) {
           const customName = roleStr.slice(3);
           if (customName) {
-            const tagW = 0.622; // 1.58cm
-            const tagH = 0.15;  // 0.38cm
+            const tagW = 0.55;
+            const tagH = 0.14;
+            const tagX = box.x + box.w - tagW + 0.06;
+            const tagY = box.y - tagH / 2;
             s2.addText(customName, {
-              x: box.x + (box.w - tagW) / 2,
-              y: box.y - tagH - 0.02,
+              x: tagX, y: tagY,
               w: tagW, h: tagH,
               shape: pptx.ShapeType.rect,
               fill: { color: "DBEAFE" },
@@ -606,7 +607,7 @@ export default function ExportToolbar({
               fontSize: 7, color: "1D4ED8",
               fontFace: FONT_FACE, valign: "middle", align: "center",
             });
-            shapeList.push({ x: box.x + (box.w - tagW) / 2, y: box.y - tagH - 0.02, w: tagW, h: tagH });
+            shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
           }
         }
 
@@ -1676,16 +1677,17 @@ export default function ExportToolbar({
             }
           }
 
-          // Custom role tag (기타:value → light blue pill above node)
+          // Custom role tag (기타:value → top-right overlap)
           const roleStr = (nd.data as Record<string, string>).role || "";
           if (roleStr.startsWith("기타:")) {
             const customName = roleStr.slice(3);
             if (customName) {
-              const tagW = 0.622; // 1.58cm
-              const tagH = 0.15;  // 0.38cm
+              const tagW = 0.55;
+              const tagH = 0.14;
+              const tagX = box.x + box.w - tagW + 0.06;
+              const tagY = box.y - tagH / 2;
               slide.addText(customName, {
-                x: box.x + (box.w - tagW) / 2,
-                y: box.y - tagH - 0.02,
+                x: tagX, y: tagY,
                 w: tagW, h: tagH,
                 shape: pptx.ShapeType.rect,
                 fill: { color: "DBEAFE" },
@@ -1693,7 +1695,7 @@ export default function ExportToolbar({
                 fontSize: 7, color: "1D4ED8",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
               });
-              shapeList.push({ x: box.x + (box.w - tagW) / 2, y: box.y - tagH - 0.02, w: tagW, h: tagH });
+              shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
             }
           }
 

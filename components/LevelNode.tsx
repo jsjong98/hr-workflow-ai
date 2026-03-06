@@ -138,6 +138,16 @@ function L5NodeBase({ data }: { data: NodeData }) {
       <Handle type="source" position={Position.Left} id="left" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`} />
       <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
 
+      {/* ── Custom role tag (기타:value) — top-right overlap ── */}
+      {data.role?.startsWith("기타:") && data.role.slice(3) && (
+        <div
+          className="absolute z-20 text-[9px] font-semibold px-2 py-0.5 rounded bg-sky-100 text-sky-700 border border-sky-300 shadow-sm whitespace-nowrap"
+          style={{ top: -8, right: -8 }}
+        >
+          {data.role.slice(3)}
+        </div>
+      )}
+
       {/* ── 위쪽 박스: ID + 레이블 (흰 배경, 0.25pt 테두리) ── */}
       <div className="bg-white px-4 py-3 flex flex-col items-center justify-center" style={{ minHeight: 110, border: '0.25pt solid #DEDEDE' }}>
         <div className="text-[13px] font-bold text-black text-center leading-snug">
@@ -274,9 +284,12 @@ function LevelNodeBase({ data }: { data: NodeData }) {
         </div>
       )}
 
-      {/* Custom role tag (기타:value) — light blue pill */}
-      {data.role?.startsWith("기타:") && (
-        <div className="mt-2 inline-block text-[9px] px-2.5 py-1 rounded-full font-semibold bg-sky-100 text-sky-700 border border-sky-200">
+      {/* Custom role tag (기타:value) — top-right overlap */}
+      {data.role?.startsWith("기타:") && data.role.slice(3) && (
+        <div
+          className="absolute z-20 text-[9px] font-semibold px-2.5 py-1 rounded bg-sky-100 text-sky-700 border border-sky-300 shadow-sm whitespace-nowrap"
+          style={{ top: -10, right: -10 }}
+        >
           {data.role.slice(3)}
         </div>
       )}
@@ -350,12 +363,12 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
         style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
       />
 
-      {/* ── Source handles (Yes → bottom, No → right) ── */}
-      <Handle type="source" position={Position.Bottom} id="yes"
+      {/* ── Source handles (4방향 모두 source) ── */}
+      <Handle type="source" position={Position.Bottom} id="bottom"
         className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
         style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
       />
-      <Handle type="source" position={Position.Right} id="no"
+      <Handle type="source" position={Position.Right} id="right"
         className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
         style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
       />
@@ -399,20 +412,6 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
             {data.description}
           </div>
         )}
-      </div>
-
-      {/* ── Yes/No 라벨 표시 ── */}
-      <div
-        className="absolute text-[10px] font-bold text-gray-700 bg-white/80 px-1.5 py-0.5 rounded border border-gray-300"
-        style={{ bottom: -26, left: '50%', transform: 'translateX(-50%)' }}
-      >
-        Yes ↓
-      </div>
-      <div
-        className="absolute text-[10px] font-bold text-gray-700 bg-white/80 px-1.5 py-0.5 rounded border border-gray-300"
-        style={{ right: -32, top: '50%', transform: 'translateY(-50%)' }}
-      >
-        No →
       </div>
 
       {/* Memo yellow box */}

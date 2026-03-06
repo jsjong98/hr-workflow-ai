@@ -794,18 +794,10 @@ export default function Home() {
   /* ═══ Edge connect (drag handles) ═══ */
   const onConnect = useCallback(
     (connection: Connection) => {
-      // Decision 노드에서 나오는 Yes/No 핸들 감지
-      const sourceHandleId = connection.sourceHandle || "";
-      const sourceNode = nodes.find((n) => n.id === connection.source);
-      const isDecisionSource = sourceNode?.type === "decision";
-      const isYes = isDecisionSource && sourceHandleId === "yes";
-      const isNo = isDecisionSource && sourceHandleId === "no";
-
       // 연결 대상 노드의 레벨에 따라 선 색상 결정 (L5=회색, 나머지=검정)
       const targetNode = nodes.find((n) => n.id === connection.target);
       const targetLevel = targetNode ? ((targetNode.data as Record<string, unknown>).level as string) : "";
       const edgeColor = targetLevel === "L5" ? "#999999" : "#000000";
-      const edgeLabel = isYes ? "Yes" : isNo ? "No" : undefined;
 
       setEdges((eds) =>
         addEdge(
@@ -820,13 +812,41 @@ export default function Home() {
               height: 16,
               color: edgeColor,
             },
-            ...(edgeLabel ? { label: edgeLabel, labelStyle: { fontWeight: 700, fontSize: 12, fill: edgeColor }, labelBgStyle: { fill: "white", fillOpacity: 0.9 }, labelBgPadding: [6, 4] as [number, number], labelBgBorderRadius: 4 } : {}),
           },
           eds
         )
       );
     },
     [setEdges, nodes]
+  );
+
+  /* ═══ Edge double-click → edit label (사용자 정의 라벨) ═══ */
+  const onEdgeDoubleClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      const currentLabel = (edge.label as string) || "";
+      const newLabel = prompt("엣지 라벨을 입력하세요 (비워두면 삭제):", currentLabel);
+      if (newLabel === null) return; // cancelled
+      const color = ((edge.style as Record<string, unknown>)?.stroke as string) || "#000000";
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (e.id !== edge.id) return e;
+          if (newLabel.trim() === "") {
+            // 라벨 삭제
+            const { label: _, labelStyle: _ls, labelBgStyle: _lbs, labelBgPadding: _lbp, labelBgBorderRadius: _lbr, ...rest } = e;
+            return rest;
+          }
+          return {
+            ...e,
+            label: newLabel.trim(),
+            labelStyle: { fontWeight: 700, fontSize: 12, fill: color },
+            labelBgStyle: { fill: "white", fillOpacity: 0.9 },
+            labelBgPadding: [6, 4] as [number, number],
+            labelBgBorderRadius: 4,
+          };
+        })
+      );
+    },
+    [setEdges]
   );
 
   /* ═══ Toggle edge direction (right-click) ═══ */
@@ -1609,6 +1629,7 @@ export default function Home() {
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onEdgeContextMenu={onEdgeContextMenu}
+                onEdgeDoubleClick={onEdgeDoubleClick}
                 onNodeDoubleClick={onNodeDoubleClick}
                 nodeTypes={nodeTypes}
                 snapToGrid={true}
