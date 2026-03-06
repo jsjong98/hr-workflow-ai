@@ -264,132 +264,156 @@ export default function Home() {
     setAddDataMode(false);
   }, [addDataForm, selectedL3, l4List, l5Map, expandedL4]);
 
-  /* ═══ 캔버스 노드 x좌표 기준 ID 재번호 ═══ */
+  /* ═══ 캔버스 노드 x좌표 기준 ID 재번호 + 팔레트 동기화 ═══ */
   const handleRenumberByPosition = useCallback(() => {
-    setNodes((nds) => {
-      // 1) L4 노드 처리: x좌표 순서로 정렬 → L3 parent 기준으로 재번호
-      const l4Nodes = nds.filter((n) => n.type === "l4").sort((a, b) => a.position.x - b.position.x);
-      // 2) L5 노드 처리: x좌표 순서로 정렬 → L4 parent 기준으로 재번호
-      const l5Nodes = nds.filter((n) => n.type === "l5").sort((a, b) => a.position.x - b.position.x);
+    // 1) 현재 캔버스 노드로부터 renumber 결과를 계산
+    const currentNodes = nodes;
+    const l4Nodes = currentNodes.filter((n) => n.type === "l4").sort((a, b) => a.position.x - b.position.x);
+    const l5Nodes = currentNodes.filter((n) => n.type === "l5").sort((a, b) => a.position.x - b.position.x);
 
-      if (l4Nodes.length === 0 && l5Nodes.length === 0) {
-        alert("캔버스에 L4/L5 노드가 없습니다.");
-        return nds;
+    if (l4Nodes.length === 0 && l5Nodes.length === 0) {
+      alert("캔버스에 L4/L5 노드가 없습니다.");
+      return;
+    }
+
+    // oldDataId → newDataId 매핑 (data.id 기준)
+    const idRemap = new Map<string, string>();
+    const updatedMap = new Map<string, Record<string, unknown>>();
+
+    const getParentPrefix = (id: string): string | null => {
+      const parts = id.split(".");
+      if (parts.length >= 2 && parts.every((p) => /^\d+$/.test(p))) {
+        return parts.slice(0, -1).join(".");
       }
+      return null;
+    };
 
-      const updatedMap = new Map<string, Record<string, unknown>>();
-
-      // ── 헬퍼: ID에서 부모 prefix 추출 (1.1.1.1 → 1.1.1) ──
-      const getParentPrefix = (id: string): string | null => {
-        const parts = id.split(".");
-        if (parts.length >= 2 && parts.every((p) => /^\d+$/.test(p))) {
-          return parts.slice(0, -1).join(".");
-        }
-        return null;
-      };
-
-      // ── L4 재번호 ──
-      if (l4Nodes.length > 0) {
-        // L4 parent = L3 prefix (e.g., "1.1.1" from "1.1.1.x" or "1.1" from "1.1.x")
-        const l4Parents: Record<string, typeof l4Nodes> = {};
-        let defaultL4Parent = selectedL3 || null;
-
-        for (const n of l4Nodes) {
-          const d = n.data as Record<string, unknown>;
-          const id = (d.id as string) || "";
-          const parent = getParentPrefix(id);
-          if (parent) {
-            if (!l4Parents[parent]) l4Parents[parent] = [];
-            l4Parents[parent].push(n);
-            if (!defaultL4Parent) defaultL4Parent = parent;
-          } else {
-            // 수동 추가 등 계층 ID가 없는 노드 → default parent에 배정
-            const key = defaultL4Parent || "_manual";
-            if (!l4Parents[key]) l4Parents[key] = [];
-            l4Parents[key].push(n);
-          }
-        }
-
-        for (const [parent, group] of Object.entries(l4Parents)) {
-          if (parent === "_manual") continue;
-          group.forEach((n, i) => {
-            const newId = `${parent}.${i + 1}`;
-            updatedMap.set(n.id, { id: newId });
-          });
+    // ── L4 재번호 ──
+    if (l4Nodes.length > 0) {
+      const l4Parents: Record<string, typeof l4Nodes> = {};
+      let defaultL4Parent = selectedL3 || null;
+      for (const n of l4Nodes) {
+        const d = n.data as Record<string, unknown>;
+        const id = (d.id as string) || "";
+        const parent = getParentPrefix(id);
+        if (parent) {
+          if (!l4Parents[parent]) l4Parents[parent] = [];
+          l4Parents[parent].push(n);
+          if (!defaultL4Parent) defaultL4Parent = parent;
+        } else {
+          const key = defaultL4Parent || "_manual";
+          if (!l4Parents[key]) l4Parents[key] = [];
+          l4Parents[key].push(n);
         }
       }
-
-      // ── L5 재번호 ──
-      if (l5Nodes.length > 0) {
-        const l5Parents: Record<string, typeof l5Nodes> = {};
-        // L4 parent map: 새 ID로 매핑된 L4 parent를 활용
-        let defaultL5Parent: string | null = null;
-
-        for (const n of l5Nodes) {
+      for (const [parent, group] of Object.entries(l4Parents)) {
+        if (parent === "_manual") continue;
+        group.forEach((n, i) => {
           const d = n.data as Record<string, unknown>;
-          const id = (d.id as string) || "";
-          const parent = getParentPrefix(id);
-          if (parent) {
-            if (!l5Parents[parent]) l5Parents[parent] = [];
-            l5Parents[parent].push(n);
-            if (!defaultL5Parent) defaultL5Parent = parent;
-          } else {
-            // 계층 ID 없는 노드 → 가장 가까운 x좌표의 계층 노드에서 parent 추론
-            let inferredParent: string | null = null;
-            let minDist = Infinity;
-            for (const other of l5Nodes) {
-              if (other.id === n.id) continue;
-              const otherId = ((other.data as Record<string, unknown>).id as string) || "";
-              const otherParent = getParentPrefix(otherId);
-              if (otherParent) {
-                const dist = Math.abs(other.position.x - n.position.x);
-                if (dist < minDist) {
-                  minDist = dist;
-                  inferredParent = otherParent;
-                }
-              }
+          const oldId = (d.id as string) || "";
+          const newId = `${parent}.${i + 1}`;
+          updatedMap.set(n.id, { id: newId });
+          if (oldId) idRemap.set(oldId, newId);
+        });
+      }
+    }
+
+    // ── L5 재번호 ──
+    if (l5Nodes.length > 0) {
+      const l5Parents: Record<string, typeof l5Nodes> = {};
+      let defaultL5Parent: string | null = null;
+      for (const n of l5Nodes) {
+        const d = n.data as Record<string, unknown>;
+        const id = (d.id as string) || "";
+        const parent = getParentPrefix(id);
+        // L5의 parent가 L4인데 L4가 remap 되었으면 새 ID 사용
+        const remappedParent = parent ? (idRemap.get(parent) || parent) : null;
+        if (remappedParent) {
+          if (!l5Parents[remappedParent]) l5Parents[remappedParent] = [];
+          l5Parents[remappedParent].push(n);
+          if (!defaultL5Parent) defaultL5Parent = remappedParent;
+        } else {
+          let inferredParent: string | null = null;
+          let minDist = Infinity;
+          for (const other of l5Nodes) {
+            if (other.id === n.id) continue;
+            const otherId = ((other.data as Record<string, unknown>).id as string) || "";
+            const otherParent = getParentPrefix(otherId);
+            if (otherParent) {
+              const remapped = idRemap.get(otherParent) || otherParent;
+              const dist = Math.abs(other.position.x - n.position.x);
+              if (dist < minDist) { minDist = dist; inferredParent = remapped; }
             }
-            const key = inferredParent || defaultL5Parent || "_manual";
-            if (!l5Parents[key]) l5Parents[key] = [];
-            l5Parents[key].push(n);
           }
-        }
-
-        for (const [parent, group] of Object.entries(l5Parents)) {
-          if (parent === "_manual") continue;
-          // 이미 x순 정렬됨
-          group.forEach((n, i) => {
-            const newId = `${parent}.${i + 1}`;
-            const existing = updatedMap.get(n.id) || {};
-            updatedMap.set(n.id, { ...existing, id: newId });
-          });
+          const key = inferredParent || defaultL5Parent || "_manual";
+          if (!l5Parents[key]) l5Parents[key] = [];
+          l5Parents[key].push(n);
         }
       }
-
-      if (updatedMap.size === 0) {
-        alert("재번호할 수 있는 노드가 없습니다.");
-        return nds;
+      for (const [parent, group] of Object.entries(l5Parents)) {
+        if (parent === "_manual") continue;
+        group.forEach((n, i) => {
+          const d = n.data as Record<string, unknown>;
+          const oldId = (d.id as string) || "";
+          const newId = `${parent}.${i + 1}`;
+          const existing = updatedMap.get(n.id) || {};
+          updatedMap.set(n.id, { ...existing, id: newId });
+          if (oldId) idRemap.set(oldId, newId);
+        });
       }
+    }
 
-      // 3) 업데이트 적용
-      const result = nds.map((n) => {
+    if (updatedMap.size === 0) {
+      alert("재번호할 수 있는 노드가 없습니다.");
+      return;
+    }
+
+    // 2) 캔버스 노드 업데이트
+    setNodes((nds) =>
+      nds.map((n) => {
         const updates = updatedMap.get(n.id);
         if (!updates) return n;
         const d = { ...(n.data as Record<string, unknown>) };
         if (updates.id) d.id = updates.id;
         return { ...n, data: d };
-      });
+      })
+    );
 
-      const count = updatedMap.size;
-      alert(`✅ ${count}개 노드 ID가 x좌표 순서로 재번호되었습니다.`);
-      return result;
-    });
-  }, [selectedL3, setNodes]);
+    // 3) 팔레트 (l4List / l5Map) 동기화 — 같은 idRemap 적용
+    if (idRemap.size > 0) {
+      setL4List((prev) =>
+        prev.map((l4) => {
+          const newId = idRemap.get(l4.id);
+          return newId ? { ...l4, id: newId } : l4;
+        })
+      );
+      setL5Map((prev) => {
+        const updated: Record<string, L5Item[]> = {};
+        for (const [oldKey, items] of Object.entries(prev)) {
+          const newKey = idRemap.get(oldKey) || oldKey;
+          updated[newKey] = items.map((l5) => {
+            const newId = idRemap.get(l5.id);
+            return newId ? { ...l5, id: newId, l4Id: idRemap.get(l5.l4Id) || l5.l4Id } : l5;
+          });
+        }
+        return updated;
+      });
+      // expandedL4도 갱신
+      if (expandedL4) {
+        const newExp = idRemap.get(expandedL4);
+        if (newExp) setExpandedL4(newExp);
+      }
+    }
+
+    const count = updatedMap.size;
+    alert(`✅ ${count}개 노드 ID가 x좌표 순서로 재번호되었습니다. (팔레트 동기화 완료)`);
+  }, [nodes, selectedL3, expandedL4, setNodes]);
 
   /* ═══ 팔레트 ID 재번호 (현재 l4List/l5Map 순서 기준) ═══ */
   const renumberPaletteIds = useCallback(
     (srcL4: L4Item[], srcL5: Record<string, L5Item[]>) => {
-      if (srcL4.length === 0) return { l4s: srcL4, l5m: srcL5 };
+      const idRemap = new Map<string, string>();
+      if (srcL4.length === 0) return { l4s: srcL4, l5m: srcL5, idRemap };
       const firstId = srcL4[0].id;
       const parts = firstId.split(".");
       const prefix = parts.length >= 2 ? parts.slice(0, -1).join(".") : "1";
@@ -397,13 +421,35 @@ export default function Home() {
       const l5m: Record<string, L5Item[]> = {};
       srcL4.forEach((l4, i) => {
         const newL4Id = `${prefix}.${i + 1}`;
+        if (l4.id !== newL4Id) idRemap.set(l4.id, newL4Id);
         l4s.push({ ...l4, id: newL4Id });
         const l5s = srcL5[l4.id] || [];
-        l5m[newL4Id] = l5s.map((l5, j) => ({ ...l5, id: `${newL4Id}.${j + 1}` }));
+        l5m[newL4Id] = l5s.map((l5, j) => {
+          const newL5Id = `${newL4Id}.${j + 1}`;
+          if (l5.id !== newL5Id) idRemap.set(l5.id, newL5Id);
+          return { ...l5, id: newL5Id, l4Id: newL4Id };
+        });
       });
-      return { l4s, l5m };
+      return { l4s, l5m, idRemap };
     },
     []
+  );
+
+  /* ═══ 팔레트 ID 변경을 캔버스 노드에 동기화 ═══ */
+  const syncIdsToCanvas = useCallback(
+    (idRemap: Map<string, string>) => {
+      if (idRemap.size === 0) return;
+      setNodes((nds) =>
+        nds.map((n) => {
+          const d = n.data as Record<string, unknown>;
+          const oldId = (d.id as string) || "";
+          const newId = idRemap.get(oldId);
+          if (!newId) return n;
+          return { ...n, data: { ...d, id: newId } };
+        })
+      );
+    },
+    [setNodes]
   );
 
   /* ═══ L4 드래그 순서 변경 ═══ */
@@ -413,16 +459,17 @@ export default function Home() {
       const list = [...l4List];
       const [moved] = list.splice(fromIdx, 1);
       list.splice(toIdx, 0, moved);
-      const { l4s, l5m } = renumberPaletteIds(list, l5Map);
+      const { l4s, l5m, idRemap } = renumberPaletteIds(list, l5Map);
       setL4List(l4s);
       setL5Map(l5m);
+      syncIdsToCanvas(idRemap);
       if (expandedL4) {
         const oldL4 = l4List[fromIdx];
         const newL4 = l4s.find((l) => l.name === oldL4?.name);
         if (newL4 && expandedL4 === oldL4?.id) setExpandedL4(newL4.id);
       }
     },
-    [l4List, l5Map, expandedL4, renumberPaletteIds]
+    [l4List, l5Map, expandedL4, renumberPaletteIds, syncIdsToCanvas]
   );
 
   /* ═══ L5 드래그 순서 변경 (같은 L4 내 또는 L4 간 이동) ═══ */
@@ -442,11 +489,12 @@ export default function Home() {
         updatedL5Map[fromL4Id] = fromItems;
         updatedL5Map[toL4Id] = toItems;
       }
-      const { l4s, l5m } = renumberPaletteIds(l4List, updatedL5Map);
+      const { l4s, l5m, idRemap } = renumberPaletteIds(l4List, updatedL5Map);
       setL4List(l4s);
       setL5Map(l5m);
+      syncIdsToCanvas(idRemap);
     },
-    [l4List, l5Map, renumberPaletteIds]
+    [l4List, l5Map, renumberPaletteIds, syncIdsToCanvas]
   );
 
   /* ═══ 팔레트 항목 수정 시작 ═══ */
@@ -480,8 +528,19 @@ export default function Home() {
         return m;
       });
     }
+    // 캔버스 노드에도 이름/설명 동기화
+    const editId = editingPaletteItem;
+    setNodes((nds) =>
+      nds.map((n) => {
+        const d = n.data as Record<string, unknown>;
+        if ((d.id as string) === editId) {
+          return { ...n, data: { ...d, label: name, description } };
+        }
+        return n;
+      })
+    );
     setEditingPaletteItem(null);
-  }, [editingPaletteItem, editPaletteForm, l4List]);
+  }, [editingPaletteItem, editPaletteForm, l4List, setNodes]);
 
   /* ═══ 팔레트 항목 삭제 ═══ */
   const handleDeletePaletteItem = useCallback(
@@ -490,20 +549,33 @@ export default function Home() {
         const newL4 = l4List.filter((l4) => l4.id !== id);
         const newL5Map = { ...l5Map };
         delete newL5Map[id];
-        const { l4s, l5m } = renumberPaletteIds(newL4, newL5Map);
+        const { l4s, l5m, idRemap } = renumberPaletteIds(newL4, newL5Map);
         setL4List(l4s);
         setL5Map(l5m);
+        // 캔버스에서 해당 L4 노드 + 하위 L5 노드 제거 후 나머지 ID 동기화
+        setNodes((nds) => nds.filter((n) => {
+          const d = n.data as Record<string, unknown>;
+          const nid = (d.id as string) || "";
+          return nid !== id && !nid.startsWith(id + ".");
+        }));
+        syncIdsToCanvas(idRemap);
       } else {
         const newL5Map = { ...l5Map };
         for (const key of Object.keys(newL5Map)) {
           newL5Map[key] = newL5Map[key].filter((l5) => l5.id !== id);
         }
-        const { l4s, l5m } = renumberPaletteIds(l4List, newL5Map);
+        const { l4s, l5m, idRemap } = renumberPaletteIds(l4List, newL5Map);
         setL4List(l4s);
         setL5Map(l5m);
+        // 캔버스에서 해당 L5 노드 제거 후 나머지 ID 동기화
+        setNodes((nds) => nds.filter((n) => {
+          const d = n.data as Record<string, unknown>;
+          return (d.id as string) !== id;
+        }));
+        syncIdsToCanvas(idRemap);
       }
     },
-    [l4List, l5Map, renumberPaletteIds]
+    [l4List, l5Map, renumberPaletteIds, syncIdsToCanvas, setNodes]
   );
 
   /* ═══════════════════════════════════════════════
