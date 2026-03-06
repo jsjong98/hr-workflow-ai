@@ -71,12 +71,14 @@ export interface L4Item {
   name: string;
   description: string;
   l3Id: string;
+  isManual?: boolean;
 }
 export interface L5Item {
   id: string;
   name: string;
   description: string;
   l4Id: string;
+  isManual?: boolean;
   /* ── extended metadata ── */
   actors?: { exec: string; hr: string; teamlead: string; member: string };
   mgrBody?: string;
