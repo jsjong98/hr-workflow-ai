@@ -177,12 +177,16 @@ export default function ExportToolbar({
         const levelOrder = ["L2", "L3", "L4", "L5"];
         const lvCounts: Record<string, number> = {};
         const lvFirst: Record<string, Node> = {};
+        const lvAll: Record<string, Node[]> = {};
         for (const nd of nodes) {
           const lv = getLevel(nd);
+          if (lv === "DECISION") continue;
           lvCounts[lv] = (lvCounts[lv] || 0) + 1;
           if (!lvFirst[lv]) lvFirst[lv] = nd;
+          if (!lvAll[lv]) lvAll[lv] = [];
+          lvAll[lv].push(nd);
         }
-        // 깊은 레벨부터 탐색: 자식 존재 + 부모 1개 → 부모 정보 사용
+        // 1단계: 깊은 레벨부터 — 자식 존재 + 부모 1개 ON canvas → 부모 정보
         for (let i = levelOrder.length - 1; i >= 1; i--) {
           const childLv = levelOrder[i];
           const parentLv = levelOrder[i - 1];
@@ -193,7 +197,50 @@ export default function ExportToolbar({
             return label ? `${dispId} ${label} — ${parentLv} 프로세스 맵` : `${dispId} — ${parentLv} 프로세스 맵`;
           }
         }
-        // fallback: 가장 높은 단일 레벨 노드
+        // 2단계: 자식만 있고 부모 없는 경우 → 노드 데이터/ID에서 부모 유추
+        const parentFieldMap: Record<string, { idKey: string; nameKey: string; parentLv: string }> = {
+          L5: { idKey: "l4Id", nameKey: "l4Name", parentLv: "L4" },
+          L4: { idKey: "l3Id", nameKey: "l3Name", parentLv: "L3" },
+          L3: { idKey: "l2Id", nameKey: "l2Name", parentLv: "L2" },
+        };
+        for (let i = levelOrder.length - 1; i >= 1; i--) {
+          const childLv = levelOrder[i];
+          const parentLv = levelOrder[i - 1];
+          if ((lvCounts[childLv] || 0) > 0 && !(lvCounts[parentLv])) {
+            const childNodes = lvAll[childLv] || [];
+            const pf = parentFieldMap[childLv];
+            if (pf) {
+              // Method A: node data에 부모 ID/이름이 있는 경우
+              const parentIds = new Set<string>();
+              let parentName = "";
+              for (const cn of childNodes) {
+                const cd = cn.data as Record<string, string>;
+                const pId = cd[pf.idKey];
+                if (pId) parentIds.add(pId);
+                if (!parentName && cd[pf.nameKey]) parentName = cd[pf.nameKey];
+              }
+              if (parentIds.size === 1) {
+                const pId = Array.from(parentIds)[0];
+                const dispPId = pId.replace(/^[Ll]\d[-_.\s]*/g, "").trim() || pId;
+                return parentName
+                  ? `${dispPId} ${parentName} — ${parentLv} 프로세스 맵`
+                  : `${dispPId} — ${parentLv} 프로세스 맵`;
+              }
+            }
+            // Method B: ID 패턴에서 부모 유추 (dot-separated)
+            const parentIdsFromId = new Set<string>();
+            for (const cn of childNodes) {
+              const cId = getDisplayId(cn);
+              const lastDot = cId.lastIndexOf(".");
+              if (lastDot > 0) parentIdsFromId.add(cId.substring(0, lastDot));
+            }
+            if (parentIdsFromId.size === 1) {
+              const pId = Array.from(parentIdsFromId)[0];
+              return `${pId} — ${parentLv} 프로세스 맵`;
+            }
+          }
+        }
+        // 3단계 fallback: 가장 높은 단일 레벨 노드
         for (const lv of levelOrder) {
           if (lvFirst[lv]) {
             const nd = lvFirst[lv];
@@ -1139,12 +1186,17 @@ export default function ExportToolbar({
         {
           const lc: Record<string, number> = {};
           const lf: Record<string, Node> = {};
+          const la: Record<string, Node[]> = {};
           for (const nd of sNodes) {
             const lv = getLevel(nd);
+            if (lv === "DECISION") continue;
             lc[lv] = (lc[lv] || 0) + 1;
             if (!lf[lv]) lf[lv] = nd;
+            if (!la[lv]) la[lv] = [];
+            la[lv].push(nd);
           }
           let found = false;
+          // 1단계: 자식 존재 + 부모 1개 ON canvas
           for (let i = sLevelOrder.length - 1; i >= 1 && !found; i--) {
             const childLv = sLevelOrder[i];
             const parentLv = sLevelOrder[i - 1];
@@ -1156,6 +1208,54 @@ export default function ExportToolbar({
               found = true;
             }
           }
+          // 2단계: 자식만 있고 부모 없는 경우 → 노드 데이터/ID에서 부모 유추
+          if (!found) {
+            const parentFieldMap: Record<string, { idKey: string; nameKey: string }> = {
+              L5: { idKey: "l4Id", nameKey: "l4Name" },
+              L4: { idKey: "l3Id", nameKey: "l3Name" },
+              L3: { idKey: "l2Id", nameKey: "l2Name" },
+            };
+            for (let i = sLevelOrder.length - 1; i >= 1 && !found; i--) {
+              const childLv = sLevelOrder[i];
+              const parentLv = sLevelOrder[i - 1];
+              if ((lc[childLv] || 0) > 0 && !(lc[parentLv])) {
+                const childNodes = la[childLv] || [];
+                const pf = parentFieldMap[childLv];
+                if (pf) {
+                  const parentIds = new Set<string>();
+                  let parentName = "";
+                  for (const cn of childNodes) {
+                    const cd = cn.data as Record<string, string>;
+                    const pId = cd[pf.idKey];
+                    if (pId) parentIds.add(pId);
+                    if (!parentName && cd[pf.nameKey]) parentName = cd[pf.nameKey];
+                  }
+                  if (parentIds.size === 1) {
+                    const pId = Array.from(parentIds)[0];
+                    const dispPId = pId.replace(/^[Ll]\d[-_.\s]*/g, "").trim() || pId;
+                    sheetSlideTitle = parentName
+                      ? `${dispPId} ${parentName} — ${parentLv} 프로세스 맵`
+                      : `${dispPId} — ${parentLv} 프로세스 맵`;
+                    found = true;
+                  }
+                }
+                if (!found) {
+                  const parentIdsFromId = new Set<string>();
+                  for (const cn of childNodes) {
+                    const cId = getDisplayId(cn);
+                    const lastDot = cId.lastIndexOf(".");
+                    if (lastDot > 0) parentIdsFromId.add(cId.substring(0, lastDot));
+                  }
+                  if (parentIdsFromId.size === 1) {
+                    const pId = Array.from(parentIdsFromId)[0];
+                    sheetSlideTitle = `${pId} — ${parentLv} 프로세스 맵`;
+                    found = true;
+                  }
+                }
+              }
+            }
+          }
+          // 3단계 fallback
           if (!found) {
             for (const lv of sLevelOrder) {
               if (lf[lv]) {

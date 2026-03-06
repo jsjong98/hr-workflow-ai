@@ -379,6 +379,9 @@ export function buildFlowFromL3(
           level: "L5",
           id: r.L5_ID,
           description: r.L5_Description,
+          /* parent L4 info for title derivation */
+          l4Id: r.L4_ID,
+          l4Name: l4Map.get(r.L4_ID)?.name || "",
           /* extended L5 metadata */
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
@@ -549,6 +552,8 @@ export function buildSwimLaneFlowFromL3(
           level: "L5",
           id: r.L5_ID,
           description: r.L5_Description,
+          l4Id: r.L4_ID,
+          l4Name: l4Map.get(r.L4_ID)?.name || "",
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
           staffCount: l5Item.staffCount,

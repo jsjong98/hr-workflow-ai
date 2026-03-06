@@ -1389,7 +1389,7 @@ export default function Home() {
                         {l5Map[l4.id].map((l5) => (
                           <button
                             key={l5.id}
-                            onClick={() => addNodeToCanvas("l5", { ...l5 })}
+                            onClick={() => addNodeToCanvas("l5", { ...l5, l4Name: l4.name })}
                             className={`w-full text-left px-2.5 py-1.5 text-[11px] font-semibold rounded transition-colors ${
                               l5.isManual
                                 ? "text-red-700 bg-red-50 border border-red-200 hover:bg-red-100"
