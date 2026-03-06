@@ -6,71 +6,167 @@
 
 ## 🚀 실행 방법
 
-### 1단계: Node.js 설치 (최초 1회)
-
-- 다운로드: https://nodejs.org/ko → **LTS 버전** 클릭하여 설치
-- 설치 확인: 터미널/명령프롬프트에서 `node -v` 입력 → 버전 번호가 나오면 OK
+> ⚠️ **중요: 아래 명령어는 반드시 한 줄씩 실행하세요!**  
+> 여러 줄을 한꺼번에 복사·붙여넣기하면 오류가 발생합니다.  
+> **한 줄 복사 → 붙여넣기 → Enter → 완료 확인 → 다음 줄** 순서로 진행하세요.
 
 ---
 
-### 2단계: 프로젝트 다운로드
+### ✅ 0단계: Node.js 설치 (필수 · 최초 1회)
+
+> 🔴 **Node.js가 설치되어 있지 않으면 아무것도 실행되지 않습니다!**  
+> 반드시 먼저 설치하세요.
+
+| 순서 | 설명 |
+|------|------|
+| **① 다운로드** | https://nodejs.org/ko 접속 → **LTS 버전** 다운로드 → 설치 (모든 옵션 기본값 OK) |
+| **② 설치 확인** | 터미널(Mac) 또는 명령 프롬프트(Windows)를 **새로 열고** 아래 입력: |
+
+```
+node -v
+```
+- ✅ `v22.x.x` 같은 버전 번호가 나오면 → 설치 완료!
+- ❌ `command not found` 또는 오류 → Node.js가 설치 안 된 것. ①번부터 다시
+
+> 💡 **설치 직후 터미널/명령 프롬프트를 반드시 새로 열어야** node 명령어를 인식합니다.
+
+---
+
+### 1단계: 프로젝트 다운로드
 
 #### 방법 A: Git Clone (권장)
 
-```bash
+아래 명령어를 **한 줄씩** 실행:
+
+**첫 번째** — 프로젝트 다운로드:
+```
 git clone https://github.com/jsjong98/hr-workflow-ai.git
+```
+
+**두 번째** — 폴더로 이동:
+```
 cd hr-workflow-ai
 ```
 
 #### 방법 B: ZIP 다운로드
 
-1. 이 페이지 상단의 **Code** 버튼 → **Download ZIP** 클릭
-2. ZIP 압축 해제 후 해당 폴더로 이동
+1. GitHub 페이지 상단의 **Code** 버튼 → **Download ZIP** 클릭
+2. ZIP 압축 해제
 
 ---
 
-### 3단계: 설치 & 실행
+### 2단계: 폴더로 이동
 
-#### 🍎 Mac
+> ⚠️ **이 단계를 건너뛰면 `npm install`이 실패합니다!**  
+> 반드시 `hr-workflow-ai` 폴더 **안에서** 명령어를 실행해야 합니다.
 
-터미널을 열고 아래 명령어를 순서대로 실행:
+#### 🍎 Mac — 터미널 열기
 
-```bash
-cd hr-workflow-ai
-npm install --legacy-peer-deps
-npm run dev
+`Spotlight (⌘ + Space)` → `터미널` 검색 → 열기
+
+ZIP 다운로드 사용 시 아래 입력 (경로는 실제 압축 해제 위치에 맞게 수정):
+```
+cd ~/Downloads/hr-workflow-ai
 ```
 
-#### 🪟 Windows
+#### 🪟 Windows — 명령 프롬프트(cmd) 열기
 
-> ⚠️ **반드시 아래 방법으로 "명령 프롬프트"를 여세요!**  
-> Windows Terminal, PowerShell에서는 npm이 차단됩니다.
+> ⚠️ **반드시 "명령 프롬프트"를 사용하세요!**  
+> PowerShell(파란색/보라색 창)에서는 npm이 차단될 수 있습니다.
 
-**명령 프롬프트(cmd) 여는 법:**
+**명령 프롬프트 여는 법:**
 1. 키보드에서 **`Win + R`** 누르기 (Win = 윈도우 로고 키)
 2. **`cmd`** 입력 후 **Enter**
 3. **검은색 창**이 열리면 성공 ✅
 
-> ❌ 파란색/보라색 창 = PowerShell (npm 차단됨)  
-> ✅ 검은색 창 = 명령 프롬프트 (정상 작동)
+| ❌ 파란색/보라색 창 | ✅ 검은색 창 |
+|------|------|
+| PowerShell (npm 차단됨) | 명령 프롬프트 (정상 작동) |
 
-열린 검은색 창에 아래 명령어를 한 줄씩 복사-붙여넣기:
-
+ZIP 다운로드 사용 시 아래 입력:
 ```
 cd %USERPROFILE%\Downloads\hr-workflow-ai
-npm install --legacy-peer-deps
-npm run dev
 ```
 
-> 💡 `npm install`은 최초 1회만 실행 (2~3분 소요). 이후에는 `npm run dev`만 실행하면 됩니다.  
 > 💡 압축 해제 경로가 다르면 `cd` 뒤의 경로를 실제 폴더 위치로 변경하세요.
+
+#### ✅ 올바른 폴더에 있는지 확인
+
+아래 명령어를 입력해서 `package.json`이 보이면 정상입니다:
+
+Mac:
+```
+ls package.json
+```
+
+Windows:
+```
+dir package.json
+```
+
+- ✅ `package.json` 파일이 보이면 → 올바른 위치!
+- ❌ `No such file` 또는 `파일을 찾을 수 없습니다` → 폴더 경로가 잘못된 것. `cd` 명령어 확인
 
 ---
 
-### 4단계: 접속
+### 3단계: 패키지 설치 (최초 1회)
 
-- 브라우저에서 **http://localhost:3000** 접속
-- 종료: 터미널에서 `Ctrl + C`
+> ⚠️ **아래 명령어 1줄만 복사해서 실행하세요. 2~3분 소요됩니다.**
+
+```
+npm install --legacy-peer-deps
+```
+
+- ✅ 마지막에 `added xxx packages` 메시지가 나오면 → 성공!
+- ❌ 오류 발생 시 → 0단계 Node.js 설치 확인, 2단계 폴더 위치 확인
+
+> 💡 이 명령어는 **최초 1회만** 실행하면 됩니다. 다음부터는 4단계만 실행하세요.
+
+---
+
+### 4단계: 실행
+
+```
+npm run dev
+```
+
+- ✅ `Ready` 또는 `Local: http://localhost:3000` 메시지가 나오면 → 성공!
+
+---
+
+### 5단계: 접속
+
+- 브라우저(Chrome 권장)에서 **http://localhost:3000** 접속
+- 종료: 터미널에서 **`Ctrl + C`**
+
+---
+
+### 🔄 두 번째부터 실행할 때 (요약)
+
+최초 설치 이후에는 **2줄만** 실행하면 됩니다:
+
+**첫 번째** — 폴더 이동:
+```
+cd 프로젝트경로/hr-workflow-ai
+```
+
+**두 번째** — 실행:
+```
+npm run dev
+```
+
+---
+
+## ❓ 자주 발생하는 문제
+
+| 증상 | 원인 | 해결 방법 |
+|------|------|-----------|
+| `npm: command not found` | Node.js 미설치 | 0단계 Node.js 설치 후 **터미널을 새로 열기** |
+| `npm ERR! enoent` / `no such file` | 잘못된 폴더에서 실행 | `cd hr-workflow-ai` 폴더로 이동 후 `ls package.json` (Mac) 또는 `dir package.json` (Windows)으로 확인 |
+| 여러 줄 붙여넣기 시 오류 | 명령어를 한꺼번에 복사함 | **반드시 한 줄씩** 복사 → 붙여넣기 → Enter → 완료 확인 → 다음 줄 |
+| PowerShell에서 npm 차단 | Windows PowerShell 보안 정책 | `Win + R` → `cmd` → Enter로 **명령 프롬프트(검은 창)** 사용 |
+| `EACCES` 권한 오류 (Mac) | 권한 부족 | 명령어 앞에 `sudo` 추가: `sudo npm install --legacy-peer-deps` |
+| 포트 3000 사용 중 | 이미 실행 중인 서버 | 기존 터미널에서 `Ctrl + C`로 종료 후 다시 `npm run dev` |
 
 ---
 
