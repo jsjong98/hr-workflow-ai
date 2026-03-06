@@ -16,7 +16,7 @@ interface Props {
   sheets: Sheet[];
   activeSheetId: string;
   onSelect: (id: string) => void;
-  onAdd: (type: SheetType) => void;
+  onAdd: (type: SheetType, lanes?: string[]) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
@@ -169,6 +169,16 @@ export default function SheetTabBar({
                 <div>
                   <div className="font-semibold text-gray-700">4분할 시트</div>
                   <div className="text-[9px] text-gray-400">임원 · 팀장 · HR 담당자 · 구성원</div>
+                </div>
+              </button>
+              <button
+                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                onClick={() => { onAdd("swimlane", ["임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}
+              >
+                <span>🏊</span>
+                <div>
+                  <div className="font-semibold text-gray-700">6분할 시트</div>
+                  <div className="text-[9px] text-gray-400">임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div>
                 </div>
               </button>
             </div>

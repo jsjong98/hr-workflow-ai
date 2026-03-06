@@ -107,18 +107,22 @@ export default function Home() {
 
   /* Add a new sheet */
   const handleAddSheet = useCallback(
-    (type: SheetType) => {
+    (type: SheetType, customLanes?: string[]) => {
       // Save current sheet first
       sheetDataRef.current[activeSheetId] = { nodes, edges };
       // Create new
       sheetCountRef.current++;
       const newId = `sheet-${Date.now()}`;
-      const label = type === "swimlane" ? "4분할 시트" : "빈 시트";
+      const DEFAULT_4_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
+      const lanes = type === "swimlane" ? (customLanes || DEFAULT_4_LANES) : undefined;
+      const label = type === "swimlane"
+        ? (lanes && lanes.length > 4 ? `${lanes.length}분할 시트` : "4분할 시트")
+        : "빈 시트";
       const newSheet: Sheet = {
         id: newId,
         name: `${label} ${sheetCountRef.current}`,
         type,
-        ...(type === "swimlane" ? { lanes: ["임원", "팀장", "HR 담당자", "구성원"] } : {}),
+        ...(lanes ? { lanes } : {}),
       };
       setSheets((prev) => [...prev, newSheet]);
       sheetDataRef.current[newId] = { nodes: [], edges: [] };
@@ -404,7 +408,7 @@ export default function Home() {
     // swimlane 시트면 수행주체 기반 자동 배치
     const sheet = sheets.find((s) => s.id === activeSheetId);
     const { nodes: n, edges: e } = sheet?.type === "swimlane"
-      ? buildSwimLaneFlowFromL3(csvRows, selectedL3)
+      ? buildSwimLaneFlowFromL3(csvRows, selectedL3, sheet?.lanes)
       : buildFlowFromL3(csvRows, selectedL3);
     setNodes(n);
     setEdges(e);
@@ -923,10 +927,15 @@ export default function Home() {
                   position="bottom-left"
                   style={
                     activeSheet.type === "swimlane"
-                      ? {
-                          background:
-                            "linear-gradient(to bottom, rgba(180,180,190,0.12) 0% 25%, rgba(200,200,210,0.07) 25% 50%, rgba(180,180,190,0.12) 50% 75%, rgba(200,200,210,0.07) 75% 100%)",
-                        }
+                      ? (() => {
+                          const n = activeSheet.lanes?.length || 4;
+                          const pct = 100 / n;
+                          const stops = Array.from({ length: n }, (_, i) => {
+                            const c = i % 2 === 0 ? "rgba(180,180,190,0.12)" : "rgba(200,200,210,0.07)";
+                            return `${c} ${(i * pct).toFixed(1)}% ${((i + 1) * pct).toFixed(1)}%`;
+                          }).join(", ");
+                          return { background: `linear-gradient(to bottom, ${stops})` };
+                        })()
                       : undefined
                   }
                 />
@@ -939,7 +948,7 @@ export default function Home() {
                         edges.length}
                     </div>
                     <div>
-                      {"📋 시트: " + activeSheet.name + (activeSheet.type === "swimlane" ? " (4분할)" : " (격자)")}
+                      {"📋 시트: " + activeSheet.name + (activeSheet.type === "swimlane" ? ` (${activeSheet.lanes?.length || 4}분할)` : " (격자)")}
                     </div>
                     <div>💡 Handle 드래그 → 화살표 연결</div>
                     <div>🖱️ 노드 더블클릭 → 메모/메타 편집</div>

@@ -124,7 +124,7 @@ function L5NodeBase({ data }: { data: NodeData }) {
 
   return (
     <div
-      className="min-w-[300px] max-w-[380px] select-none relative shadow-sm shadow-[#DEDEDE]/60 transition-shadow hover:shadow-lg"
+      className="min-w-[300px] max-w-[380px] select-none relative shadow-md transition-shadow hover:shadow-lg border border-[#BFBFBF] rounded-sm"
     >
       {/* ── Target handles ── */}
       <Handle type="target" position={Position.Top} id="t-top" className="!w-5 !h-5 !bg-transparent !border-0 !-top-2.5" />

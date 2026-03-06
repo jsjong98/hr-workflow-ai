@@ -25,8 +25,8 @@ const PPT_H         = 7.5;
 const PPT_PAD_X     = 1.25;
 const PPT_PAD_TOP   = 1.575;
 const PPT_PAD_BOT   = 0.35;
-const PPT_SWIM_BAND = 1.535;
 const PPT_SL_BOTTOM = PPT_H - PPT_PAD_BOT + 0.05;  // 7.2"
+const PPT_MAX_SWIM_H = PPT_SL_BOTTOM - 0.65;        // 6.55" max swim area
 
 /* ── Node canvas sizes (must match ExportToolbar LS) ── */
 const NS: Record<string, { w: number; h: number }> = {
@@ -53,8 +53,9 @@ export default function SwimLaneOverlay({
   const allNodes = useNodes();
   const laneH = swimHeight / lanes.length;
 
-  /* ── Y-axis: fixed swim-lane scale ── */
-  const totalSwimIn = PPT_SWIM_BAND * lanes.length;  // 6.14"
+  /* ── Y-axis: fixed swim-lane scale (dynamic band height for 4/6 lanes) ── */
+  const PPT_SWIM_BAND = Math.min(1.535, PPT_MAX_SWIM_H / lanes.length);
+  const totalSwimIn = PPT_SWIM_BAND * lanes.length;
   const px1 = swimHeight / totalSwimIn;              // ~390.9
   const slTop = PPT_SL_BOTTOM - totalSwimIn;         // ~1.06"
 

@@ -214,27 +214,25 @@ export default function ExportToolbar({
       /* ── SwimLane background bands (if active sheet is swimlane) ── */
       const isSwimLane = currentSheet?.type === "swimlane";
       const swimLanes = currentSheet?.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
-      const SWIM_COLORS = [
-        { fill: "F5F5F5", border: "C0C0C0" },
-        { fill: "FFFFFF", border: "C0C0C0" },
-        { fill: "F5F5F5", border: "C0C0C0" },
-        { fill: "FFFFFF", border: "C0C0C0" },
-      ];
+      const SWIM_COLORS = swimLanes.map((_, i) => ({
+        fill: i % 2 === 0 ? "F5F5F5" : "FFFFFF",
+        border: "C0C0C0",
+      }));
       const SWIM_LABEL_W = 0.45; // vertical label column width (레거시: 점선 시작 x)
       const PAD_X = isSwimLane ? 1.25 : 0.4; // 레이블 박스(1.05") 뒤로 밀기
       const PAD_TOP = 1.575; // 4cm 상단 여백
       const PAD_BOTTOM = 0.35;
       // 수영레인 밴드 상수 (Phase 2.6에서도 재사용)
-      const SWIM_BAND_H = 1.535; // 3.9cm per lane (기본 균등 높이)
       const SL_BAND_BOTTOM = SLIDE_H - PAD_BOTTOM + 0.05; // 7.2"
-      const SL_BAND_TOP = SL_BAND_BOTTOM - SWIM_BAND_H * swimLanes.length; // ~1.06"
+      const SWIM_BAND_H = Math.min(1.535, (SL_BAND_BOTTOM - 0.65) / swimLanes.length); // dynamic per lane count
+      const SL_BAND_TOP = SL_BAND_BOTTOM - SWIM_BAND_H * swimLanes.length;
       const TOTAL_SWIM_H = SWIM_BAND_H * swimLanes.length;
 
       // ── 동적 레인 높이: 2행 레인에 더 많은 공간 배분 ──
       const dynamicLaneH: number[] = swimLanes.map(() => SWIM_BAND_H);
       const dynamicLaneTops: number[] = [];
       if (isSwimLane) {
-        const CL_H = 600; // canvas lane height (csvToFlow: 2400/4)
+        const CL_H = 2400 / swimLanes.length; // canvas lane height (dynamic)
         const laneRowCounts: number[] = [];
         for (let li = 0; li < swimLanes.length; li++) {
           const ys: number[] = [];
@@ -388,7 +386,7 @@ export default function ExportToolbar({
 
       // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
       if (isSwimLane) {
-        const CANVAS_LANE_H = 600;
+        const CANVAS_LANE_H = 2400 / swimLanes.length;
         const laneMap: Record<number, string[]> = {};
         for (const nd of nodes) {
           const box = nodeBoxes[nd.id];
@@ -1037,7 +1035,7 @@ export default function ExportToolbar({
       // 시트 목록
       let listY = 3.7;
       for (const { sheet, nodes: sn } of validSheets) {
-        const tag = sheet.type === "swimlane" ? " (수영레인)" : "";
+        const tag = sheet.type === "swimlane" ? ` (${(sheet.lanes?.length || 4)}분할 수영레인)` : "";
         s1.addText(`• ${sheet.name}${tag}  —  노드 ${sn.length}개`, {
           x: 3.5, y: listY, w: 6.33, h: 0.3,
           fontSize: 12, fontFace: FONT_FACE, color: "CBD5E1", align: "center",
@@ -1057,12 +1055,6 @@ export default function ExportToolbar({
       }
 
       /* ── 시트별 다이어그램 슬라이드 ── */
-      const SWIM_COLORS = [
-        { fill: "F5F5F5", border: "C0C0C0" },
-        { fill: "FFFFFF", border: "C0C0C0" },
-        { fill: "F5F5F5", border: "C0C0C0" },
-        { fill: "FFFFFF", border: "C0C0C0" },
-      ];
       const SWIM_LABEL_W = 0.45;
 
       // 슬라이드별 커넥터 메타 수집
@@ -1097,8 +1089,8 @@ export default function ExportToolbar({
         const sPadTop = 1.575; // 4cm 상단 여백
         const sPadBottom = 0.35;
         // 수영레인 밴드 상수
-        const SWIM_BAND_H_S = 1.535; // 3.9cm per lane (기본 균등 높이)
         const SL_BOTTOM_S = SLIDE_H - sPadBottom + 0.05;
+        const SWIM_BAND_H_S = Math.min(1.535, (SL_BOTTOM_S - 0.65) / swimLanes.length); // dynamic per lane count
         const SL_TOP_S = SL_BOTTOM_S - SWIM_BAND_H_S * swimLanes.length;
         const TOTAL_SWIM_H_S = SWIM_BAND_H_S * swimLanes.length;
 
@@ -1106,7 +1098,7 @@ export default function ExportToolbar({
         const dynLH_S: number[] = swimLanes.map(() => SWIM_BAND_H_S);
         const dynLT_S: number[] = [];
         if (isSwimLane) {
-          const CL_H_S = 600;
+          const CL_H_S = 2400 / swimLanes.length; // canvas lane height (dynamic)
           const lrc: number[] = [];
           for (let li = 0; li < swimLanes.length; li++) {
             const ys: number[] = [];
@@ -1276,7 +1268,7 @@ export default function ExportToolbar({
 
         // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
         if (isSwimLane) {
-          const CANVAS_LANE_H = 600;
+          const CANVAS_LANE_H = 2400 / swimLanes.length;
           const laneMap2: Record<number, string[]> = {};
           for (const nd of sNodes) {
             const box = nodeBoxes[nd.id];

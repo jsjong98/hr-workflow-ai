@@ -440,12 +440,9 @@ export function buildFlowFromL3(
  * ═══════════════════════════════════════════════ */
 
 const SWIM_LANE_HEIGHT = 2400;
-const SWIM_LANE_COUNT = 4;
-const SWIM_LANE_H = SWIM_LANE_HEIGHT / SWIM_LANE_COUNT; // 600px per lane
 
-/** 수행주체 열에서 레인 인덱스를 결정 */
-function determineLane(r: CsvRow): number {
-  // 우선순위: 임원(0) > 팀장(1) > HR(2) > 구성원(3)
+/** 수행주체 열에서 레인 인덱스를 결정 (4레인) */
+function determineLane4(r: CsvRow): number {
   if (r.actor_exec && r.actor_exec.trim()) return 0;
   if (r.actor_teamlead && r.actor_teamlead.trim()) return 1;
   if (r.actor_hr && r.actor_hr.trim()) return 2;
@@ -453,13 +450,29 @@ function determineLane(r: CsvRow): number {
   return 2; // 기본: HR 담당자
 }
 
+/** 수행주체 열에서 레인 인덱스를 결정 (6레인) */
+function determineLane6(r: CsvRow): number {
+  // 임원(0), 현업 팀장(1), HR 임원(2), HR 담당자(3), 현업 구성원(4), 그 외(5)
+  if (r.actor_exec && r.actor_exec.trim()) return 0;
+  if (r.actor_teamlead && r.actor_teamlead.trim()) return 1;
+  if (r.actor_hr && r.actor_hr.trim()) return 3;
+  if (r.actor_member && r.actor_member.trim()) return 4;
+  return 5; // 기본: 그 외
+}
+
 /** SwimLane에 맞춰 L5 노드를 배치하는 빌더 */
 export function buildSwimLaneFlowFromL3(
   rows: CsvRow[],
-  selectedL3Id: string
+  selectedL3Id: string,
+  lanes?: string[],
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+
+  const laneCount = lanes?.length ?? 4;
+  const SWIM_LANE_H = SWIM_LANE_HEIGHT / laneCount;
+  const determineLane = laneCount <= 4 ? determineLane4 : determineLane6;
+  const defaultL4Lane = laneCount <= 4 ? 2 : 3; // HR 담당자 레인
 
   const l3Rows = rows.filter((r) => r.L3_ID === selectedL3Id);
   if (l3Rows.length === 0) return { nodes, edges };
@@ -490,7 +503,7 @@ export function buildSwimLaneFlowFromL3(
   const L5_LANE_OFFSET = 80;      // L5의 레인 내 추가 오프셋 (비-L4 레인)
 
   // 레인별 다음 X 위치 추적
-  const laneNextX: number[] = [L4_START_X, L4_START_X, L4_START_X, L4_START_X];
+  const laneNextX: number[] = Array(laneCount).fill(L4_START_X);
 
   const l4Entries = Array.from(l4Map.entries()).sort((a, b) =>
     a[0].localeCompare(b[0], undefined, { numeric: true })
@@ -499,9 +512,9 @@ export function buildSwimLaneFlowFromL3(
   let l4ColX = L4_START_X;
 
   for (const [l4Id, l4Info] of l4Entries) {
-    // L4 노드 — HR 담당자 레인(2)에 기본 배치
+    // L4 노드 — HR 담당자 레인에 기본 배치
     const l4NodeId = `l4-${l4Id}`;
-    const l4Y = 2 * SWIM_LANE_H + LANE_PAD_TOP;
+    const l4Y = defaultL4Lane * SWIM_LANE_H + LANE_PAD_TOP;
     nodes.push({
       id: l4NodeId,
       type: "l4",
@@ -517,9 +530,9 @@ export function buildSwimLaneFlowFromL3(
       seen.add(r.L5_ID);
 
       const lane = determineLane(r);
-      // lane 2 (HR 담당자)는 L4 아래에 배치, 나머지는 레인 상단 기준
-      const laneY = lane === 2
-        ? 2 * SWIM_LANE_H + LANE_PAD_TOP + L4_NODE_HEIGHT + 40
+      // HR 담당자 레인은 L4 아래에 배치, 나머지는 레인 상단 기준
+      const laneY = lane === defaultL4Lane
+        ? defaultL4Lane * SWIM_LANE_H + LANE_PAD_TOP + L4_NODE_HEIGHT + 40
         : lane * SWIM_LANE_H + LANE_PAD_TOP + L5_LANE_OFFSET;
       const x = Math.max(laneNextX[lane], l4ColX);
 
