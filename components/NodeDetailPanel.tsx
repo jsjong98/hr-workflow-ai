@@ -47,14 +47,59 @@ interface NodeDetailPanelProps {
   onUpdate: (nodeId: string, meta: NodeMeta) => void;
 }
 
+/* ── 시스템 라벨 매핑 (CSV systems → 사용자 표시) ── */
+const SYSTEM_LABEL_MAP: { key: string; label: string }[] = [
+  { key: "hr",        label: "HR시스템" },
+  { key: "groupware", label: "그룹웨어" },
+  { key: "office",    label: "오피스" },
+  { key: "manual",    label: "수작업" },
+  { key: "etc",       label: "기타" },
+];
+
+const INPUT_LABEL_MAP: { key: string; label: string }[] = [
+  { key: "system",   label: "시스템" },
+  { key: "doc",      label: "문서" },
+  { key: "external", label: "외부" },
+  { key: "request",  label: "요청" },
+  { key: "etc",      label: "기타" },
+];
+
+const OUTPUT_LABEL_MAP: { key: string; label: string }[] = [
+  { key: "system",   label: "시스템" },
+  { key: "doc",      label: "문서" },
+  { key: "comm",     label: "커뮤니케이션" },
+  { key: "decision", label: "의사결정" },
+  { key: "etc",      label: "기타" },
+];
+
+/** 객체의 비어있지 않은 값을 "라벨: 값" 형태로 조합 */
+function buildMetaString(data: unknown, labelMap: { key: string; label: string }[]): string {
+  if (!data || typeof data !== "object") return "";
+  const obj = data as Record<string, string>;
+  const parts: string[] = [];
+  for (const { key, label } of labelMap) {
+    const v = obj[key]?.trim();
+    if (v) parts.push(`${label}: ${v}`);
+  }
+  return parts.join("\n");
+}
+
 function getNodeMeta(node: Node): NodeMeta {
   const d = node.data as Record<string, unknown>;
+
+  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 CSV systems 메타에서 자동 조합 */
+  const systemVal = (d.system as string) || buildMetaString(d.systems, SYSTEM_LABEL_MAP);
+
+  /* inputData / outputData 도 같은 방식 */
+  const inputVal = (d.inputData as string) || buildMetaString(d.inputs, INPUT_LABEL_MAP);
+  const outputVal = (d.outputData as string) || buildMetaString(d.outputs, OUTPUT_LABEL_MAP);
+
   return {
     memo: (d.memo as string) || "",
     role: (d.role as string) || "",
-    inputData: (d.inputData as string) || "",
-    outputData: (d.outputData as string) || "",
-    system: (d.system as string) || "",
+    inputData: inputVal,
+    outputData: outputVal,
+    system: systemVal,
   };
 }
 
