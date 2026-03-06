@@ -55,86 +55,55 @@ function nodeToRow(n: Node): RowData {
   };
 }
 
-/* ═══ 계층 구조로 노드 정렬 ═══ */
-function buildHierarchicalRows(nodes: Node[]): RowData[] {
-  const result: RowData[] = [];
-  const allRows = nodes.map(nodeToRow);
-
-  const l2s = allRows.filter(r => r.level === "L2").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
-  const l3s = allRows.filter(r => r.level === "L3").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
-  const l4s = allRows.filter(r => r.level === "L4").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
-  const l5s = allRows.filter(r => r.level === "L5").sort((a, b) => a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
-
-  function findParentId(childId: string, parentRows: RowData[]): string | undefined {
-    if (!childId) return undefined;
-    let best: string | undefined;
-    let bestLen = 0;
-    for (const p of parentRows) {
-      if (!p.displayId) continue;
-      if (childId.startsWith(p.displayId + ".") && p.displayId.length > bestLen) {
-        best = p.displayId;
-        bestLen = p.displayId.length;
-      }
-    }
-    return best;
-  }
-
-  for (const l2 of l2s) {
-    result.push(l2);
-    const childL3s = l3s.filter(l3 => findParentId(l3.displayId, [l2]) === l2.displayId);
-    for (const l3 of childL3s) {
-      result.push({ ...l3, parentLevel: "L2" });
-      const childL4s = l4s.filter(l4 => findParentId(l4.displayId, [l3]) === l3.displayId);
-      for (const l4 of childL4s) {
-        result.push({ ...l4, parentLevel: "L3" });
-        const childL5s = l5s.filter(l5 => findParentId(l5.displayId, [l4]) === l4.displayId);
-        for (const l5 of childL5s) {
-          result.push({ ...l5, parentLevel: "L4" });
-        }
-      }
-    }
-  }
-
-  const inResult = new Set(result.map(r => r.nodeId));
-  const levelOrder: Record<string, number> = { L2: 0, L3: 1, L4: 2, L5: 3 };
-  const orphans = allRows
-    .filter(r => !inResult.has(r.nodeId))
-    .sort((a, b) => (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9) || a.displayId.localeCompare(b.displayId, undefined, { numeric: true }));
-  result.push(...orphans);
-
-  return result;
+/* ═══ 플랫 행 목록 (노드 배열 순서 그대로, 드래그 순서 유지) ═══ */
+function buildFlatRows(nodes: Node[]): RowData[] {
+  return nodes.map(nodeToRow);
 }
 
-/* ═══ ID 자동 재번호 ═══ */
+/* ═══ ID 자동 재번호 (플랫 리스트 기반) ═══ */
 function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateAction<Node[]>>) {
-  const rows = buildHierarchicalRows(nodes);
+  const rows = buildFlatRows(nodes);
   const idMap = new Map<string, string>();
   const levelDepth: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
-  const depthToLevel = ["", "L2", "L3", "L4", "L5"];
-  const counters: Record<string, number> = {};
+
+  // 각 레벨의 "현재 부모 ID"와 "해당 레벨 카운터"를 추적
+  const currentParentId: Record<number, string> = {}; // depth → 해당 depth의 최근 할당 ID
+  const childCounters: Record<string, number> = {};   // parentId → child counter
 
   for (const row of rows) {
     const depth = levelDepth[row.level] || 4;
+
     if (depth === 1) {
-      const key = "L2";
-      counters[key] = (counters[key] || 0) + 1;
-      idMap.set(row.nodeId, `${counters[key]}`);
+      // L2: 최상위
+      const key = "root";
+      childCounters[key] = (childCounters[key] || 0) + 1;
+      const newId = `${childCounters[key]}`;
+      idMap.set(row.nodeId, newId);
+      currentParentId[1] = newId;
     } else {
-      const parentLevel = depthToLevel[depth - 1];
-      let parentNewId = "";
-      for (let i = rows.indexOf(row) - 1; i >= 0; i--) {
-        if (rows[i].level === parentLevel && idMap.has(rows[i].nodeId)) {
-          parentNewId = idMap.get(rows[i].nodeId)!;
-          break;
-        }
-      }
-      if (parentNewId) {
-        const key = `${parentLevel}-${parentNewId}`;
-        counters[key] = (counters[key] || 0) + 1;
-        idMap.set(row.nodeId, `${parentNewId}.${counters[key]}`);
+      // L3~L5: 바로 위 레벨의 "현재 ID"를 부모로 사용
+      const parentDepth = depth - 1;
+      const parentId = currentParentId[parentDepth] || "";
+
+      if (parentId) {
+        const key = `p-${parentId}`;
+        childCounters[key] = (childCounters[key] || 0) + 1;
+        const newId = `${parentId}.${childCounters[key]}`;
+        idMap.set(row.nodeId, newId);
+        currentParentId[depth] = newId;
       } else {
-        idMap.set(row.nodeId, row.displayId);
+        // 부모가 없으면 해당 depth 기준 단독 번호
+        const key = `orphan-${depth}`;
+        childCounters[key] = (childCounters[key] || 0) + 1;
+        const newId = `${childCounters[key]}`;
+        idMap.set(row.nodeId, newId);
+        currentParentId[depth] = newId;
       }
+    }
+
+    // 더 깊은 레벨의 카운터 리셋 (새 부모가 바뀌었으므로)
+    for (let d = depth + 1; d <= 4; d++) {
+      delete currentParentId[d];
     }
   }
 
@@ -202,7 +171,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  const rows: RowData[] = useMemo(() => buildHierarchicalRows(nodes), [nodes]);
+  const rows: RowData[] = useMemo(() => buildFlatRows(nodes), [nodes]);
 
   /* ── 토스트 자동 닫기 ── */
   useEffect(() => {
@@ -309,9 +278,15 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     setAddForm({ level: "L4", displayId: "", name: "", description: "", role: "", memo: "" });
     setAddMode(false); setAddAfterIdx(null);
     setToast(`✅ "${addedName}" 추가 완료`);
-    // 스크롤 맨 아래로 (orphan으로 추가된 새 행 보이게)
+    // 스크롤 아래로 (새 행 보이게)
     setTimeout(() => {
-      tableRef.current?.scrollTo({ top: tableRef.current.scrollHeight, behavior: "smooth" });
+      if (addAfterIdx !== null) {
+        // 삽입 위치 근처로 스크롤
+        const targetRow = tableRef.current?.querySelector(`[data-row-index="${addAfterIdx + 1}"]`);
+        targetRow?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        tableRef.current?.scrollTo({ top: tableRef.current.scrollHeight, behavior: "smooth" });
+      }
     }, 100);
   }, [addForm, addAfterIdx, rows, nodes, setNodes]);
 
@@ -350,8 +325,24 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
     setToast("↕️ 순서 변경 완료");
   }, [rows, setNodes]);
 
+  /* ── 계층 정렬 (ID 기반 트리 순서로 재정렬) ── */
+  const handleSortByHierarchy = useCallback(() => {
+    setNodes((nds: Node[]) => {
+      const sorted = [...nds].sort((a, b) => {
+        const levelOrder: Record<string, number> = { l2: 0, l3: 1, l4: 2, l5: 3 };
+        const la = levelOrder[(a.data?.level as string)?.toLowerCase()] ?? 9;
+        const lb = levelOrder[(b.data?.level as string)?.toLowerCase()] ?? 9;
+        const idA = (a.data?.id as string) || "";
+        const idB = (b.data?.id as string) || "";
+        return idA.localeCompare(idB, undefined, { numeric: true }) || (la - lb);
+      });
+      return sorted;
+    });
+    setToast("🔀 계층 정렬 완료");
+  }, [setNodes]);
+
   const handleRenumber = useCallback(() => {
-    if (!confirm("현재 계층 순서 기반으로 모든 ID를 재번호 매기시겠습니까?")) return;
+    if (!confirm("현재 보이는 리스트 순서 기반으로 모든 ID를 재번호 매기시겠습니까?")) return;
     renumberIds(nodes, setNodes);
     setToast("🔢 ID 재번호 완료");
   }, [nodes, setNodes]);
@@ -403,6 +394,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
           <button onClick={() => { setAddMode(!addMode); setAddAfterIdx(null); }} className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${addMode ? "bg-red-100 text-red-600 hover:bg-red-200" : "bg-blue-500 text-white hover:bg-blue-600"}`}>
             {addMode ? "✕ 추가 취소" : "➕ 새 노드 추가"}
           </button>
+          <button onClick={handleSortByHierarchy} className="px-3 py-2 text-xs font-medium bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors" title="ID 기준 계층 정렬">🔀 계층 정렬</button>
           <span className="text-xs text-gray-400">총 {rows.length}개 노드 · ⠿ 드래그로 순서 변경 · ➕ 행 사이 삽입 가능</span>
         </div>
 
@@ -482,6 +474,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                   return (
                     <tr
                       key={row.nodeId}
+                      data-row-index={idx}
                       draggable={!isEditing}
                       onDragStart={(e) => handleDragStart(e, idx)}
                       onDragOver={(e) => handleDragOver(e, idx)}
@@ -557,7 +550,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between flex-none bg-gray-50/50">
-          <span className="text-[10px] text-gray-400">💡 ⠿ 드래그→순서 변경 · ➕ 행 사이 삽입 · 🔢 ID 재번호→계층 기반 자동 번호 · 메타데이터 편집 시 보존</span>
+          <span className="text-[10px] text-gray-400">💡 ⠿ 드래그→순서 변경 · ➕ 행 사이 삽입 · 🔢 ID 재번호→리스트 순서 기반 자동 번호 · 메타데이터 편집 시 보존</span>
           <div className="flex gap-2">
             <button onClick={handleRenumber} className="px-4 py-2 text-xs font-medium bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition">🔢 ID 재번호</button>
             <button onClick={exportCsv} className="px-4 py-2 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition">📥 엑셀(CSV)</button>
