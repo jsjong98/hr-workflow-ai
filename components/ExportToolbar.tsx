@@ -122,6 +122,8 @@ export default function ExportToolbar({
       const L5_FIXED_H  = L5_UPPER_H + L5_GAP + L5_LOWER_H; // 0.918" = 2.33cm
       const DECISION_W = 0.787;  // 2cm
       const DECISION_H = 0.787;  // 2cm
+      const MEMO_W = 1.5;   // ~3.8cm
+      const MEMO_H = 0.5;   // ~1.27cm
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -371,10 +373,11 @@ export default function ExportToolbar({
         const s = LS[getLevel(nd)] || DEF;
         const isL5 = getLevel(nd) === "L5";
         const isDec = getLevel(nd) === "DECISION";
+        const isMemo = getLevel(nd) === "MEMO";
         rawPos[nd.id] = {
           rfX: nd.position.x, rfY: nd.position.y,
-          w: isDec ? DECISION_W : isL5 ? L5_FIXED_W : s.pxW * sc,
-          h: isDec ? DECISION_H : isL5 ? L5_FIXED_H : s.pxH * sc,
+          w: isMemo ? MEMO_W : isDec ? DECISION_W : isL5 ? L5_FIXED_W : s.pxW * sc,
+          h: isMemo ? MEMO_H : isDec ? DECISION_H : isL5 ? L5_FIXED_H : s.pxH * sc,
         };
       }
 
@@ -527,6 +530,20 @@ export default function ExportToolbar({
             objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
+        } else if (level === "MEMO") {
+          /* ── MEMO 노란 네모 (9pt) ── */
+          const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
+          s2.addText(memoText || "", {
+            x: box.x, y: box.y, w: MEMO_W, h: MEMO_H,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "FFF9C4" },
+            line: { color: "FBC02D", width: 0.75 },
+            fontSize: 9, color: "6D4C00",
+            fontFace: FONT_FACE, valign: "top", align: "left",
+            margin: [4, 4, 4, 4],
+            objectName: `GRP_${nd.id}_${shapeList.length}`,
+          });
+          shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
         } else if (level === "L5") {
           /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
           // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
@@ -1224,6 +1241,8 @@ export default function ExportToolbar({
       const L5_FIXED_H_ALL  = L5_UPPER_H_ALL + L5_GAP_ALL + L5_LOWER_H_ALL; // 0.918"
       const DECISION_W_ALL = 0.787;  // 2cm
       const DECISION_H_ALL = 0.787;  // 2cm
+      const MEMO_W_ALL = 1.5;
+      const MEMO_H_ALL = 0.5;
       const DEF = LS.L4;
       const getLevel = (n: Node) => (n.data as Record<string, string>).level || "L4";
       const getLabel = (n: Node) => (n.data as Record<string, string>).label || "";
@@ -1473,10 +1492,11 @@ export default function ExportToolbar({
           const sv = LS[getLevel(nd)] || DEF;
           const isL5 = getLevel(nd) === "L5";
           const isDec = getLevel(nd) === "DECISION";
+          const isMemo = getLevel(nd) === "MEMO";
           sRawPos[nd.id] = {
             rfX: nd.position.x, rfY: nd.position.y,
-            w: isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
-            h: isDec ? DECISION_H_ALL : isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
+            w: isMemo ? MEMO_W_ALL : isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
+            h: isMemo ? MEMO_H_ALL : isDec ? DECISION_H_ALL : isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
           };
         }
 
@@ -1620,6 +1640,19 @@ export default function ExportToolbar({
               objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
+          } else if (level === "MEMO") {
+            const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
+            slide.addText(memoText || "", {
+              x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFF9C4" },
+              line: { color: "FBC02D", width: 0.75 },
+              fontSize: 9, color: "6D4C00",
+              fontFace: FONT_FACE, valign: "top", align: "left",
+              margin: [4, 4, 4, 4],
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
           } else if (level === "L5") {
             /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {

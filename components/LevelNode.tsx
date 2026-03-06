@@ -449,4 +449,47 @@ export const DecisionNode = memo(({ data }: { data: DecisionNodeData }) => (
 ));
 DecisionNode.displayName = "DecisionNode";
 
+/* ═══════════════════════════════════════════════
+ *  MEMO 노드 — 독립 포스트잇 (노란 네모, 9pt)
+ * ═══════════════════════════════════════════════ */
+interface MemoNodeData {
+  label?: string;
+  text?: string;
+  memo?: string;
+  [key: string]: unknown;
+}
+
+function MemoNodeBase({ data }: { data: MemoNodeData }) {
+  const text = data.text || data.memo || data.label || "";
+  return (
+    <div style={{ minWidth: 140, maxWidth: 260 }} className="relative">
+      {/* 연결 핸들 */}
+      <Handle type="target" position={Position.Left} id="t-left"
+        className="!w-2.5 !h-2.5 !bg-yellow-500 !border-yellow-600" />
+      <Handle type="source" position={Position.Right} id="right"
+        className="!w-2.5 !h-2.5 !bg-yellow-400 !border-yellow-500" />
+      <Handle type="target" position={Position.Top} id="t-top"
+        className="!w-2.5 !h-2.5 !bg-yellow-500 !border-yellow-600" />
+      <Handle type="source" position={Position.Bottom} id="bottom"
+        className="!w-2.5 !h-2.5 !bg-yellow-400 !border-yellow-500" />
+
+      {/* 노란 메모 박스 */}
+      <div
+        className="bg-[#FFF9C4] border border-[#FBC02D] rounded-lg shadow-md px-3 py-2.5"
+        style={{ fontSize: 9, lineHeight: '1.5', color: '#6D4C00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+      >
+        <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-yellow-700 opacity-70">
+          📝 메모
+        </div>
+        {text || <span className="italic text-yellow-400">내용을 입력하세요...</span>}
+      </div>
+    </div>
+  );
+}
+
+export const MemoNode = memo(({ data }: { data: MemoNodeData }) => (
+  <MemoNodeBase data={data} />
+));
+MemoNode.displayName = "MemoNode";
+
 export default LevelNodeBase;

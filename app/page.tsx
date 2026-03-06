@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { L2Node, L3Node, L4Node, L5Node, DecisionNode } from "@/components/LevelNode";
+import { L2Node, L3Node, L4Node, L5Node, DecisionNode, MemoNode } from "@/components/LevelNode";
 import ChatPanel from "@/components/ChatPanel";
 import ExportToolbar from "@/components/ExportToolbar";
 import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
@@ -61,7 +61,7 @@ interface SheetData {
 export default function Home() {
   /* ── nodeTypes ─────────────────────────────── */
   const nodeTypes = useMemo(
-    () => ({ l2: L2Node, l3: L3Node, l4: L4Node, l5: L5Node, decision: DecisionNode }),
+    () => ({ l2: L2Node, l3: L3Node, l4: L4Node, l5: L5Node, decision: DecisionNode, memo: MemoNode }),
     []
   );
 
@@ -797,6 +797,43 @@ export default function Home() {
     nodeCountRef.current++;
   }, [setNodes]);
 
+  /* ═══ Add Memo (포스트잇) node to canvas ═══ */
+  const memoCountRef = useRef(0);
+  const addMemoNode = useCallback(() => {
+    memoCountRef.current++;
+    const mId = `memo-${memoCountRef.current}`;
+
+    let x = 400, y = 300;
+    if (rfInstanceRef.current) {
+      const vp = rfInstanceRef.current.getViewport();
+      const wrapper = document.querySelector('.react-flow') as HTMLElement;
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        x = (rect.width / 2 - vp.x) / vp.zoom;
+        y = (rect.height / 2 - vp.y) / vp.zoom;
+      }
+    }
+    x += (Math.random() - 0.5) * 80;
+    y += (Math.random() - 0.5) * 60;
+
+    const promptText = prompt("메모 내용을 입력하세요:", "");
+    if (promptText === null) return;
+
+    const memoNode: Node = {
+      id: mId,
+      type: "memo",
+      position: { x, y },
+      data: {
+        label: promptText || "",
+        text: promptText || "",
+        level: "MEMO",
+        id: mId,
+      },
+    };
+
+    setNodes((nds) => [...nds, memoNode]);
+  }, [setNodes]);
+
   /* ═══ Edge connect (drag handles) ═══ */
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -938,11 +975,19 @@ export default function Home() {
       setNodes((nds) =>
         nds.map((n) => {
           if (n.id !== nodeId) return n;
+          const level = (n.data as Record<string, unknown>).level as string;
+          // MEMO 노드: memo 필드를 text/label에도 동기화
+          const extra: Record<string, unknown> = {};
+          if (level === "MEMO" && meta.memo) {
+            extra.text = meta.memo;
+            extra.label = meta.memo;
+          }
           return {
             ...n,
             data: {
               ...(n.data as Record<string, unknown>),
               ...meta,
+              ...extra,
             },
           };
         })
@@ -1299,6 +1344,13 @@ export default function Home() {
                   title="판정 로직 (마름모) 노드 추가"
                 >
                   {"◇"}
+                </button>
+                <button
+                  onClick={addMemoNode}
+                  className="text-[10px] font-medium bg-[#FFF9C4] text-[#6D4C00] rounded px-2 py-1.5 hover:bg-[#FFF176] transition border border-[#FBC02D]"
+                  title="메모 (포스트잇) 추가"
+                >
+                  {"📝"}
                 </button>
                 <button
                   onClick={handleClearCanvas}
@@ -1727,6 +1779,8 @@ export default function Home() {
                         return "#FFFFFF";
                       case "decision":
                         return "#F2A0AF";
+                      case "memo":
+                        return "#FFF9C4";
                       default:
                         return "#d1d5db";
                     }
@@ -1773,6 +1827,12 @@ export default function Home() {
                       className="mt-0.5 w-full text-[10px] font-bold bg-[#F2A0AF] text-[#3B0716] rounded px-2 py-1 hover:bg-[#D95578] hover:text-white transition border border-[#D95578]"
                     >
                       ◇ 판정 로직 추가
+                    </button>
+                    <button
+                      onClick={addMemoNode}
+                      className="mt-0.5 w-full text-[10px] font-bold bg-[#FFF9C4] text-[#6D4C00] rounded px-2 py-1 hover:bg-[#FFF176] transition border border-[#FBC02D]"
+                    >
+                      📝 메모 추가
                     </button>
                     <button
                       onClick={() => setAddDataMode(true)}
