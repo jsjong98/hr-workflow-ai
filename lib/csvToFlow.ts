@@ -710,3 +710,195 @@ function parseCSVLine(line: string): string[] {
   result.push(current);
   return result;
 }
+
+/* ═══════════════════════════════════════════════
+ * 캔버스 노드 → 원본 PwC 템플릿 44-컬럼 CSV 문자열 생성
+ * ═══════════════════════════════════════════════ */
+
+const TEMPLATE_HEADER = [
+  "ID", "두산 L2", "ID", "Name", "ID", "Name", "Description",
+  "ID", "Name", "Description",
+  "수행주체_임원", "수행주체_HR", "수행주체_현업 팀장", "수행주체_현업 구성원",
+  "관리주체", "담당자 수", "주 담당자", "평균 건당 소요시간", "발생 빈도_건수",
+  "사용 시스템_HR 전용시스템", "사용 시스템_그룹웨어_협업툴", "사용 시스템_오피스_문서도구",
+  "사용 시스템_수작업_오프라인", "사용 시스템_기타 전문 Tool",
+  "Pain Point_시간_속도", "Pain Point_정확성", "Pain Point_반복/수작업",
+  "Pain Point_정보_데이터", "Pain Point_시스템_도구", "Pain Point_의사소통_협업", "Pain Point_기타",
+  "Input_시스템 데이터", "Input_문서_서류", "Input_외부 정보", "Input_구두_메일 요청", "Input_기타",
+  "Output_시스템 반영", "Output_문서_보고서", "Output_커뮤니케이션", "Output_의사결정", "Output_기타",
+  "업무 판단 로직_Rule_based", "업무 판단 로직_사람 판단", "업무 판단 로직_혼합",
+];
+
+function nd(n: Node): Record<string, unknown> {
+  return (n.data || {}) as Record<string, unknown>;
+}
+
+/**
+ * 캔버스 노드 배열을 원본 PwC 템플릿(44-컬럼) CSV 문자열로 변환.
+ * 계층 관계는 (1) 노드에 저장된 명시적 부모 참조(l4Id, l3Id, l2Id)와
+ * (2) ID 접두어(예: "1.1.1" → 부모 "1.1")를 함께 활용하여 복원합니다.
+ */
+export function buildTemplateCsvString(nodes: Node[]): string {
+  /* ── 레벨별 displayId → Node 맵 ── */
+  const byLevel: Record<string, Map<string, Node>> = {
+    L2: new Map(), L3: new Map(), L4: new Map(), L5: new Map(),
+  };
+  for (const n of nodes) {
+    const d = nd(n);
+    const level = ((d.level as string) || "").toUpperCase();
+    const displayId = (d.id as string) || "";
+    if (level && displayId && byLevel[level]) {
+      byLevel[level].set(displayId, n);
+    }
+  }
+
+  /* ── 부모 노드 탐색 (명시적 참조 → ID 접두어 폴백) ── */
+  const findParent = (
+    childDisplayId: string,
+    parentLevel: string,
+    explicitParentId?: string
+  ): Node | undefined => {
+    const map = byLevel[parentLevel];
+    if (!map) return undefined;
+    // 1) 명시적 참조
+    if (explicitParentId) {
+      const found = map.get(explicitParentId);
+      if (found) return found;
+    }
+    // 2) ID 접두어 (마지막 세그먼트 제거)
+    const parts = childDisplayId.split(".");
+    parts.pop();
+    const prefixId = parts.join(".");
+    if (prefixId) return map.get(prefixId);
+    return undefined;
+  };
+
+  /* ── CSV 이스케이프 ── */
+  const esc = (v: string) => {
+    if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+      return `"${v.replace(/"/g, '""')}"`;
+    }
+    return v;
+  };
+
+  /* ── L5 → 부모 체인을 통한 행 생성 ── */
+  const csvRows: string[][] = [];
+  const coveredL4 = new Set<string>();
+  const coveredL3 = new Set<string>();
+  const coveredL2 = new Set<string>();
+
+  const l5Sorted = Array.from(byLevel.L5.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+
+  for (const [l5Id, l5Node] of l5Sorted) {
+    const d5 = nd(l5Node);
+
+    const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
+    const d4 = l4Node ? nd(l4Node) : {};
+    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : "";
+
+    const l3Node = l4Id
+      ? findParent(l4Id, "L3", d4.l3Id as string)
+      : undefined;
+    const d3 = l3Node ? nd(l3Node) : {};
+    const l3Id = l3Node ? (nd(l3Node).id as string) || "" : "";
+
+    const l2Node = l3Id
+      ? findParent(l3Id, "L2", d3.l2Id as string)
+      : undefined;
+    const d2 = l2Node ? nd(l2Node) : {};
+    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
+
+    if (l4Id) coveredL4.add(l4Id);
+    if (l3Id) coveredL3.add(l3Id);
+    if (l2Id) coveredL2.add(l2Id);
+
+    const actors = d5.actors as Record<string, string> | undefined;
+    const systems = d5.systems as Record<string, string> | undefined;
+    const pp = d5.painPoints as Record<string, string> | undefined;
+    const inp = d5.inputs as Record<string, string> | undefined;
+    const out = d5.outputs as Record<string, string> | undefined;
+    const logic = d5.logic as Record<string, string> | undefined;
+
+    csvRows.push([
+      /* 0-1  L2 */ l2Id, (d2.label as string) || "",
+      /* 2-3  L3 */ l3Id, (d3.label as string) || "",
+      /* 4-6  L4 */ l4Id, (d4.label as string) || "", (d4.description as string) || "",
+      /* 7-9  L5 */ l5Id, (d5.label as string) || "", (d5.description as string) || "",
+      /* 10-13 수행주체 */ actors?.exec || "", actors?.hr || "", actors?.teamlead || "", actors?.member || "",
+      /* 14    관리주체 */ (d5.mgrBody as string) || "",
+      /* 15    담당자수 */ (d5.staffCount as string) || "",
+      /* 16    주담당자 */ (d5.mainPerson as string) || "",
+      /* 17    소요시간 */ (d5.avgTime as string) || "",
+      /* 18    빈도    */ (d5.freqCount as string) || "",
+      /* 19-23 시스템  */ systems?.hr || "", systems?.groupware || "", systems?.office || "", systems?.manual || "", systems?.etc || "",
+      /* 24-30 PP     */ pp?.speed || "", pp?.accuracy || "", pp?.repeat || "", pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
+      /* 31-35 Input  */ inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
+      /* 36-40 Output */ out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
+      /* 41-43 Logic  */ logic?.rule || "", logic?.human || "", logic?.mixed || "",
+    ]);
+  }
+
+  /* ── L4 without L5 children ── */
+  for (const [l4Id, l4Node] of Array.from(byLevel.L4.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
+    if (coveredL4.has(l4Id)) continue;
+    const d4 = nd(l4Node);
+    const l3Node = findParent(l4Id, "L3", d4.l3Id as string);
+    const d3 = l3Node ? nd(l3Node) : {};
+    const l3Id = l3Node ? (nd(l3Node).id as string) || "" : "";
+    const l2Node = l3Id ? findParent(l3Id, "L2", d3.l2Id as string) : undefined;
+    const d2 = l2Node ? nd(l2Node) : {};
+    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
+    if (l3Id) coveredL3.add(l3Id);
+    if (l2Id) coveredL2.add(l2Id);
+    const row: string[] = new Array(44).fill("");
+    row[0] = l2Id; row[1] = (d2.label as string) || "";
+    row[2] = l3Id; row[3] = (d3.label as string) || "";
+    row[4] = l4Id; row[5] = (d4.label as string) || ""; row[6] = (d4.description as string) || "";
+    csvRows.push(row);
+  }
+
+  /* ── L3 without L4 children ── */
+  for (const [l3Id, l3Node] of Array.from(byLevel.L3.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
+    if (coveredL3.has(l3Id)) continue;
+    const d3 = nd(l3Node);
+    const l2Node = findParent(l3Id, "L2", d3.l2Id as string);
+    const d2 = l2Node ? nd(l2Node) : {};
+    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
+    if (l2Id) coveredL2.add(l2Id);
+    const row: string[] = new Array(44).fill("");
+    row[0] = l2Id; row[1] = (d2.label as string) || "";
+    row[2] = l3Id; row[3] = (d3.label as string) || "";
+    csvRows.push(row);
+  }
+
+  /* ── L2 without any children ── */
+  for (const [l2Id, l2Node] of Array.from(byLevel.L2.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
+    if (coveredL2.has(l2Id)) continue;
+    const d2 = nd(l2Node);
+    const row: string[] = new Array(44).fill("");
+    row[0] = l2Id; row[1] = (d2.label as string) || "";
+    csvRows.push(row);
+  }
+
+  /* ── 행 정렬: L2 → L3 → L4 → L5 ID 순 ── */
+  csvRows.sort((a, b) => {
+    for (const i of [0, 2, 4, 7]) {
+      const va = a[i] || "";
+      const vb = b[i] || "";
+      if (va !== vb) return va.localeCompare(vb, undefined, { numeric: true });
+    }
+    return 0;
+  });
+
+  /* ── BOM + 헤더 + 행 → CSV 문자열 ── */
+  const bom = "\uFEFF";
+  const lines = [
+    TEMPLATE_HEADER.map(esc).join(","),
+    ...csvRows.map((row) => row.map(esc).join(",")),
+  ];
+  return bom + lines.join("\n");
+}

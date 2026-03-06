@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Node } from "@xyflow/react";
+import { buildTemplateCsvString } from "@/lib/csvToFlow";
 
 /* ═══ 타입 ═══ */
 interface RowData {
@@ -367,28 +368,16 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
   }, [nodes, setNodes]);
 
   const exportCsv = useCallback(() => {
-    const header = ["Level", "ID", "이름", "설명", "수행주체", "메모", "주담당자", "소요시간", "시스템", "PainPoint수"];
-    const csvRows = rows.map((r) => {
-      const nd = nodes.find(n => n.id === r.nodeId);
-      const d = nd ? getNodeData(nd) : {};
-      const mainPerson = (d.mainPerson as string) || "";
-      const avgTime = (d.avgTime as string) || "";
-      const sys = d.systems as Record<string, string> | undefined;
-      const sysStr = sys ? Object.entries(sys).filter(([, v]) => v?.trim()).map(([k, v]) => k + ":" + v).join("; ") : ((d.system as string) || "");
-      const pp = d.painPoints as Record<string, string> | undefined;
-      const ppCount = pp ? Object.values(pp).filter(v => v?.trim()).length.toString() : "";
-      return [r.level, r.displayId, r.name, r.description, r.role, r.memo, mainPerson, avgTime, sysStr, ppCount].map(csvEscape).join(",");
-    });
-    const bom = "\uFEFF";
-    const csvContent = bom + [header.join(","), ...csvRows].join("\n");
+    if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
+    const csvContent = buildTemplateCsvString(nodes);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "workflow-nodes-" + Date.now() + ".csv";
+    a.href = url; a.download = `PwC_HR_Template_${Date.now()}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    setToast("📥 CSV 내보내기 완료");
-  }, [rows, nodes]);
+    setToast("📥 원본 양식 CSV 내보내기 완료 (44-컬럼)");
+  }, [nodes]);
 
   if (!isOpen) return null;
 

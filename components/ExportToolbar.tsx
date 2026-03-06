@@ -6,6 +6,7 @@ import PptxGenJS from "pptxgenjs";
 import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
+import { buildTemplateCsvString } from "@/lib/csvToFlow";
 
 interface ExportToolbarProps {
   nodes: Node[];
@@ -1953,25 +1954,9 @@ export default function ExportToolbar({
   /* ═══ Excel (CSV) Export ═══ */
   const handleExportExcel = useCallback(() => {
     if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
-    const HEADER = ["Level", "ID", "Name", "Description", "Role", "Memo", "System", "InputOutput"];
-    const levelOrder: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
-    const sorted = [...nodes].sort((a, b) => {
-      const la = levelOrder[(a.data?.level as string) ?? ""] ?? 9;
-      const lb = levelOrder[(b.data?.level as string) ?? ""] ?? 9;
-      if (la !== lb) return la - lb;
-      return String(a.data?.id ?? "").localeCompare(String(b.data?.id ?? ""), undefined, { numeric: true });
-    });
-    const rows = sorted.map((n) => {
-      const d = n.data as Record<string, unknown>;
-      return [
-        d.level ?? "", d.id ?? "", d.label ?? d.name ?? "",
-        d.description ?? "", d.role ?? "", d.memo ?? "",
-        d.system ?? "", d.inputOutput ?? "",
-      ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
-    });
-    const csv = "\uFEFF" + [HEADER.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csv = buildTemplateCsvString(nodes);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `hr-workflow-${Date.now()}.csv`);
+    saveAs(blob, `PwC_HR_Template_${Date.now()}.csv`);
   }, [nodes]);
 
   return (
