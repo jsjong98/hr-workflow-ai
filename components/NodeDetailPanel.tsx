@@ -72,16 +72,16 @@ const OUTPUT_LABEL_MAP: { key: string; label: string }[] = [
   { key: "etc",      label: "기타" },
 ];
 
-/** 객체의 비어있지 않은 값을 "라벨: 값" 형태로 조합 */
+/** 객체의 비어있지 않은 값을 "/" 구분으로 조합 (열마다 구분) */
 function buildMetaString(data: unknown, labelMap: { key: string; label: string }[]): string {
   if (!data || typeof data !== "object") return "";
   const obj = data as Record<string, string>;
   const parts: string[] = [];
-  for (const { key, label } of labelMap) {
+  for (const { key } of labelMap) {
     const v = obj[key]?.trim();
-    if (v) parts.push(`${label}: ${v}`);
+    if (v) parts.push(v);
   }
-  return parts.join("\n");
+  return parts.join(" / ");
 }
 
 function getNodeMeta(node: Node): NodeMeta {
@@ -155,7 +155,7 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
     L3: { bg: "bg-[#D95578]", text: "text-white", border: "border-[#F2A0AF]" },
     L4: { bg: "bg-[#F2A0AF]", text: "text-[#3B0716]", border: "border-[#D95578]" },
     L5: { bg: "bg-[#F2DCE0]", text: "text-[#3B0716]", border: "border-[#F2A0AF]" },
-    DECISION: { bg: "bg-[#F4B8C8]", text: "text-[#3B0716]", border: "border-[#D95578]" },
+    DECISION: { bg: "bg-[#F2A0AF]", text: "text-[#3B0716]", border: "border-[#D95578]" },
   };
   const lc = levelColors[level] || levelColors.L4;
 

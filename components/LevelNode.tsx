@@ -309,7 +309,7 @@ interface DecisionNodeData {
 
 function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
   /* L3(#D95578) 보다 옅은 색상 */
-  const bgColor = "#F4B8C8";        // 옅은 핑크
+  const bgColor = "#F2A0AF";        // L3 옅은 톤
   const borderColor = "#D95578";     // L3 기준 테두리
   const textColor = "#3B0716";
 
@@ -338,11 +338,11 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
 
       {/* ── Source handles (Yes → bottom, No → right) ── */}
       <Handle type="source" position={Position.Bottom} id="yes"
-        className="!w-5 !h-5 !bg-[#22C55E] !border-2 !border-white !z-10"
+        className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
         style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
       />
       <Handle type="source" position={Position.Right} id="no"
-        className="!w-5 !h-5 !bg-[#EF4444] !border-2 !border-white !z-10"
+        className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
         style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
       />
       <Handle type="source" position={Position.Top} id="top"
@@ -389,13 +389,13 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
 
       {/* ── Yes/No 라벨 표시 ── */}
       <div
-        className="absolute text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded"
+        className="absolute text-[10px] font-bold text-gray-700 bg-white/80 px-1.5 py-0.5 rounded border border-gray-300"
         style={{ bottom: -26, left: '50%', transform: 'translateX(-50%)' }}
       >
         Yes ↓
       </div>
       <div
-        className="absolute text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded"
+        className="absolute text-[10px] font-bold text-gray-700 bg-white/80 px-1.5 py-0.5 rounded border border-gray-300"
         style={{ right: -32, top: '50%', transform: 'translateY(-50%)' }}
       >
         No →

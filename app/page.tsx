@@ -730,7 +730,10 @@ export default function Home() {
       const isYes = isDecisionSource && sourceHandleId === "yes";
       const isNo = isDecisionSource && sourceHandleId === "no";
 
-      const edgeColor = isYes ? "#22C55E" : isNo ? "#EF4444" : "#000000";
+      // 연결 대상 노드의 레벨에 따라 선 색상 결정 (L5=회색, 나머지=검정)
+      const targetNode = nodes.find((n) => n.id === connection.target);
+      const targetLevel = targetNode ? ((targetNode.data as Record<string, unknown>).level as string) : "";
+      const edgeColor = targetLevel === "L5" ? "#999999" : "#000000";
       const edgeLabel = isYes ? "Yes" : isNo ? "No" : undefined;
 
       setEdges((eds) =>
@@ -739,7 +742,7 @@ export default function Home() {
             ...connection,
             type: "smoothstep",
             animated: false,
-            style: { stroke: edgeColor, strokeWidth: isDecisionSource ? 2 : 1.5 },
+            style: { stroke: edgeColor, strokeWidth: 1.5 },
             markerEnd: {
               type: MarkerType.ArrowClosed,
               width: 16,
@@ -957,7 +960,7 @@ export default function Home() {
             { l: "L3", c: "bg-[#D95578] text-white" },
             { l: "L4", c: "bg-[#DEDEDE] text-black font-bold" },
             { l: "L5", c: "bg-white text-black font-bold border border-[#DEDEDE]" },
-            { l: "◇ 판정", c: "bg-[#F4B8C8] text-[#3B0716] font-bold border border-[#D95578]" },
+            { l: "◇ 판정", c: "bg-[#F2A0AF] text-[#3B0716] font-bold border border-[#D95578]" },
           ].map((i) => (
             <span
               key={i.l}
@@ -1153,7 +1156,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={addDecisionNode}
-                  className="text-[10px] font-medium bg-pink-200 text-pink-800 rounded px-2 py-1.5 hover:bg-pink-300 transition border border-pink-300"
+                  className="text-[10px] font-medium bg-[#F2A0AF] text-[#3B0716] rounded px-2 py-1.5 hover:bg-[#D95578] hover:text-white transition border border-[#D95578]"
                   title="판정 로직 (마름모) 노드 추가"
                 >
                   {"◇"}
@@ -1583,7 +1586,7 @@ export default function Home() {
                       case "l5":
                         return "#FFFFFF";
                       case "decision":
-                        return "#F4B8C8";
+                        return "#F2A0AF";
                       default:
                         return "#d1d5db";
                     }
@@ -1627,7 +1630,7 @@ export default function Home() {
                     </button>
                     <button
                       onClick={addDecisionNode}
-                      className="mt-0.5 w-full text-[10px] font-bold bg-pink-200 text-pink-800 rounded px-2 py-1 hover:bg-pink-300 transition border border-pink-300"
+                      className="mt-0.5 w-full text-[10px] font-bold bg-[#F2A0AF] text-[#3B0716] rounded px-2 py-1 hover:bg-[#D95578] hover:text-white transition border border-[#D95578]"
                     >
                       ◇ 판정 로직 추가
                     </button>
