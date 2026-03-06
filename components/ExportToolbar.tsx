@@ -545,10 +545,26 @@ export default function ExportToolbar({
           });
           shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
         } else if (level === "L5") {
-          /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
+          /* ── L5 전용: 기타 역할 바 (위에 얹기) + 2-box ── */
+          const ROLE_BAR_H = 0.142;  // 0.36cm
+          const roleVal = (nd.data as Record<string, string>).role || "";
+          let l5YOffset = 0;
+          if (roleVal.startsWith("기타:") && roleVal.slice(3).trim()) {
+            s2.addText(roleVal.slice(3).trim(), {
+              x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DBEAFE" },
+              line: { color: "93C5FD", width: 0.5 },
+              fontSize: 7, bold: true, color: "1D4ED8",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H });
+            l5YOffset = ROLE_BAR_H;
+          }
           // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
           s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-            x: box.x, y: box.y, w: L5_FIXED_W, h: L5_UPPER_H,
+            x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H,
             shape: pptx.ShapeType.rect,
             fill: { color: "FFFFFF" },
             line: { color: "DEDEDE", width: 0.25 },
@@ -556,7 +572,7 @@ export default function ExportToolbar({
             fontFace: FONT_FACE, valign: "middle", align: "center",
             objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
-          shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: L5_UPPER_H });
+          shapeList.push({ x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H });
           // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           const sysStr = (nd.data as Record<string, string>).system || "";
@@ -572,7 +588,7 @@ export default function ExportToolbar({
             if (active.length > 0) sysName = active.map(k => k.label).join(", ");
           }
           s2.addText(sysName, {
-            x: box.x, y: box.y + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
+            x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
             shape: pptx.ShapeType.rect,
             fill: { color: "DEDEDE" },
             line: { width: 0 },
@@ -580,7 +596,7 @@ export default function ExportToolbar({
             fontFace: FONT_FACE, valign: "middle", align: "center",
             objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
-          shapeList.push({ x: box.x, y: box.y + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
+          shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
         } else {
           /* ── L2~L4: 기존 단일 박스 ── */
           s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -612,26 +628,26 @@ export default function ExportToolbar({
           }
         }
 
-        // Custom role tag (기타:value → top-right overlap)
-        const roleStr = (nd.data as Record<string, string>).role || "";
-        if (roleStr.startsWith("기타:")) {
-          const customName = roleStr.slice(3);
-          if (customName) {
-            const tagW = 0.55;
-            const tagH = 0.14;
-            const tagX = box.x + box.w - tagW + 0.06;
-            const tagY = box.y - tagH / 2;
-            s2.addText(customName, {
-              x: tagX, y: tagY,
-              w: tagW, h: tagH,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "DBEAFE" },
-              line: { color: "93C5FD", width: 0.5 },
-              fontSize: 7, color: "1D4ED8",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
+        // Custom role tag (기타:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
+        if (level !== "L5") {
+          const roleStr = (nd.data as Record<string, string>).role || "";
+          if (roleStr.startsWith("기타:")) {
+            const customName = roleStr.slice(3);
+            if (customName) {
+              const tagW = Math.max(box.w, L5_FIXED_W);
+              const tagH = 0.142;  // 0.36cm
+              s2.addText(customName, {
+                x: box.x, y: box.y - tagH,
+                w: tagW, h: tagH,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: { color: "93C5FD", width: 0.5 },
+                fontSize: 7, bold: true, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
+            }
           }
         }
 
@@ -1654,9 +1670,25 @@ export default function ExportToolbar({
             });
             shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
           } else if (level === "L5") {
-            /* ── L5 전용 2-box: 고정 치수 (3.15cm×1.74cm + 0.05cm + 0.54cm) ── */
+            /* ── L5: 기타 역할 바 (위에 얹기) + 2-box ── */
+            const ROLE_BAR_H_S = 0.142;  // 0.36cm
+            const roleVal = (nd.data as Record<string, string>).role || "";
+            let l5YOff = 0;
+            if (roleVal.startsWith("기타:") && roleVal.slice(3).trim()) {
+              slide.addText(roleVal.slice(3).trim(), {
+                x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: { color: "93C5FD", width: 0.5 },
+                fontSize: 7, bold: true, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S });
+              l5YOff = ROLE_BAR_H_S;
+            }
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-              x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
+              x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
               shape: pptx.ShapeType.rect,
               fill: { color: "FFFFFF" },
               line: { color: "DEDEDE", width: 0.25 },
@@ -1664,7 +1696,7 @@ export default function ExportToolbar({
               fontFace: FONT_FACE, valign: "middle", align: "center",
               objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
-            shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
+            shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             const sysStr = (nd.data as Record<string, string>).system || "";
             let sysName = "시스템명";
@@ -1680,7 +1712,7 @@ export default function ExportToolbar({
             }
             // 아래쪽 박스: DEDEDE 채우기, 선 없음
             slide.addText(sysName, {
-              x: box.x, y: box.y + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
+              x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
               shape: pptx.ShapeType.rect,
               fill: { color: "DEDEDE" },
               line: { width: 0 },
@@ -1688,7 +1720,7 @@ export default function ExportToolbar({
               fontFace: FONT_FACE, valign: "middle", align: "center",
               objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
-            shapeList.push({ x: box.x, y: box.y + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
+            shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
           } else {
             /* ── L2~L4: 기존 단일 박스 ── */
             slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
@@ -1720,26 +1752,26 @@ export default function ExportToolbar({
             }
           }
 
-          // Custom role tag (기타:value → top-right overlap)
-          const roleStr = (nd.data as Record<string, string>).role || "";
-          if (roleStr.startsWith("기타:")) {
-            const customName = roleStr.slice(3);
-            if (customName) {
-              const tagW = 0.55;
-              const tagH = 0.14;
-              const tagX = box.x + box.w - tagW + 0.06;
-              const tagY = box.y - tagH / 2;
-              slide.addText(customName, {
-                x: tagX, y: tagY,
-                w: tagW, h: tagH,
-                shape: pptx.ShapeType.rect,
-                fill: { color: "DBEAFE" },
-                line: { color: "93C5FD", width: 0.5 },
-                fontSize: 7, color: "1D4ED8",
-                fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_${nd.id}_${shapeList.length}`,
-              });
-              shapeList.push({ x: tagX, y: tagY, w: tagW, h: tagH });
+          // Custom role tag (기타:value) — L5는 위에서 이미 바로 처리
+          if (level !== "L5") {
+            const roleStr = (nd.data as Record<string, string>).role || "";
+            if (roleStr.startsWith("기타:")) {
+              const customName = roleStr.slice(3);
+              if (customName) {
+                const tagW = Math.max(box.w, L5_FIXED_W_ALL);
+                const tagH = 0.142;
+                slide.addText(customName, {
+                  x: box.x, y: box.y - tagH,
+                  w: tagW, h: tagH,
+                  shape: pptx.ShapeType.rect,
+                  fill: { color: "DBEAFE" },
+                  line: { color: "93C5FD", width: 0.5 },
+                  fontSize: 7, bold: true, color: "1D4ED8",
+                  fontFace: FONT_FACE, valign: "middle", align: "center",
+                  objectName: `GRP_${nd.id}_${shapeList.length}`,
+                });
+                shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
+              }
             }
           }
 

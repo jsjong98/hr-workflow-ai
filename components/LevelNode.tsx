@@ -138,13 +138,13 @@ function L5NodeBase({ data }: { data: NodeData }) {
       <Handle type="source" position={Position.Left} id="left" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`} />
       <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
 
-      {/* ── Custom role tag (기타:value) — top-right overlap ── */}
-      {data.role?.startsWith("기타:") && data.role.slice(3) && (
+      {/* ── Custom role bar (기타:value) — 위에 얹기 (0.36cm × 3.15cm) ── */}
+      {data.role?.startsWith("기타:") && data.role.slice(3).trim() && (
         <div
-          className="absolute z-20 text-[9px] font-semibold px-2 py-0.5 rounded bg-sky-100 text-sky-700 border border-sky-300 shadow-sm whitespace-nowrap"
-          style={{ top: -8, right: -8 }}
+          className="bg-sky-100 border border-sky-300 flex items-center justify-center"
+          style={{ height: 24, fontSize: 9, fontWeight: 700, color: '#1D4ED8' }}
         >
-          {data.role.slice(3)}
+          {data.role.slice(3).trim()}
         </div>
       )}
 
