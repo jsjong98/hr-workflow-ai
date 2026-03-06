@@ -25,7 +25,7 @@ import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
 import SheetTabBar, { type Sheet, type SheetType } from "@/components/SheetTabBar";
 import SwimLaneOverlay from "@/components/SwimLaneOverlay";
 import PwcLogo from "@/components/PwcLogo";
-import NodeManagerPanel from "@/components/NodeManagerPanel";
+import InlineNodeList from "@/components/InlineNodeList";
 import {
   parseCsv,
   extractL2List,
@@ -217,8 +217,8 @@ export default function Home() {
   /* ── Search ────────────────────────────────── */
   const [searchTerm, setSearchTerm] = useState("");
 
-  /* ── Node Manager Panel ──────────────────── */
-  const [nodeManagerOpen, setNodeManagerOpen] = useState(false);
+  /* ── Left panel view mode ──────────────────── */
+  const [leftView, setLeftView] = useState<"palette" | "nodes">("palette");
 
   /* ═══════════════════════════════════════════════
    * CSV Load
@@ -692,9 +692,50 @@ export default function Home() {
           </div>
         )}
 
-        {/* L4 / L5 Palette */}
+        {/* L4 / L5 Palette + Node Manager */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {selectedL3 ? (
+          {/* ── Tab Bar ── */}
+          <div className="px-3 py-1.5 border-b border-gray-200 flex gap-1 flex-none bg-gray-50/80">
+            <button
+              onClick={() => setLeftView("palette")}
+              className={`flex-1 px-2 py-1.5 text-[10px] font-bold rounded-md transition-colors ${
+                leftView === "palette"
+                  ? "bg-white text-[#A62121] shadow-sm border border-gray-200"
+                  : "text-gray-500 hover:bg-gray-200/60"
+              }`}
+            >
+              📂 데이터
+            </button>
+            <button
+              onClick={() => setLeftView("nodes")}
+              className={`flex-1 px-2 py-1.5 text-[10px] font-bold rounded-md transition-colors ${
+                leftView === "nodes"
+                  ? "bg-white text-emerald-700 shadow-sm border border-gray-200"
+                  : "text-gray-500 hover:bg-gray-200/60"
+              }`}
+            >
+              {`📋 노드 (${nodes.length})`}
+            </button>
+          </div>
+
+          {leftView === "nodes" ? (
+            /* ── Inline Node Manager ── */
+            <>
+              <InlineNodeList nodes={nodes} setNodes={setNodes} />
+              {(selectedL3 || nodes.length > 0) && (
+                <div className="px-4 py-2 border-t border-gray-100 flex-none">
+                  <ExportToolbar
+                    nodes={nodes}
+                    edges={edges}
+                    reactFlowWrapper={reactFlowWrapper}
+                    sheets={sheets}
+                    getSheetData={getSheetData}
+                    activeSheetId={activeSheetId}
+                  />
+                </div>
+              )}
+            </>
+          ) : selectedL3 ? (
             <>
               <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
                 <input
@@ -729,13 +770,6 @@ export default function Home() {
                   className="text-[10px] font-medium bg-gray-200 text-gray-600 rounded px-2 py-1.5 hover:bg-gray-300 transition"
                 >
                   {"🗑️"}
-                </button>
-                <button
-                  onClick={() => setNodeManagerOpen(true)}
-                  className="text-[10px] font-medium bg-emerald-500 text-white rounded px-2 py-1.5 hover:bg-emerald-600 transition"
-                  title="노드 관리 (추가/수정/삭제/정렬/엑셀)"
-                >
-                  {"📋 노드 관리"}
                 </button>
               </div>
               {/* Export toolbar */}
@@ -814,12 +848,9 @@ export default function Home() {
                     <br />
                     하위 L4·L5 목록이 표시됩니다
                   </p>
-                  <button
-                    onClick={() => setNodeManagerOpen(true)}
-                    className="mt-3 text-xs font-medium bg-emerald-500 text-white rounded-lg px-4 py-2 hover:bg-emerald-600 transition"
-                  >
-                    📋 노드 관리
-                  </button>
+                  <p className="text-[10px] text-gray-300 mt-2">
+                    또는 상단 &lsquo;📋 노드&rsquo; 탭에서 직접 관리
+                  </p>
                 </div>
               </div>
               {nodes.length > 0 && (
@@ -955,10 +986,10 @@ export default function Home() {
                     <div>🔄 화살표 우클릭 → 양방향 전환</div>
                     <div>⌫ Delete 키로 선택 항목 삭제</div>
                     <button
-                      onClick={() => setNodeManagerOpen(true)}
+                      onClick={() => setLeftView("nodes")}
                       className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
                     >
-                      📋 노드 관리
+                      📋 노드 관리 (좌측 탭)
                     </button>
                   </div>
                 </Panel>
@@ -1000,13 +1031,6 @@ export default function Home() {
         />
       </div>
 
-      {/* ═══ Node Manager Panel (global overlay) ═══ */}
-      <NodeManagerPanel
-        isOpen={nodeManagerOpen}
-        onClose={() => setNodeManagerOpen(false)}
-        nodes={nodes}
-        setNodes={setNodes}
-      />
     </div>
   );
 }
