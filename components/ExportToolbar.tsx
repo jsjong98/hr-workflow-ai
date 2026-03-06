@@ -6,7 +6,7 @@ import PptxGenJS from "pptxgenjs";
 import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
-import { buildTemplateCsvString } from "@/lib/csvToFlow";
+import { buildTemplateCsvString, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
 
 interface ExportToolbarProps {
   nodes: Node[];
@@ -18,6 +18,8 @@ interface ExportToolbarProps {
   getSheetData?: (id: string) => { nodes: Node[]; edges: Edge[] };
   /** Current nodes/edges (for saving current active sheet) */
   activeSheetId?: string;
+  /** CSV raw rows for batch PPT generation */
+  csvRows?: CsvRow[];
 }
 
 export default function ExportToolbar({
@@ -27,6 +29,7 @@ export default function ExportToolbar({
   sheets,
   getSheetData,
   activeSheetId,
+  csvRows,
 }: ExportToolbarProps) {
   const isExporting = useRef(false);
 
@@ -2022,6 +2025,242 @@ export default function ExportToolbar({
     }
   }, [nodes, edges, sheets, getSheetData, activeSheetId]);
 
+  /* ═══ Batch PPT Export — L4별 1페이지 (CSV 데이터 기반) ═══ */
+  const handleExportBatchPPT = useCallback(async (splitByL3: boolean) => {
+    if (isExporting.current) return;
+    if (!csvRows || csvRows.length === 0) {
+      alert("CSV 데이터가 없습니다. 먼저 CSV 파일을 업로드하세요.");
+      return;
+    }
+    isExporting.current = true;
+    try {
+      const FONT_FACE = "Noto Sans KR";
+      const SLIDE_W = 13.33;
+      const SLIDE_H = 7.5;
+      const PAD_X = 0.35;
+      const PAD_TOP = 0.9;
+      const PAD_BOTTOM = 0.2;
+      const L5_W = 1.240;       // 3.15cm
+      const L5_UPPER_H = 0.685; // 1.74cm
+      const L5_LOWER_H = 0.213; // 0.54cm
+      const L5_GAP = 0.020;
+      const L5_TOTAL_H = L5_UPPER_H + L5_GAP + L5_LOWER_H;
+      const L5_COL_GAP = 0.15;
+      const ROLE_BAR_H = 0.142;
+      const L4_LABEL_H = 0.45;
+
+      const SYS_KEYS: { key: string; label: string }[] = [
+        { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
+        { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+      ];
+
+      // 계층 구조 추출
+      const l2List = extractL2List(csvRows);
+
+      // L3별로 그룹핑
+      interface L3Group {
+        l3Id: string; l3Name: string;
+        l2Id: string; l2Name: string;
+        l4s: { l4Id: string; l4Name: string; l4Desc: string; l5s: ReturnType<typeof extractL5ByL4> }[];
+      }
+      const l3Groups: L3Group[] = [];
+      for (const l2 of l2List) {
+        const l3s = extractL3ByL2(csvRows, l2.id);
+        for (const l3 of l3s) {
+          const l4s = extractL4ByL3(csvRows, l3.id);
+          const l4WithL5 = l4s.map(l4 => ({
+            l4Id: l4.id, l4Name: l4.name, l4Desc: l4.description,
+            l5s: extractL5ByL4(csvRows, l4.id),
+          }));
+          l3Groups.push({ l3Id: l3.id, l3Name: l3.name, l2Id: l2.id, l2Name: l2.name, l4s: l4WithL5 });
+        }
+      }
+
+      /** 단일 PPT에 슬라이드 추가하는 공통 함수 */
+      const addSlidesToPptx = (pptx: PptxGenJS, groups: L3Group[]) => {
+        let slideCount = 0;
+        for (const g of groups) {
+          for (const l4 of g.l4s) {
+            slideCount++;
+            const slide = pptx.addSlide();
+
+            // ── 헤더: L2 > L3 > L4 breadcrumb ──
+            slide.addText(
+              [
+                { text: `${g.l2Id} ${g.l2Name}`, options: { fontSize: 8, color: "A62121", bold: true } },
+                { text: `  ▸  `, options: { fontSize: 8, color: "999999" } },
+                { text: `${g.l3Id} ${g.l3Name}`, options: { fontSize: 8, color: "D95578", bold: true } },
+                { text: `  ▸  `, options: { fontSize: 8, color: "999999" } },
+                { text: `${l4.l4Id} ${l4.l4Name}`, options: { fontSize: 9, color: "000000", bold: true } },
+              ],
+              { x: PAD_X, y: 0.15, w: SLIDE_W - 2 * PAD_X, h: 0.35, fontFace: FONT_FACE, valign: "middle" }
+            );
+
+            // 페이지 번호
+            slide.addText(`${slideCount}`, {
+              x: SLIDE_W - 0.6, y: SLIDE_H - 0.35, w: 0.5, h: 0.25,
+              fontSize: 7, color: "999999", fontFace: FONT_FACE, align: "right",
+            });
+
+            // ── L4 제목 바 ──
+            const l4BarY = 0.55;
+            slide.addText(`${l4.l4Id}  ${l4.l4Name}`, {
+              x: PAD_X, y: l4BarY, w: SLIDE_W - 2 * PAD_X, h: L4_LABEL_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DEDEDE" },
+              line: { color: "BFBFBF", width: 0.5 },
+              fontSize: 11, bold: true, color: "000000",
+              fontFace: FONT_FACE, valign: "middle", align: "left",
+              margin: [0, 8, 0, 8],
+            });
+            if (l4.l4Desc) {
+              slide.addText(l4.l4Desc, {
+                x: PAD_X, y: l4BarY + L4_LABEL_H + 0.03, w: SLIDE_W - 2 * PAD_X, h: 0.22,
+                fontSize: 7, italic: true, color: "666666",
+                fontFace: FONT_FACE, valign: "top", align: "left",
+              });
+            }
+
+            // ── L5 노드들 가로 배치 ──
+            const l5s = l4.l5s;
+            if (l5s.length === 0) {
+              slide.addText("(하위 L5 업무 없음)", {
+                x: PAD_X, y: PAD_TOP + 0.5, w: SLIDE_W - 2 * PAD_X, h: 0.3,
+                fontSize: 9, italic: true, color: "999999",
+                fontFace: FONT_FACE, align: "center",
+              });
+              continue;
+            }
+
+            // 가용 영역
+            const areaW = SLIDE_W - 2 * PAD_X;
+            const startY = PAD_TOP + (l4.l4Desc ? 0.3 : 0);
+
+            // 가로 열 수 계산: 한 줄에 몇 개 들어가는지
+            const maxPerRow = Math.max(1, Math.floor((areaW + L5_COL_GAP) / (L5_W + L5_COL_GAP)));
+            const rows = Math.ceil(l5s.length / maxPerRow);
+
+            // 세로 줄 간격
+            const ROW_H = L5_TOTAL_H + ROLE_BAR_H + 0.15; // role bar + 메모 공간
+
+            for (let i = 0; i < l5s.length; i++) {
+              const l5 = l5s[i];
+              const row = Math.floor(i / maxPerRow);
+              const col = i % maxPerRow;
+
+              // 해당 줄의 아이템 수
+              const itemsInRow = Math.min(maxPerRow, l5s.length - row * maxPerRow);
+              // 센터 정렬
+              const totalRowW = itemsInRow * L5_W + (itemsInRow - 1) * L5_COL_GAP;
+              const rowStartX = PAD_X + (areaW - totalRowW) / 2;
+
+              const x = rowStartX + col * (L5_W + L5_COL_GAP);
+              let y = startY + row * ROW_H;
+
+              // ── 기타 역할 바 (위에 얹기) ──
+              // 수행주체 결정
+              let roleLabel = "";
+              if (l5.actors) {
+                const actorParts: string[] = [];
+                if (l5.actors.exec) actorParts.push(l5.actors.exec);
+                if (l5.actors.hr) actorParts.push(l5.actors.hr);
+                if (l5.actors.teamlead) actorParts.push(l5.actors.teamlead);
+                if (l5.actors.member) actorParts.push(l5.actors.member);
+                if (actorParts.length > 0) roleLabel = actorParts.join(", ");
+              }
+              if (roleLabel) {
+                slide.addText(roleLabel, {
+                  x, y, w: L5_W, h: ROLE_BAR_H,
+                  shape: pptx.ShapeType.rect,
+                  fill: { color: "DBEAFE" },
+                  line: { color: "93C5FD", width: 0.5 },
+                  fontSize: 6, bold: true, color: "1D4ED8",
+                  fontFace: FONT_FACE, valign: "middle", align: "center",
+                });
+                y += ROLE_BAR_H;
+              }
+
+              // ── L5 ID + 이름 (상단 박스) ──
+              const dispId = l5.id.replace(/^[Ll]\d[-_.\s]*/g, "").trim() || l5.id;
+              slide.addText(`${dispId}\n${l5.name}`, {
+                x, y, w: L5_W, h: L5_UPPER_H,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "FFFFFF" },
+                line: { color: "DEDEDE", width: 0.25 },
+                fontSize: 8, bold: true, color: "000000",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+              });
+
+              // ── 시스템명 (하단 박스) ──
+              let sysName = "시스템명";
+              if (l5.systems) {
+                const active = SYS_KEYS.filter(k => (l5.systems as Record<string, string>)[k.key]?.trim());
+                if (active.length > 0) sysName = active.map(k => k.label).join(", ");
+              }
+              slide.addText(sysName, {
+                x, y: y + L5_UPPER_H + L5_GAP, w: L5_W, h: L5_LOWER_H,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DEDEDE" },
+                line: { width: 0 },
+                fontSize: 6, color: "000000",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+              });
+
+              // ── L5 간 연결선 (화살표) — 같은 줄 내 좌→우 ──
+              if (col > 0) {
+                const prevX = rowStartX + (col - 1) * (L5_W + L5_COL_GAP);
+                const arrowY = y + L5_UPPER_H / 2;
+                slide.addShape(pptx.ShapeType.line, {
+                  x: prevX + L5_W + 0.02, y: arrowY,
+                  w: L5_COL_GAP - 0.04, h: 0,
+                  line: { color: "999999", width: 1 },
+                });
+                // 화살촉 (작은 삼각형)
+                slide.addShape(pptx.ShapeType.triangle, {
+                  x: x - 0.06, y: arrowY - 0.03,
+                  w: 0.06, h: 0.06,
+                  fill: { color: "999999" },
+                  line: { width: 0 },
+                  rotate: 90,
+                });
+              }
+            }
+          }
+        }
+        return slideCount;
+      };
+
+      if (splitByL3) {
+        // ── L3별 분할: 각 L3마다 별도 PPT 파일 ──
+        for (const g of l3Groups) {
+          if (g.l4s.length === 0) continue;
+          const pptx = new PptxGenJS();
+          pptx.layout = "LAYOUT_WIDE";
+          addSlidesToPptx(pptx, [g]);
+          const filename = `PwC_HR_${g.l3Id}_${g.l3Name.replace(/[/\\?*:|"<>]/g, "_")}.pptx`;
+          const arrBuf = await pptx.write({ outputType: "arraybuffer" }) as ArrayBuffer;
+          saveAs(new Blob([arrBuf]), filename);
+          // 약간의 딜레이로 브라우저 다운로드 안정화
+          await new Promise(r => setTimeout(r, 300));
+        }
+        alert(`L3별 ${l3Groups.filter(g => g.l4s.length > 0).length}개 PPT 파일 생성 완료!`);
+      } else {
+        // ── 단일 PPT: 모든 L4를 하나의 PPT로 ──
+        const pptx = new PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        const count = addSlidesToPptx(pptx, l3Groups);
+        const arrBuf = await pptx.write({ outputType: "arraybuffer" }) as ArrayBuffer;
+        saveAs(new Blob([arrBuf]), `PwC_HR_일괄_L4x${count}.pptx`);
+        alert(`총 ${count}페이지 PPT 생성 완료!`);
+      }
+    } catch (err) {
+      console.error("Batch PPT export error:", err);
+      alert("일괄 PPT 내보내기에 실패했습니다.");
+    } finally {
+      isExporting.current = false;
+    }
+  }, [csvRows]);
+
   /* ═══ Excel (CSV) Export ═══ */
   const handleExportExcel = useCallback(() => {
     if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
@@ -2067,6 +2306,24 @@ export default function ExportToolbar({
       >
         📗 Excel
       </button>
+      {csvRows && csvRows.length > 0 && (
+        <>
+          <button
+            onClick={() => handleExportBatchPPT(false)}
+            className="text-[10px] font-medium bg-rose-600 text-white rounded px-2 py-1.5 hover:bg-rose-700 transition"
+            title="CSV 기반 일괄 PPT — L4별 1페이지 (단일 파일)"
+          >
+            🗂️ 일괄 PPT
+          </button>
+          <button
+            onClick={() => handleExportBatchPPT(true)}
+            className="text-[10px] font-medium bg-pink-600 text-white rounded px-2 py-1.5 hover:bg-pink-700 transition"
+            title="CSV 기반 L3별 분할 PPT — L3마다 별도 PPT 파일"
+          >
+            📁 L3분할
+          </button>
+        </>
+      )}
     </div>
   );
 }

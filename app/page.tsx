@@ -1368,6 +1368,7 @@ export default function Home() {
                   sheets={sheets}
                   getSheetData={getSheetData}
                   activeSheetId={activeSheetId}
+                  csvRows={csvRows}
                 />
               </div>
               <div className="flex-1 overflow-y-auto px-2 py-2">
@@ -1688,6 +1689,7 @@ export default function Home() {
                     sheets={sheets}
                     getSheetData={getSheetData}
                     activeSheetId={activeSheetId}
+                    csvRows={csvRows}
                   />
                 </div>
               )}
