@@ -12,6 +12,7 @@ interface RowData {
   description: string;
   role: string;
   memo: string;
+  isManual: boolean;
 }
 
 const LEVEL_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -33,6 +34,7 @@ function nodeToRow(n: Node): RowData {
     description: (d.description as string) || "",
     role: (d.role as string) || "",
     memo: (d.memo as string) || "",
+    isManual: !!(d.isManual),
   };
 }
 
@@ -188,6 +190,7 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
         id: addForm.displayId.trim() || addForm.level + "-" + Date.now(),
         description: addForm.description.trim(),
         role: addForm.role,
+        isManual: true,
       },
     };
     if (addAfterIdx !== null && addAfterIdx < rows.length) {
@@ -268,9 +271,9 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
       if (s.includes(",") || s.includes('"') || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
       return s;
     };
-    const header = ["Level", "ID", "이름", "설명", "수행주체"];
+    const header = ["Level", "ID", "이름", "설명", "수행주체", "구분"];
     const csvRows = rows.map(r =>
-      [r.level, r.displayId, r.name, r.description, r.role].map(esc).join(",")
+      [r.level, r.displayId, r.name, r.description, r.role, r.isManual ? "수동 추가" : "원본"].map(esc).join(",")
     );
     const bom = "\uFEFF";
     const blob = new Blob([bom + [header.join(","), ...csvRows].join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -362,7 +365,7 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
           <div className="p-6 text-center">
             <div className="text-2xl mb-2">📦</div>
             <p className="text-xs text-gray-400">캔버스에 노드가 없습니다</p>
-            <p className="text-[10px] text-gray-300 mt-1">데이터 탭에서 항목을 클릭하여 추가하세요</p>
+            <p className="text-[10px] text-gray-300 mt-1">📂 데이터 탭에서 항목 클릭 또는 위 ➕ 추가 버튼 사용</p>
           </div>
         ) : (
           rows.map((row, idx) => {
@@ -430,8 +433,9 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
                 >
                   {row.level}
                 </span>
-                <span className="shrink-0 text-[9px] text-gray-400 font-mono max-w-[50px] truncate">{row.displayId}</span>
-                <span className="flex-1 text-[11px] font-medium text-gray-800 truncate min-w-0" title={`${row.name}${row.description ? " — " + row.description : ""}`}>
+                <span className={`shrink-0 text-[9px] font-mono max-w-[50px] truncate ${row.isManual ? "text-red-400" : "text-gray-400"}`}>{row.displayId}</span>
+                <span className={`flex-1 text-[11px] font-medium truncate min-w-0 ${row.isManual ? "text-red-600" : "text-gray-800"}`} title={`${row.name}${row.description ? " — " + row.description : ""}${row.isManual ? " (수동 추가)" : ""}`}>
+                  {row.isManual && <span className="text-[8px] mr-0.5">🔴</span>}
                   {row.name}
                 </span>
                 <div className="shrink-0 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

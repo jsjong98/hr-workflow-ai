@@ -714,7 +714,7 @@ export default function Home() {
                   : "text-gray-500 hover:bg-gray-200/60"
               }`}
             >
-              {`📋 노드 (${nodes.length})`}
+              {`➕ 데이터 추가 (${nodes.length})`}
             </button>
           </div>
 
@@ -837,22 +837,119 @@ export default function Home() {
                     )}
                   </div>
                 ))}
+
+                {/* ── 수동 추가된 항목 (빨간색 표시) ── */}
+                {(() => {
+                  const manualNodes = nodes.filter(n => !!(n.data as Record<string, unknown>)?.isManual);
+                  if (manualNodes.length === 0) return null;
+                  const LEVEL_BG: Record<string, string> = {
+                    l2: "bg-[#A62121]/10 border-[#A62121]/30",
+                    l3: "bg-[#D95578]/10 border-[#D95578]/30",
+                    l4: "bg-red-50 border-red-200",
+                    l5: "bg-red-50/50 border-red-100",
+                  };
+                  return (
+                    <div className="mt-3 pt-2 border-t border-dashed border-red-200">
+                      <p className="text-[9px] font-bold text-red-500 px-2 mb-1.5 flex items-center gap-1">
+                        🔴 수동 추가 항목 ({manualNodes.length}개)
+                      </p>
+                      <div className="space-y-0.5">
+                        {manualNodes.map((mn) => {
+                          const d = mn.data as Record<string, unknown>;
+                          const level = ((d.level as string) || "L4").toLowerCase();
+                          const displayId = (d.id as string) || mn.id;
+                          const name = (d.label as string) || (d.name as string) || "";
+                          const desc = (d.description as string) || "";
+                          const bg = LEVEL_BG[level] || LEVEL_BG.l4;
+                          return (
+                            <button
+                              key={mn.id}
+                              onClick={() => {
+                                // 캔버스에서 해당 노드를 포커스
+                                rfInstanceRef.current?.fitView({
+                                  nodes: [{ id: mn.id }],
+                                  padding: 0.5,
+                                  maxZoom: 1.5,
+                                  duration: 300,
+                                });
+                              }}
+                              className={`w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 ${bg} border rounded hover:brightness-95 transition-colors`}
+                              title={`${name}${desc ? " — " + desc : ""} (수동 추가)`}
+                            >
+                              <span className="text-[8px] text-red-400 font-mono mr-1">
+                                {displayId}
+                              </span>
+                              <span className="text-[8px] text-red-300 mr-1">
+                                {(d.level as string) || "L4"}
+                              </span>
+                              {name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </>
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center px-4">
-                  <p className="text-xs text-gray-400">
-                    ← L3 프로세스를 선택하면
-                    <br />
-                    하위 L4·L5 목록이 표시됩니다
-                  </p>
-                  <p className="text-[10px] text-gray-300 mt-2">
-                    또는 상단 &lsquo;📋 노드&rsquo; 탭에서 직접 관리
-                  </p>
-                </div>
-              </div>
+              {(() => {
+                const manualNodes = nodes.filter(n => !!(n.data as Record<string, unknown>)?.isManual);
+                if (manualNodes.length > 0) {
+                  return (
+                    <div className="flex-1 overflow-y-auto px-2 py-2">
+                      <div className="px-2 mb-2">
+                        <p className="text-xs text-gray-400 mb-1">
+                          ← L3 프로세스를 선택하면 L4·L5 목록 표시
+                        </p>
+                      </div>
+                      <div className="border-t border-dashed border-red-200 pt-2">
+                        <p className="text-[9px] font-bold text-red-500 px-2 mb-1.5 flex items-center gap-1">
+                          🔴 수동 추가 항목 ({manualNodes.length}개)
+                        </p>
+                        <div className="space-y-0.5">
+                          {manualNodes.map((mn) => {
+                            const d = mn.data as Record<string, unknown>;
+                            const displayId = (d.id as string) || mn.id;
+                            const name = (d.label as string) || (d.name as string) || "";
+                            return (
+                              <button
+                                key={mn.id}
+                                onClick={() => {
+                                  rfInstanceRef.current?.fitView({
+                                    nodes: [{ id: mn.id }],
+                                    padding: 0.5, maxZoom: 1.5, duration: 300,
+                                  });
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded hover:brightness-95 transition-colors"
+                              >
+                                <span className="text-[8px] text-red-400 font-mono mr-1">{displayId}</span>
+                                <span className="text-[8px] text-red-300 mr-1">{(d.level as string) || "L4"}</span>
+                                {name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center px-4">
+                      <p className="text-xs text-gray-400">
+                        ← L3 프로세스를 선택하면
+                        <br />
+                        하위 L4·L5 목록이 표시됩니다
+                      </p>
+                      <p className="text-[10px] text-gray-300 mt-2">
+                        또는 상단 &lsquo;➕ 데이터 추가&rsquo; 탭에서 직접 관리
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
               {nodes.length > 0 && (
                 <div className="px-4 py-2 border-t border-gray-100">
                   <ExportToolbar
@@ -989,7 +1086,7 @@ export default function Home() {
                       onClick={() => setLeftView("nodes")}
                       className="mt-1 w-full text-[10px] font-bold bg-emerald-500 text-white rounded px-2 py-1 hover:bg-emerald-600 transition"
                     >
-                      📋 노드 관리 (좌측 탭)
+                      ➕ 데이터 추가 (좌측 탭)
                     </button>
                   </div>
                 </Panel>
