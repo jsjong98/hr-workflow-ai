@@ -2298,6 +2298,24 @@ export default function ExportToolbar({
     saveAs(blob, `PwC_HR_AllSheets_${Date.now()}.csv`);
   }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);
 
+  /* ═══ Canvas-Only Excel: 전체 시트에 올린 노드만 출력 (csvRows merge 없음) ═══ */
+  const handleExportCanvasExcel = useCallback(() => {
+    type FlowNode = import("@xyflow/react").Node;
+    const allNodes: FlowNode[] = [];
+    if (sheets && getSheetData) {
+      for (const s of sheets) {
+        const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
+        allNodes.push(...sd.nodes);
+      }
+    } else {
+      allNodes.push(...nodes);
+    }
+    if (allNodes.length === 0) { alert("시트에 노드가 없습니다."); return; }
+    const csv = buildTemplateCsvString(allNodes);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    saveAs(blob, `PwC_HR_Canvas_${Date.now()}.csv`);
+  }, [sheets, getSheetData, activeSheetId, nodes, edges]);
+
   return (
     <div className="flex gap-1">
       <button
@@ -2331,19 +2349,26 @@ export default function ExportToolbar({
       <button
         onClick={handleExportExcel}
         className="text-[10px] font-medium bg-emerald-600 text-white rounded px-2 py-1.5 hover:bg-emerald-700 transition"
-        title="현재 시트 CSV 내보내기"
+        title={csvRows && csvRows.length > 0 ? "원본 CSV 전체 행 기반 + 시트 수정내용 통합 내보내기" : "현재 시트 캔버스 노드 내보내기"}
       >
-        📗 Excel
+        📗 {csvRows && csvRows.length > 0 ? "통합 Excel" : "Excel"}
       </button>
       {sheets && sheets.length > 1 && (
         <button
           onClick={handleExportAllExcel}
           className="text-[10px] font-medium bg-teal-600 text-white rounded px-2 py-1.5 hover:bg-teal-700 transition"
-          title="전체 시트 CSV 통합 내보내기"
+          title={csvRows && csvRows.length > 0 ? "원본 CSV 전체 행 기반 + 전체 시트 수정내용 통합" : "전체 시트 노드 통합 내보내기"}
         >
-          📘 전체 Excel
+          📘 {csvRows && csvRows.length > 0 ? "전체 통합" : "전체 Excel"}
         </button>
       )}
+      <button
+        onClick={handleExportCanvasExcel}
+        className="text-[10px] font-medium bg-lime-600 text-white rounded px-2 py-1.5 hover:bg-lime-700 transition"
+        title="시트에 올린 노드만 내보내기 (원본 CSV 무관, 캔버스 기반)"
+      >
+        📋 시트만
+      </button>
       {csvRows && csvRows.length > 0 && (
         <>
           <button
