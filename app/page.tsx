@@ -19,6 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { L2Node, L3Node, L4Node, L5Node, DecisionNode, MemoNode } from "@/components/LevelNode";
+import OrthoEdge from "@/components/OrthoEdge";
 import ChatPanel from "@/components/ChatPanel";
 import ExportToolbar from "@/components/ExportToolbar";
 import NodeDetailPanel, { type NodeMeta } from "@/components/NodeDetailPanel";
@@ -64,6 +65,7 @@ export default function Home() {
     () => ({ l2: L2Node, l3: L3Node, l4: L4Node, l5: L5Node, decision: DecisionNode, memo: MemoNode }),
     []
   );
+  const edgeTypes = useMemo(() => ({ ortho: OrthoEdge }), []);
 
   /* ── Data State ────────────────────────────── */
   const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
@@ -81,6 +83,8 @@ export default function Home() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const nodeCountRef = useRef(0);
+  const clipboardRef = useRef<Node[]>([]);
+  const nodesRef = useRef<Node[]>([]);
 
   /* ── Undo / Redo ───────────────────────────── */
   const undoStackRef = useRef<string[]>([]);
@@ -88,6 +92,9 @@ export default function Home() {
   const isRestoringRef = useRef(false);
   const currentSnapRef = useRef<string>("");
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // nodesRef: always up to date (for keyboard handlers)
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
   // Track current state + debounced history push
   useEffect(() => {
@@ -153,6 +160,41 @@ export default function Home() {
         setNodes(parsed.nodes);
         setEdges(parsed.edges);
         setTimeout(() => { isRestoringRef.current = false; }, 600);
+      }
+
+      // Ctrl+A: 전체 선택
+      if (key === "a") {
+        e.preventDefault();
+        e.stopPropagation();
+        setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
+      }
+
+      // Ctrl+C: 선택된 노드 복사
+      if (key === "c") {
+        e.preventDefault();
+        e.stopPropagation();
+        const selected = nodesRef.current.filter((n) => n.selected);
+        if (selected.length > 0) clipboardRef.current = selected;
+      }
+
+      // Ctrl+V: 복사된 노드 붙여넣기 (오프셋 +40px)
+      if (key === "v") {
+        const copied = clipboardRef.current;
+        if (copied.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const offset = 40;
+        const now = Date.now();
+        const newNodes: Node[] = copied.map((n, i) => ({
+          ...n,
+          id: `${n.id}_copy_${now}_${i}`,
+          position: { x: n.position.x + offset, y: n.position.y + offset },
+          selected: true,
+        }));
+        setNodes((nds) => [
+          ...nds.map((n) => ({ ...n, selected: false })),
+          ...newNodes,
+        ]);
       }
     };
     window.addEventListener("keydown", handler, true);
@@ -866,7 +908,7 @@ export default function Home() {
         addEdge(
           {
             ...connection,
-            type: "smoothstep",
+            type: "ortho",
             animated: false,
             style: { stroke: edgeColor, strokeWidth: 1.5 },
             markerEnd: {
@@ -1734,6 +1776,8 @@ export default function Home() {
                 onEdgeDoubleClick={onEdgeDoubleClick}
                 onNodeDoubleClick={onNodeDoubleClick}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                multiSelectionKeyCode="Control"
                 snapToGrid={true}
                 snapGrid={[20, 20]}
                 onInit={(instance) => {
@@ -1748,7 +1792,7 @@ export default function Home() {
                 maxZoom={3}
                 connectionLineStyle={{ stroke: "#000000", strokeWidth: 1.5 }}
                 defaultEdgeOptions={{
-                  type: "smoothstep",
+                  type: "ortho",
                   animated: false,
                   style: { stroke: "#000000", strokeWidth: 1.5 },
                 }}

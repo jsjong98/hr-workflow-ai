@@ -20,10 +20,16 @@ const ROLE_OPTIONS = [
 
 export interface NodeMeta {
   memo?: string;
-  role?: string;
+  role?: string;       // 수행 주체 (콤마 구분 다중선택)
   inputData?: string;
   outputData?: string;
   system?: string;
+  /* 확장 메타 (편집 가능) */
+  mgrBody?: string;
+  staffCount?: string;
+  mainPerson?: string;
+  avgTime?: string;
+  freqCount?: string;
 }
 
 /* ── L5 확장 메타 (CSV에서 자동 파싱된 읽기전용 데이터) ── */
@@ -87,19 +93,48 @@ function buildMetaString(data: unknown, labelMap: { key: string; label: string }
 function getNodeMeta(node: Node): NodeMeta {
   const d = node.data as Record<string, unknown>;
 
-  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 CSV systems 메타에서 자동 조합 */
-  const systemVal = (d.system as string) || buildMetaString(d.systems, SYSTEM_LABEL_MAP);
+  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 CSV systems 에서 실제 값 조합 */
+  const sysObj = d.systems as Record<string, string> | undefined;
+  let systemVal = (d.system as string) || "";
+  if (!systemVal && sysObj) {
+    const parts: string[] = [];
+    if (sysObj.hr?.trim()) parts.push(sysObj.hr.trim());
+    if (sysObj.groupware?.trim()) parts.push(sysObj.groupware.trim());
+    if (sysObj.office?.trim()) parts.push(sysObj.office.trim());
+    if (sysObj.manual?.trim()) parts.push(sysObj.manual.trim());
+    if (sysObj.etc?.trim()) parts.push(sysObj.etc.trim());
+    systemVal = parts.join(" / ");
+  }
 
-  /* inputData / outputData 도 같은 방식 */
+  /* inputData / outputData */
   const inputVal = (d.inputData as string) || buildMetaString(d.inputs, INPUT_LABEL_MAP);
   const outputVal = (d.outputData as string) || buildMetaString(d.outputs, OUTPUT_LABEL_MAP);
 
+  /* 수행주체: 명시적 role이 없으면 CSV actors에서 자동 맵핑 */
+  let roleVal = (d.role as string) || "";
+  if (!roleVal) {
+    const actors = d.actors as Record<string, string> | undefined;
+    if (actors) {
+      const parts: string[] = [];
+      if (actors.exec?.trim()) parts.push("임원 이상");
+      if (actors.hr?.trim()) parts.push("HR 담당자");
+      if (actors.teamlead?.trim()) parts.push("팔장급");
+      if (actors.member?.trim()) parts.push("구성원");
+      roleVal = parts.join(", ");
+    }
+  }
+
   return {
     memo: (d.memo as string) || "",
-    role: (d.role as string) || "",
+    role: roleVal,
     inputData: inputVal,
     outputData: outputVal,
     system: systemVal,
+    mgrBody: (d.mgrBody as string) || "",
+    staffCount: (d.staffCount as string) || "",
+    mainPerson: (d.mainPerson as string) || "",
+    avgTime: (d.avgTime as string) || "",
+    freqCount: (d.freqCount as string) || "",
   };
 }
 
@@ -194,25 +229,34 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           />
         </fieldset>
 
-        {/* 수행 주체 */}
+        {/* 수행 주체 (다중선택) */}
         <fieldset>
           <legend className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1">
-            👤 수행 주체
+            👤 수행 주체 <span className="text-[10px] font-normal text-gray-400">(여러 명 선택 가능)</span>
           </legend>
           <div className="flex flex-wrap gap-1.5">
             {ROLE_OPTIONS.map((role) => {
+              const activeRoles = (meta.role || "").split(",").map(r => r.trim()).filter(Boolean);
               const isActive = role === "기타"
-                ? (meta.role === "기타" || (meta.role?.startsWith("기타:") ?? false))
-                : meta.role === role;
+                ? activeRoles.some(r => r === "기타" || r.startsWith("기타:"))
+                : activeRoles.includes(role);
               return (
                 <button
                   key={role}
                   onClick={() => {
+                    const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(Boolean);
+                    let newRoles: string[];
                     if (role === "기타") {
-                      setMeta({ ...meta, role: isActive ? "" : "기타" });
+                      const hasOther = currentRoles.some(r => r === "기타" || r.startsWith("기타:"));
+                      newRoles = hasOther
+                        ? currentRoles.filter(r => r !== "기타" && !r.startsWith("기타:"))
+                        : [...currentRoles, "기타"];
                     } else {
-                      setMeta({ ...meta, role: meta.role === role ? "" : role });
+                      newRoles = isActive
+                        ? currentRoles.filter(r => r !== role)
+                        : [...currentRoles, role];
                     }
+                    setMeta({ ...meta, role: newRoles.join(", ") });
                   }}
                   className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                     isActive
@@ -225,15 +269,30 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
               );
             })}
           </div>
-          {/* Custom role input */}
-          {(meta.role === "기타" || (meta.role?.startsWith("기타:") ?? false)) && (
+          {/* 직접입력 필드 (기타: 변수 지원) */}
+          {(meta.role || "").split(",").map(r => r.trim()).some(r => r === "기타" || r.startsWith("기타:")) && (
             <input
               type="text"
               placeholder="직접 입력... (예: 큐벡스)"
               className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              value={meta.role?.startsWith("기타:") ? meta.role.slice(3) : ""}
-              onChange={(e) => setMeta({ ...meta, role: e.target.value ? `기타:${e.target.value}` : "기타" })}
+              value={(() => {
+                const r = (meta.role || "").split(",").map(x => x.trim()).find(x => x.startsWith("기타:"));
+                return r ? r.slice(3) : "";
+              })()}
+              onChange={(e) => {
+                const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(r => r !== "기타" && !r.startsWith("기타:"));
+                const newOther = e.target.value ? `기타:${e.target.value}` : "기타";
+                setMeta({ ...meta, role: [...currentRoles, newOther].join(", ") });
+              }}
             />
+          )}
+          {/* 선택된 주체 태그 미리보기 */}
+          {meta.role && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {(meta.role).split(",").map(r => r.trim()).filter(Boolean).map(r => (
+                <span key={r} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{r}</span>
+              ))}
+            </div>
           )}
         </fieldset>
 
@@ -273,13 +332,69 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           <textarea
             value={meta.system || ""}
             onChange={(e) => setMeta({ ...meta, system: e.target.value })}
-            placeholder="예: SAP SuccessFactors, 그룹웨어, Excel..."
+            placeholder="예: 커리어두산, outlook, teams, SAP..."
             className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent resize-none"
             rows={2}
           />
         </fieldset>
 
-        {/* ═══ L5 확장 메타데이터 (CSV 자동 파싱, 읽기전용) ═══ */}
+        {/* 관리주체 / 담당자 / 주담당자 / 소요시간 / 빈도 (L5) */}
+        {(level === "L5" || meta.mgrBody || meta.staffCount || meta.mainPerson || meta.avgTime || meta.freqCount) && (
+          <fieldset>
+            <legend className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">
+              📊 업무 정보
+            </legend>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">관리주체</label>
+                <input
+                  value={meta.mgrBody || ""}
+                  onChange={(e) => setMeta({ ...meta, mgrBody: e.target.value })}
+                  placeholder="관리주체"
+                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">담당자 수</label>
+                <input
+                  value={meta.staffCount || ""}
+                  onChange={(e) => setMeta({ ...meta, staffCount: e.target.value })}
+                  placeholder="예: 2명"
+                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">주 담당자</label>
+                <input
+                  value={meta.mainPerson || ""}
+                  onChange={(e) => setMeta({ ...meta, mainPerson: e.target.value })}
+                  placeholder="주 담당자"
+                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-0.5">평균 소요시간</label>
+                <input
+                  value={meta.avgTime || ""}
+                  onChange={(e) => setMeta({ ...meta, avgTime: e.target.value })}
+                  placeholder="예: 30분"
+                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[10px] text-gray-500 block mb-0.5">발생 빈도_건수</label>
+                <input
+                  value={meta.freqCount || ""}
+                  onChange={(e) => setMeta({ ...meta, freqCount: e.target.value })}
+                  placeholder="예: 월 50건"
+                  className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+          </fieldset>
+        )}
+
+        {/* ═══ L5 확장 메타데이터 (CSV 자동 파싱, 읽기전용 세부) ═══ */}
         {hasExt && ext && (
           <div className="border-t border-gray-200 pt-4 mt-2 space-y-3">
             <h4 className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">📋 CSV 자동 파싱 정보</h4>

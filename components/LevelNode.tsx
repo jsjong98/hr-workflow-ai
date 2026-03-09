@@ -111,8 +111,13 @@ function hasMeta(d: NodeData): boolean {
 function getL5SystemName(data: NodeData): string {
   if (data.system) return data.system;
   if (data.systems) {
-    const activeTags = SYSTEM_TAGS.filter(t => data.systems![t.key]?.trim());
-    if (activeTags.length > 0) return activeTags.map(t => t.label).join(", ");
+    const parts: string[] = [];
+    if (data.systems.hr?.trim()) parts.push(data.systems.hr.trim());
+    if (data.systems.groupware?.trim()) parts.push(data.systems.groupware.trim());
+    if (data.systems.office?.trim()) parts.push(data.systems.office.trim());
+    if (data.systems.manual?.trim()) parts.push(data.systems.manual.trim());
+    if (data.systems.etc?.trim()) parts.push(data.systems.etc.trim());
+    if (parts.length > 0) return parts.join(" / ");
   }
   return "시스템명";
 }

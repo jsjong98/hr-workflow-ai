@@ -78,6 +78,10 @@ export interface L5Item {
   name: string;
   description: string;
   l4Id: string;
+  l3Id?: string;
+  l2Id?: string;
+  l3Name?: string;
+  l2Name?: string;
   isManual?: boolean;
   /* ── extended metadata ── */
   actors?: { exec: string; hr: string; teamlead: string; member: string };
@@ -160,6 +164,10 @@ function buildL5Item(r: CsvRow): L5Item {
     name: r.L5_Name,
     description: r.L5_Description,
     l4Id: r.L4_ID,
+    l3Id: r.L3_ID,
+    l2Id: r.L2_ID,
+    l3Name: r.L3_Name,
+    l2Name: r["두산 L2"],
     actors: { exec: r.actor_exec || "", hr: r.actor_hr || "", teamlead: r.actor_teamlead || "", member: r.actor_member || "" },
     mgrBody: r.mgr_body || "",
     staffCount: r.staff_count || "",
@@ -298,8 +306,8 @@ export function buildFlowFromL3(
     id: `e-${l2NodeId}-${l3NodeId}`,
     source: l2NodeId,
     target: l3NodeId,
-    type: "smoothstep",
-    animated: true,
+    type: "ortho",
+    animated: false,
     style: { stroke: "#333333", strokeWidth: 2.5 },
     markerEnd: {
       type: MarkerType.ArrowClosed,
@@ -334,7 +342,7 @@ export function buildFlowFromL3(
       id: `e-${l3NodeId}-${nodeId}`,
       source: l3NodeId,
       target: nodeId,
-      type: "smoothstep",
+      type: "ortho",
       animated: false,
       style: { stroke: "#333333", strokeWidth: 2 },
       markerEnd: {
@@ -379,9 +387,13 @@ export function buildFlowFromL3(
           level: "L5",
           id: r.L5_ID,
           description: r.L5_Description,
-          /* parent L4 info for title derivation */
+          /* parent info for hierarchy export */
           l4Id: r.L4_ID,
           l4Name: l4Map.get(r.L4_ID)?.name || "",
+          l3Id: first.L3_ID,
+          l3Name: first.L3_Name,
+          l2Id: first.L2_ID,
+          l2Name: first["두산 L2"],
           /* extended L5 metadata */
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
@@ -400,7 +412,7 @@ export function buildFlowFromL3(
         id: `e-${parentNodeId}-${l5NodeId}`,
         source: parentNodeId,
         target: l5NodeId,
-        type: "smoothstep",
+        type: "ortho",
         animated: false,
         style: { stroke: "#333333", strokeWidth: 1.5 },
         markerEnd: {
@@ -554,6 +566,10 @@ export function buildSwimLaneFlowFromL3(
           description: r.L5_Description,
           l4Id: r.L4_ID,
           l4Name: l4Map.get(r.L4_ID)?.name || "",
+          l3Id: first.L3_ID,
+          l3Name: first.L3_Name,
+          l2Id: first.L2_ID,
+          l2Name: first["두산 L2"],
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
           staffCount: l5Item.staffCount,
@@ -571,7 +587,7 @@ export function buildSwimLaneFlowFromL3(
         id: `e-${l4NodeId}-${l5NodeId}`,
         source: l4NodeId,
         target: l5NodeId,
-        type: "smoothstep",
+        type: "ortho",
         animated: false,
         style: { stroke: "#333333", strokeWidth: 1.5 },
         markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#333333" },
@@ -598,7 +614,7 @@ export function buildSwimLaneFlowFromL3(
       id: `e-${l3NodeId}-${l4NodeId}`,
       source: l3NodeId,
       target: l4NodeId,
-      type: "smoothstep",
+      type: "ortho",
       animated: false,
       style: { stroke: "#333333", strokeWidth: 2 },
       markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: "#333333" },
@@ -738,7 +754,15 @@ function nd(n: Node): Record<string, unknown> {
  * 계층 관계는 (1) 노드에 저장된 명시적 부모 참조(l4Id, l3Id, l2Id)와
  * (2) ID 접두어(예: "1.1.1" → 부모 "1.1")를 함께 활용하여 복원합니다.
  */
-export function buildTemplateCsvString(nodes: Node[]): string {
+export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): string {
+  /* ── CSV rows lookup (L4_ID → CsvRow) for parent hierarchy fallback ── */
+  const csvByL4 = new Map<string, CsvRow>();
+  if (csvRows) {
+    for (const r of csvRows) {
+      if (r.L4_ID && !csvByL4.has(r.L4_ID)) csvByL4.set(r.L4_ID, r);
+    }
+  }
+
   /* ── 레벨별 displayId → Node 맵 ── */
   const byLevel: Record<string, Map<string, Node>> = {
     L2: new Map(), L3: new Map(), L4: new Map(), L5: new Map(),
@@ -782,7 +806,7 @@ export function buildTemplateCsvString(nodes: Node[]): string {
   };
 
   /* ── L5 → 부모 체인을 통한 행 생성 ── */
-  const csvRows: string[][] = [];
+  const dataRows: string[][] = [];
   const coveredL4 = new Set<string>();
   const coveredL3 = new Set<string>();
   const coveredL2 = new Set<string>();
@@ -793,21 +817,32 @@ export function buildTemplateCsvString(nodes: Node[]): string {
   for (const [l5Id, l5Node] of l5Sorted) {
     const d5 = nd(l5Node);
 
+    /* ── L4 parent ── */
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
-    const d4 = l4Node ? nd(l4Node) : {};
-    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : "";
+    let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
+    let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
+    let l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
 
-    const l3Node = l4Id
-      ? findParent(l4Id, "L3", d4.l3Id as string)
-      : undefined;
-    const d3 = l3Node ? nd(l3Node) : {};
-    const l3Id = l3Node ? (nd(l3Node).id as string) || "" : "";
+    /* ── L3 parent ── */
+    const l3Node = l4Id ? findParent(l4Id, "L3", (d5.l3Id as string)) : undefined;
+    let l3Id = l3Node ? (nd(l3Node).id as string) || "" : (d5.l3Id as string) || "";
+    let l3Label = l3Node ? (nd(l3Node).label as string) || "" : (d5.l3Name as string) || "";
 
-    const l2Node = l3Id
-      ? findParent(l3Id, "L2", d3.l2Id as string)
-      : undefined;
-    const d2 = l2Node ? nd(l2Node) : {};
-    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
+    /* ── L2 parent ── */
+    const l2Node = l3Id ? findParent(l3Id, "L2", (d5.l2Id as string)) : undefined;
+    let l2Id = l2Node ? (nd(l2Node).id as string) || "" : (d5.l2Id as string) || "";
+    let l2Label = l2Node ? (nd(l2Node).label as string) || "" : (d5.l2Name as string) || "";
+
+    /* ── CSV fallback (l4Id 기반 부모 계층 복원) ── */
+    if (l4Id && (!l3Id || !l2Id)) {
+      const csvFallback = csvByL4.get(l4Id);
+      if (csvFallback) {
+        if (!l3Id) { l3Id = csvFallback.L3_ID; l3Label = l3Label || csvFallback.L3_Name; }
+        if (!l2Id) { l2Id = csvFallback.L2_ID; l2Label = l2Label || csvFallback["두산 L2"]; }
+        if (!l4Label) { l4Label = csvFallback.L4_Name; }
+        if (!l4Desc) l4Desc = csvFallback.L4_Description;
+      }
+    }
 
     if (l4Id) coveredL4.add(l4Id);
     if (l3Id) coveredL3.add(l3Id);
@@ -820,10 +855,14 @@ export function buildTemplateCsvString(nodes: Node[]): string {
     const out = d5.outputs as Record<string, string> | undefined;
     const logic = d5.logic as Record<string, string> | undefined;
 
-    csvRows.push([
-      /* 0-1  L2 */ l2Id, (d2.label as string) || "",
-      /* 2-3  L3 */ l3Id, (d3.label as string) || "",
-      /* 4-6  L4 */ l4Id, (d4.label as string) || "", (d4.description as string) || "",
+    const d4 = l4Node ? nd(l4Node) : {};
+    const d3 = l3Node ? nd(l3Node) : {};
+    const d2 = l2Node ? nd(l2Node) : {};
+
+    dataRows.push([
+      /* 0-1  L2 */ l2Id, l2Label || (d2.label as string) || "",
+      /* 2-3  L3 */ l3Id, l3Label || (d3.label as string) || "",
+      /* 4-6  L4 */ l4Id, l4Label || (d4.label as string) || "", l4Desc || (d4.description as string) || "",
       /* 7-9  L5 */ l5Id, (d5.label as string) || "", (d5.description as string) || "",
       /* 10-13 수행주체 */ actors?.exec || "", actors?.hr || "", actors?.teamlead || "", actors?.member || "",
       /* 14    관리주체 */ (d5.mgrBody as string) || "",
@@ -856,7 +895,7 @@ export function buildTemplateCsvString(nodes: Node[]): string {
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
     row[4] = l4Id; row[5] = (d4.label as string) || ""; row[6] = (d4.description as string) || "";
-    csvRows.push(row);
+    dataRows.push(row);
   }
 
   /* ── L3 without L4 children ── */
@@ -871,7 +910,7 @@ export function buildTemplateCsvString(nodes: Node[]): string {
     const row: string[] = new Array(44).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
-    csvRows.push(row);
+    dataRows.push(row);
   }
 
   /* ── L2 without any children ── */
@@ -881,11 +920,11 @@ export function buildTemplateCsvString(nodes: Node[]): string {
     const d2 = nd(l2Node);
     const row: string[] = new Array(44).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
-    csvRows.push(row);
+    dataRows.push(row);
   }
 
   /* ── 행 정렬: L2 → L3 → L4 → L5 ID 순 ── */
-  csvRows.sort((a, b) => {
+  dataRows.sort((a, b) => {
     for (const i of [0, 2, 4, 7]) {
       const va = a[i] || "";
       const vb = b[i] || "";
@@ -898,7 +937,7 @@ export function buildTemplateCsvString(nodes: Node[]): string {
   const bom = "\uFEFF";
   const lines = [
     TEMPLATE_HEADER.map(esc).join(","),
-    ...csvRows.map((row) => row.map(esc).join(",")),
+    ...dataRows.map((row) => row.map(esc).join(",")),
   ];
   return bom + lines.join("\n");
 }

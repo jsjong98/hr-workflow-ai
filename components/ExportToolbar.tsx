@@ -73,8 +73,13 @@ export default function ExportToolbar({
       reader.onload = (ev) => {
         try {
           const data = JSON.parse(ev.target?.result as string);
-          if (data.nodes && data.edges) {
-            // Dispatch custom event to load workflow
+          if (data.version === "2.0" && Array.isArray(data.sheets)) {
+            /* v2.0 멀티시트 포맷 */
+            window.dispatchEvent(
+              new CustomEvent("loadWorkflow", { detail: { sheets: data.sheets } })
+            );
+          } else if (data.nodes && data.edges) {
+            /* v1.0 레거시 단일시트 포맷 */
             window.dispatchEvent(
               new CustomEvent("loadWorkflow", {
                 detail: { nodes: data.nodes, edges: data.edges },
@@ -583,12 +588,13 @@ export default function ExportToolbar({
           if (sysStr) {
             sysName = sysStr;
           } else if (sysMap) {
-            const SYS_KEYS = [
-              { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-              { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
-            ];
-            const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-            if (active.length > 0) sysName = active.map(k => k.label).join(", ");
+            const parts: string[] = [];
+            if (sysMap.hr?.trim()) parts.push(sysMap.hr.trim());
+            if (sysMap.groupware?.trim()) parts.push(sysMap.groupware.trim());
+            if (sysMap.office?.trim()) parts.push(sysMap.office.trim());
+            if (sysMap.manual?.trim()) parts.push(sysMap.manual.trim());
+            if (sysMap.etc?.trim()) parts.push(sysMap.etc.trim());
+            if (parts.length > 0) sysName = parts.join(" / ");
           }
           s2.addText(sysName, {
             x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
@@ -614,13 +620,13 @@ export default function ExportToolbar({
           shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           if (sysMap) {
-            const SYS_KEYS: { key: string; label: string }[] = [
-              { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-              { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+            const SYS_KEYS: { key: string }[] = [
+              { key: "hr" }, { key: "groupware" },
+              { key: "office" }, { key: "manual" }, { key: "etc" },
             ];
             const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
             if (activeSys.length > 0) {
-              s2.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+              s2.addText(activeSys.map(k => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
                 x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
                 fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
                 fontFace: FONT_FACE, align: "center", bold: true,
@@ -1707,11 +1713,10 @@ export default function ExportToolbar({
               sysName = sysStr;
             } else if (sysMap) {
               const SYS_KEYS = [
-                { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-                { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "manual" }, { key: "etc" },
               ];
               const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-              if (active.length > 0) sysName = active.map(k => k.label).join(", ");
+              if (active.length > 0) sysName = active.map(k => sysMap[k.key]!.trim()).join(", ");
             }
             // 아래쪽 박스: DEDEDE 채우기, 선 없음
             slide.addText(sysName, {
@@ -1738,13 +1743,12 @@ export default function ExportToolbar({
             shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             if (sysMap) {
-              const SYS_KEYS: { key: string; label: string }[] = [
-                { key: "hr", label: "HR시스템" }, { key: "groupware", label: "그룹웨어" },
-                { key: "office", label: "오피스" }, { key: "manual", label: "수작업" }, { key: "etc", label: "기타툴" },
+              const SYS_KEYS: { key: string }[] = [
+                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "manual" }, { key: "etc" },
               ];
               const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
               if (activeSys.length > 0) {
-                slide.addText(activeSys.map(k => `🖥 ${k.label}`).join("  "), {
+                slide.addText(activeSys.map(k => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
                   x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
                   fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
                   fontFace: FONT_FACE, align: "center", bold: true,
@@ -2264,10 +2268,25 @@ export default function ExportToolbar({
   /* ═══ Excel (CSV) Export ═══ */
   const handleExportExcel = useCallback(() => {
     if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
-    const csv = buildTemplateCsvString(nodes);
+    const csv = buildTemplateCsvString(nodes, csvRows);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     saveAs(blob, `PwC_HR_Template_${Date.now()}.csv`);
-  }, [nodes]);
+  }, [nodes, csvRows]);
+
+  /* ═══ All-Sheets Excel (CSV) Export ═══ */
+  const handleExportAllExcel = useCallback(() => {
+    if (!sheets || !getSheetData) { alert("sheets 정보가 없습니다."); return; }
+    type FlowNode = import("@xyflow/react").Node;
+    const allNodes: FlowNode[] = [];
+    for (const s of sheets) {
+      const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
+      allNodes.push(...sd.nodes);
+    }
+    if (allNodes.length === 0) { alert("전체 시트에 노드가 없습니다."); return; }
+    const csv = buildTemplateCsvString(allNodes, csvRows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    saveAs(blob, `PwC_HR_AllSheets_${Date.now()}.csv`);
+  }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);
 
   return (
     <div className="flex gap-1">
@@ -2302,10 +2321,19 @@ export default function ExportToolbar({
       <button
         onClick={handleExportExcel}
         className="text-[10px] font-medium bg-emerald-600 text-white rounded px-2 py-1.5 hover:bg-emerald-700 transition"
-        title="Excel (CSV) 내보내기"
+        title="현재 시트 CSV 내보내기"
       >
         📗 Excel
       </button>
+      {sheets && sheets.length > 1 && (
+        <button
+          onClick={handleExportAllExcel}
+          className="text-[10px] font-medium bg-teal-600 text-white rounded px-2 py-1.5 hover:bg-teal-700 transition"
+          title="전체 시트 CSV 통합 내보내기"
+        >
+          📘 전체 Excel
+        </button>
+      )}
       {csvRows && csvRows.length > 0 && (
         <>
           <button
