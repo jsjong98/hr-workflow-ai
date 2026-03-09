@@ -45,7 +45,7 @@ echo [OK] npm v%NPM_VER% detected.
 :: -- 3. Install dependencies if needed --
 if not exist "node_modules" (
     echo.
-    echo [INFO] Installing dependencies (first run only, ~2-3 min)...
+    echo [INFO] Installing dependencies - first run only, may take 2-3 min...
     echo.
     call npm install --legacy-peer-deps
     if %errorlevel% neq 0 (
