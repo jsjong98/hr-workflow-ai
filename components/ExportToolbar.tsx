@@ -6,7 +6,7 @@ import PptxGenJS from "pptxgenjs";
 import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
-import { buildTemplateCsvString, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
+import { buildTemplateCsvString, buildMergedCsvString, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
 
 interface ExportToolbarProps {
   nodes: Node[];
@@ -2267,8 +2267,13 @@ export default function ExportToolbar({
 
   /* ═══ Excel (CSV) Export ═══ */
   const handleExportExcel = useCallback(() => {
-    if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
-    const csv = buildTemplateCsvString(nodes, csvRows);
+    let csv: string;
+    if (csvRows && csvRows.length > 0) {
+      csv = buildMergedCsvString(csvRows, nodes);
+    } else {
+      if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
+      csv = buildTemplateCsvString(nodes);
+    }
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     saveAs(blob, `PwC_HR_Template_${Date.now()}.csv`);
   }, [nodes, csvRows]);
@@ -2282,8 +2287,13 @@ export default function ExportToolbar({
       const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
       allNodes.push(...sd.nodes);
     }
-    if (allNodes.length === 0) { alert("전체 시트에 노드가 없습니다."); return; }
-    const csv = buildTemplateCsvString(allNodes, csvRows);
+    let csv: string;
+    if (csvRows && csvRows.length > 0) {
+      csv = buildMergedCsvString(csvRows, allNodes);
+    } else {
+      if (allNodes.length === 0) { alert("전체 시트에 노드가 없습니다."); return; }
+      csv = buildTemplateCsvString(allNodes);
+    }
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     saveAs(blob, `PwC_HR_AllSheets_${Date.now()}.csv`);
   }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);

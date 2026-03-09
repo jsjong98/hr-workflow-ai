@@ -941,3 +941,89 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
   ];
   return bom + lines.join("\n");
 }
+
+/* ═══════════════════════════════════════════════
+ * 원본 CSV 전체 행 기반 + 캔버스 수정 merge → CSV 문자열
+ * 캔버스에 없는 L5도 원본 CSV 그대로 포함
+ * ═══════════════════════════════════════════════ */
+export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
+  /* L5_ID → canvas node map */
+  const nodeByL5Id = new Map<string, Node>();
+  for (const n of nodes) {
+    const d = nd(n);
+    const level = ((d.level as string) || "").toUpperCase();
+    const nodeId = (d.id as string) || "";
+    if (level === "L5" && nodeId) nodeByL5Id.set(nodeId, n);
+  }
+
+  const esc = (v: string) => {
+    if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+      return `"${v.replace(/"/g, '""')}"`;
+    }
+    return v;
+  };
+
+  const dataRows: string[][] = [];
+  for (const r of csvRows) {
+    if (!r.L2_ID && !r.L3_ID && !r.L4_ID && !r.L5_ID) continue;
+
+    const node = r.L5_ID ? nodeByL5Id.get(r.L5_ID) : undefined;
+    if (!node) {
+      /* 캔버스에 없는 행: 원본 CSV 그대로 */
+      dataRows.push([
+        r.L2_ID, r["두산 L2"],
+        r.L3_ID, r.L3_Name,
+        r.L4_ID, r.L4_Name, r.L4_Description,
+        r.L5_ID, r.L5_Name, r.L5_Description,
+        r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
+        r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
+        r.sys_hr, r.sys_groupware, r.sys_office, r.sys_manual, r.sys_etc,
+        r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
+        r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
+        r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
+        r.logic_rule, r.logic_human, r.logic_mixed,
+      ]);
+    } else {
+      /* 캔버스 노드가 있는 행: 캔버스 값 우선, 없으면 원본 CSV 폴백 */
+      const d = nd(node);
+      const actors = d.actors as Record<string, string> | undefined;
+      const systems = d.systems as Record<string, string> | undefined;
+      const pp = d.painPoints as Record<string, string> | undefined;
+      const inp = d.inputs as Record<string, string> | undefined;
+      const out = d.outputs as Record<string, string> | undefined;
+      const logic = d.logic as Record<string, string> | undefined;
+
+      dataRows.push([
+        r.L2_ID, r["두산 L2"],
+        r.L3_ID, r.L3_Name,
+        r.L4_ID, r.L4_Name, r.L4_Description,
+        r.L5_ID,
+        (d.label as string) || r.L5_Name,
+        (d.description as string) || r.L5_Description,
+        actors?.exec || r.actor_exec, actors?.hr || r.actor_hr,
+        actors?.teamlead || r.actor_teamlead, actors?.member || r.actor_member,
+        (d.mgrBody as string) || r.mgr_body,
+        (d.staffCount as string) || r.staff_count,
+        (d.mainPerson as string) || r.main_person,
+        (d.avgTime as string) || r.avg_time,
+        (d.freqCount as string) || r.freq_count,
+        systems?.hr || r.sys_hr, systems?.groupware || r.sys_groupware,
+        systems?.office || r.sys_office, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
+        pp?.speed || r.pp_speed, pp?.accuracy || r.pp_accuracy, pp?.repeat || r.pp_repeat,
+        pp?.data || r.pp_data, pp?.system || r.pp_system, pp?.comm || r.pp_comm, pp?.etc || r.pp_etc,
+        inp?.system || r.in_system, inp?.doc || r.in_doc, inp?.external || r.in_external,
+        inp?.request || r.in_request, inp?.etc || r.in_etc,
+        out?.system || r.out_system, out?.doc || r.out_doc, out?.comm || r.out_comm,
+        out?.decision || r.out_decision, out?.etc || r.out_etc,
+        logic?.rule || r.logic_rule, logic?.human || r.logic_human, logic?.mixed || r.logic_mixed,
+      ]);
+    }
+  }
+
+  const bom = "\uFEFF";
+  const lines = [
+    TEMPLATE_HEADER.map(esc).join(","),
+    ...dataRows.map((row) => row.map(esc).join(",")),
+  ];
+  return bom + lines.join("\n");
+}

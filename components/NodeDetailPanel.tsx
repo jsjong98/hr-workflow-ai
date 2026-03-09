@@ -118,7 +118,7 @@ function getNodeMeta(node: Node): NodeMeta {
       const parts: string[] = [];
       if (actors.exec?.trim()) parts.push("임원 이상");
       if (actors.hr?.trim()) parts.push("HR 담당자");
-      if (actors.teamlead?.trim()) parts.push("팔장급");
+      if (actors.teamlead?.trim()) parts.push("팀장급");
       if (actors.member?.trim()) parts.push("구성원");
       roleVal = parts.join(", ");
     }

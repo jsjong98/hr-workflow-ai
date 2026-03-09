@@ -123,14 +123,15 @@ function getL5SystemName(data: NodeData): string {
 }
 
 /* ─── L5 전용 2-Box 노드 (위: ID+레이블, 아래: 시스템명) ── */
-function L5NodeBase({ data }: { data: NodeData }) {
+function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) {
   const s = LEVEL_STYLES.L5;
   const sysName = getL5SystemName(data);
 
   return (
     <div
-      className="min-w-[300px] max-w-[380px] select-none relative shadow-md transition-shadow hover:shadow-lg border border-[#BFBFBF] rounded-sm"
+      className={`min-w-[300px] max-w-[380px] select-none relative shadow-md transition-all hover:shadow-lg rounded-sm ${selected ? 'border-[3px] border-blue-500 shadow-blue-300/60 shadow-lg' : 'border border-[#BFBFBF]'}`}
     >
+      {selected && <div className="absolute inset-0 bg-blue-400/10 pointer-events-none z-20 rounded-sm" />}
       {/* ── Target handles ── */}
       <Handle type="target" position={Position.Top} id="t-top" className="!w-5 !h-5 !bg-transparent !border-0 !-top-2.5" />
       <Handle type="target" position={Position.Bottom} id="t-bottom" className="!w-5 !h-5 !bg-transparent !border-0 !-bottom-2.5" />
@@ -194,19 +195,20 @@ function L5NodeBase({ data }: { data: NodeData }) {
 }
 
 /* ─── Generic level node with 4-directional handles (L2~L4) ── */
-function LevelNodeBase({ data }: { data: NodeData }) {
+function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean }) {
   const s = LEVEL_STYLES[data.level] ?? LEVEL_STYLES.L5;
   const metaPresent = hasMeta(data);
 
   /* L5는 전용 2-box 노드 사용 */
   if (data.level === "L5") {
-    return <L5NodeBase data={data} />;
+    return <L5NodeBase data={data} selected={selected} />;
   }
 
   return (
     <div
-      className={`${s.bg} ${s.border} ${s.shadow} ${s.minW} ${s.maxW} ${s.py} ${s.rounded} border-2 select-none relative transition-shadow hover:shadow-lg`}
+      className={`${s.bg} ${s.border} ${s.shadow} ${s.minW} ${s.maxW} ${s.py} ${s.rounded} border-2 select-none relative transition-all hover:shadow-lg ${selected ? 'ring-[4px] ring-blue-500 ring-offset-0' : ''}`}
     >
+      {selected && <div className="absolute inset-0 bg-blue-400/10 pointer-events-none z-20" style={{ borderRadius: 'inherit' }} />}
       {/* 4방향 Handle — target을 먼저, source를 나중에 (source가 위에 와야 드래그 시작 시 올바른 방향) */}
 
       {/* ── Target handles (invisible, rendered first = below) ── */}
@@ -327,23 +329,23 @@ function LevelNodeBase({ data }: { data: NodeData }) {
 }
 
 /* ─── Export individual level nodes for nodeTypes registration ─── */
-export const L2Node = memo(({ data }: { data: NodeData }) => (
-  <LevelNodeBase data={{ ...data, level: "L2" }} />
+export const L2Node = memo(({ data, selected }: { data: NodeData; selected?: boolean }) => (
+  <LevelNodeBase data={{ ...data, level: "L2" }} selected={selected} />
 ));
 L2Node.displayName = "L2Node";
 
-export const L3Node = memo(({ data }: { data: NodeData }) => (
-  <LevelNodeBase data={{ ...data, level: "L3" }} />
+export const L3Node = memo(({ data, selected }: { data: NodeData; selected?: boolean }) => (
+  <LevelNodeBase data={{ ...data, level: "L3" }} selected={selected} />
 ));
 L3Node.displayName = "L3Node";
 
-export const L4Node = memo(({ data }: { data: NodeData }) => (
-  <LevelNodeBase data={{ ...data, level: "L4" }} />
+export const L4Node = memo(({ data, selected }: { data: NodeData; selected?: boolean }) => (
+  <LevelNodeBase data={{ ...data, level: "L4" }} selected={selected} />
 ));
 L4Node.displayName = "L4Node";
 
-export const L5Node = memo(({ data }: { data: NodeData }) => (
-  <LevelNodeBase data={{ ...data, level: "L5" }} />
+export const L5Node = memo(({ data, selected }: { data: NodeData; selected?: boolean }) => (
+  <LevelNodeBase data={{ ...data, level: "L5" }} selected={selected} />
 ));
 L5Node.displayName = "L5Node";
 
@@ -356,7 +358,7 @@ interface DecisionNodeData {
   level?: string;
 }
 
-function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
+function DecisionNodeBase({ data, selected }: { data: DecisionNodeData; selected?: boolean }) {
   /* L3(#D95578) 보다 옅은 색상 */
   const bgColor = "#F2A0AF";        // L3 옅은 톤
   const borderColor = "#D95578";     // L3 기준 테두리
@@ -417,6 +419,11 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
           strokeWidth="2.5"
         />
       </svg>
+      {selected && (
+        <svg viewBox="0 0 220 220" width="220" height="220" className="absolute inset-0 pointer-events-none z-20">
+          <polygon points="110,8 212,110 110,212 8,110" fill="rgba(59,130,246,0.12)" stroke="#3B82F6" strokeWidth="5" />
+        </svg>
+      )}
 
       {/* ── Content overlay ── */}
       <div
@@ -449,8 +456,8 @@ function DecisionNodeBase({ data }: { data: DecisionNodeData }) {
   );
 }
 
-export const DecisionNode = memo(({ data }: { data: DecisionNodeData }) => (
-  <DecisionNodeBase data={data} />
+export const DecisionNode = memo(({ data, selected }: { data: DecisionNodeData; selected?: boolean }) => (
+  <DecisionNodeBase data={data} selected={selected} />
 ));
 DecisionNode.displayName = "DecisionNode";
 
@@ -464,11 +471,11 @@ interface MemoNodeData {
   [key: string]: unknown;
 }
 
-function MemoNodeBase({ data }: { data: MemoNodeData }) {
+function MemoNodeBase({ data, selected }: { data: MemoNodeData; selected?: boolean }) {
   const text = data.text || data.memo || data.label || "";
   return (
     <div style={{ minWidth: 140, maxWidth: 260 }} className="relative">
-      {/* 연결 핸들 */}
+      {/* 연결 핵들 */}
       <Handle type="target" position={Position.Left} id="t-left"
         className="!w-2.5 !h-2.5 !bg-yellow-500 !border-yellow-600" />
       <Handle type="source" position={Position.Right} id="right"
@@ -480,7 +487,7 @@ function MemoNodeBase({ data }: { data: MemoNodeData }) {
 
       {/* 노란 메모 박스 */}
       <div
-        className="bg-[#FFF9C4] border border-[#FBC02D] rounded-lg shadow-md px-3 py-2.5"
+        className={`bg-[#FFF9C4] rounded-lg shadow-md px-3 py-2.5 ${selected ? 'border-[2px] border-blue-500 ring-2 ring-blue-400/40' : 'border border-[#FBC02D]'}`}
         style={{ fontSize: 9, lineHeight: '1.5', color: '#6D4C00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
       >
         <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-yellow-700 opacity-70">
@@ -492,8 +499,8 @@ function MemoNodeBase({ data }: { data: MemoNodeData }) {
   );
 }
 
-export const MemoNode = memo(({ data }: { data: MemoNodeData }) => (
-  <MemoNodeBase data={data} />
+export const MemoNode = memo(({ data, selected }: { data: MemoNodeData; selected?: boolean }) => (
+  <MemoNodeBase data={data} selected={selected} />
 ));
 MemoNode.displayName = "MemoNode";
 
