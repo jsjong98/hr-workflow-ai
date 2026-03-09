@@ -2392,10 +2392,11 @@ export default function ExportToolbar({
     </div>
     <div className="flex gap-1 mt-1 pt-1 border-t border-gray-200">
       <a
-        href="/api/download-zip"
-        download="hr-workflow-ai.zip"
+        href="https://github.com/jsjong98/hr-workflow-ai/archive/refs/heads/main.zip"
+        target="_blank"
+        rel="noopener noreferrer"
         className="text-[10px] font-medium bg-slate-700 text-white rounded px-2 py-1.5 hover:bg-slate-800 transition flex items-center gap-1"
-        title="앱 전체 파일 ZIP 다운로드 (start.sh / start.bat 실행 시 자동 설치+실행)"
+        title="GitHub에서 소스코드 ZIP 다운로드 (start.sh / start.bat 실행 시 자동 설치+실행)"
       >
         ⬇️ 앱 다운로드
       </a>
