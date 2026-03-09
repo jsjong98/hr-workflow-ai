@@ -2390,23 +2390,6 @@ export default function ExportToolbar({
         </>
       )}
     </div>
-    <div className="flex gap-1 mt-1 pt-1 border-t border-gray-200">
-      <a
-        href="https://github.com/jsjong98/hr-workflow-ai/archive/refs/heads/main.zip"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-[10px] font-medium bg-slate-700 text-white rounded px-2 py-1.5 hover:bg-slate-800 transition flex items-center gap-1"
-        title="GitHub에서 소스코드 ZIP 다운로드 (start.sh / start.bat 실행 시 자동 설치+실행)"
-      >
-        ⬇️ 앱 다운로드
-      </a>
-      <div className="text-[9px] text-gray-400 flex items-center leading-tight">
-        Mac: <code className="bg-gray-100 px-1 rounded ml-1">start.sh</code>
-        <span className="mx-1">/</span>
-        Win: <code className="bg-gray-100 px-1 rounded">start.bat</code>
-        &nbsp;실행
-      </div>
-    </div>
-    </>
+</>
   );
 }
