@@ -38,6 +38,7 @@ export default function ExportToolbar({
     if (sheets && getSheetData && activeSheetId) {
       /* Multi-sheet format */
       const sheetPayloads = sheets.map((s) => {
+        // 현재 활성 시트는 라이브 상태(nodes/edges) 직접 사용, 나머지는 sheetDataRef
         const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
         return { id: s.id, name: s.name, type: s.type, lanes: s.lanes, nodes: sd.nodes, edges: sd.edges };
       });

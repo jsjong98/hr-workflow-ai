@@ -1085,21 +1085,33 @@ export default function Home() {
           type: s.type || "blank",
           lanes: s.lanes,
         }));
-        setSheets(loadedSheets);
+        // 1) sheetDataRef 멃저 채우기 (ref는 동기)
         for (const sd of detail.sheets as { id: string; nodes: Node[]; edges: Edge[] }[]) {
           sheetDataRef.current[sd.id] = { nodes: sd.nodes || [], edges: sd.edges || [] };
         }
+        // 2) 첫 번째 시트 데이터
         const firstId = loadedSheets[0].id;
         const firstData = sheetDataRef.current[firstId] || { nodes: [], edges: [] };
+        // 3) React 상태 일괄 업데이트
+        setSheets(loadedSheets);
+        setActiveSheetId(firstId);
         setNodes(firstData.nodes);
         setEdges(firstData.edges);
         nodeCountRef.current = firstData.nodes.length;
-        setActiveSheetId(firstId);
+        setSelectedNode(null);
+        // 4) 렌더 후 fitView
+        setTimeout(() => {
+          rfInstanceRef.current?.fitView({ padding: 0.08, maxZoom: 1.5, duration: 300 });
+        }, 150);
       } else if (detail?.nodes && detail?.edges) {
         /* ── Legacy single-sheet JSON format ── */
         setNodes(detail.nodes);
         setEdges(detail.edges);
         nodeCountRef.current = detail.nodes.length;
+        setSelectedNode(null);
+        setTimeout(() => {
+          rfInstanceRef.current?.fitView({ padding: 0.08, maxZoom: 1.5, duration: 300 });
+        }, 150);
       }
     };
     window.addEventListener("loadWorkflow", handler);
@@ -1750,7 +1762,7 @@ export default function Home() {
         <div className="flex-1 flex flex-col relative">
           {/* Canvas */}
           <div className="flex-1 relative" ref={reactFlowWrapper}>
-            {csvRows.length === 0 ? (
+            {csvRows.length === 0 && nodes.length === 0 ? (
               <div
                 className="flex items-center justify-center h-full text-gray-400"
                 onDragOver={(e) => e.preventDefault()}
