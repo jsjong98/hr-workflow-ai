@@ -36,7 +36,7 @@ if [ ! -d "node_modules" ]; then
     echo "[INFO] Installing dependencies (first run)..."
     echo "       This may take a few minutes..."
     echo ""
-    npm install
+    npm install --legacy-peer-deps
     if [ $? -ne 0 ]; then
         echo "[ERROR] npm install failed. Check your network connection."
         exit 1

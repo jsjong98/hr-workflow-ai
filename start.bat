@@ -44,7 +44,7 @@ if not exist "node_modules" (
     echo [INFO] Installing dependencies (first run)...
     echo       This may take a few minutes...
     echo.
-    call npm install
+    call npm install --legacy-peer-deps
     if %errorlevel% neq 0 (
         echo [ERROR] npm install failed. Check your network connection.
         pause
