@@ -251,7 +251,9 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
     e.dataTransfer.setData("text/plain", String(idx));
   }, []);
   const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    if (dragFromRef.current === null) return; // 외부 드래그(팔레트 등) 무시
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
     setDragOverIdx(idx);
   }, []);
@@ -261,13 +263,15 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
   }, []);
   const handleDrop = useCallback((e: React.DragEvent, dropIdx: number) => {
     e.preventDefault();
+    e.stopPropagation();
     const fromIdx = dragFromRef.current;
     dragFromRef.current = null;
     setDragOverIdx(null);
     if (fromIdx === null || fromIdx === dropIdx) return;
     const orderedIds = rows.map(r => r.nodeId);
     const [moved] = orderedIds.splice(fromIdx, 1);
-    orderedIds.splice(dropIdx, 0, moved);
+    // fromIdx < dropIdx이면 제거 후 인덱스가 1 줄어드므로 보정
+    orderedIds.splice(fromIdx < dropIdx ? dropIdx - 1 : dropIdx, 0, moved);
     setNodes((nds: Node[]) => {
       const map = new Map(nds.map(n => [n.id, n]));
       const reordered: Node[] = [];
@@ -451,7 +455,11 @@ export default function InlineNodeList({ nodes, setNodes }: Props) {
                 draggable
                 onDragStart={(e) => handleDragStart(e, idx)}
                 onDragOver={(e) => handleDragOver(e, idx)}
-                onDragLeave={() => setDragOverIdx(null)}
+                onDragLeave={(e) => {
+                  // child 요소로 이동하는 경우 하이라이트 유지
+                  if (e.currentTarget.contains(e.relatedTarget as globalThis.Node)) return;
+                  setDragOverIdx(null);
+                }}
                 onDrop={(e) => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
                 className={`flex items-center gap-1 py-1.5 border-b transition-colors group ${
