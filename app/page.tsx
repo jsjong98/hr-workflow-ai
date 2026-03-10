@@ -99,35 +99,63 @@ export default function Home() {
 
   /* ── 캔버스 → 팔레트 역방향 동기화 ──────────────────────
    * 노드의 id/label/description이 변경될 때만 실행 (position 변경 제외)
+   * rfNodeId(React Flow 내부 id) 기준으로 data.id 변경도 감지
    * ──────────────────────────────────────────────────── */
+  // rfNodeId → data.id 이전 값 추적 (ID 변경 감지용)
+  const prevIdMapRef = useRef<Record<string, string>>({});
+
   const nodeDataSig = useMemo(
     () =>
       nodes
         .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L5")
         .map((n) => {
           const d = n.data as Record<string, unknown>;
-          return `${d.id}|${d.label}|${d.description ?? ""}`;
+          // n.id = React Flow 내부 ID, d.id = 비즈니스 ID
+          return `${n.id}:${d.id}|${d.label}|${d.description ?? ""}`;
         })
         .join("\n"),
     [nodes]
   );
   useEffect(() => {
+    // 현재 rfNodeId → dataId 맵 구성
+    const currentIdMap: Record<string, string> = {};
+    nodesRef.current
+      .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L5")
+      .forEach((n) => {
+        const d = n.data as Record<string, unknown>;
+        currentIdMap[n.id] = d.id as string;
+      });
+
+    // 변경된 ID 감지: oldDataId → newDataId
+    const idChangeMap: Record<string, string> = {};
+    for (const [rfId, newDataId] of Object.entries(currentIdMap)) {
+      const oldDataId = prevIdMapRef.current[rfId];
+      if (oldDataId && oldDataId !== newDataId) {
+        idChangeMap[oldDataId] = newDataId;
+      }
+    }
+    prevIdMapRef.current = currentIdMap;
+
     setL5Map((prev) => {
       let changed = false;
       const next: Record<string, typeof prev[string]> = {};
       for (const [l4Id, items] of Object.entries(prev)) {
         next[l4Id] = items.map((item) => {
+          // ID 변경이 있었다면 새 ID로 해석
+          const resolvedId = idChangeMap[item.id] ?? item.id;
+          const idChanged = resolvedId !== item.id;
+
           const canvasNode = nodesRef.current.find((n) => {
             const d = n.data as Record<string, unknown>;
-            return (d.id as string) === item.id;
+            return (d.id as string) === resolvedId;
           });
-          if (canvasNode) {
-            const d = canvasNode.data as Record<string, unknown>;
+          if (canvasNode || idChanged) {
+            const d = (canvasNode?.data ?? {}) as Record<string, unknown>;
             const newName = (d.label as string) || item.name;
             const newDesc = (d.description as string) ?? item.description ?? "";
-            if (newName !== item.name || newDesc !== (item.description ?? "")) {
+            if (idChanged || newName !== item.name || newDesc !== (item.description ?? "")) {
               changed = true;
-              return { ...item, name: newName, description: newDesc };
+              return { ...item, id: resolvedId, name: newName, description: newDesc };
             }
           }
           return item;
