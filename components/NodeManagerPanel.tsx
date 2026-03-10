@@ -34,8 +34,7 @@ const LEVEL_COLORS: Record<string, { bg: string; text: string; border: string }>
 const LEVEL_OPTIONS = ["L2", "L3", "L4", "L5"] as const;
 
 const ROLE_OPTIONS = [
-  "", "HR 담당자", "임원 이상", "팀장급", "구성원", "인사팀장",
-  "HRBP", "채용 담당자", "교육 담당자", "IT 시스템", "외부 업체", "기타",
+  "", "임원 (=현업 임원)", "HR", "현업 팀장", "현업 구성원", "그 외",
 ];
 
 /* ═══ 유틸 ═══ */

@@ -1091,6 +1091,15 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     });
   }
 
+  /* ── 전체 행을 L2→L3→L4→L5 ID 기준으로 정렬 ── */
+  results.sort((a, b) => {
+    // cols 인덱스: 0=L2_ID, 2=L3_ID, 4=L4_ID, 7=L5_ID
+    const keyOf = (cols: string[]) =>
+      [cols[0] || "", cols[2] || "", cols[4] || "", cols[7] || ""]
+        .join("\t");
+    return keyOf(a.cols).localeCompare(keyOf(b.cols), undefined, { numeric: true });
+  });
+
   return results;
 }
 

@@ -425,7 +425,7 @@ export default function Home() {
   const [editPaletteForm, setEditPaletteForm] = useState({ name: "", description: "" });
   const [dragSource, setDragSource] = useState<{ type: "l4" | "l5"; l4Id: string; idx: number } | null>(null);
 
-  /* ── 수동 추가 → l4List / l5Map에 직접 삽입 ── */
+  /* ── 수동 추가 → l4List / l5Map + 캔버스 동시 등록 ── */
   const handleAddManualItem = useCallback(() => {
     if (!addDataForm.name.trim()) { alert("이름을 입력해주세요."); return; }
     const lvl = addDataForm.level;
@@ -437,6 +437,14 @@ export default function Home() {
       const newL4: L4Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l3Id: parentL3, isManual: true };
       setL4List((prev) => [...prev, newL4]);
       setL5Map((prev) => ({ ...prev, [newId]: [] }));
+      // 캔버스에도 즉시 추가 — 기존 L4 노드 오른쪽에 배치
+      const l4Nodes = nodesRef.current.filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4");
+      let x = 200, y = 100;
+      if (l4Nodes.length > 0) {
+        const last = l4Nodes.reduce((a, b) => (a.position.x > b.position.x ? a : b));
+        x = last.position.x + 280; y = last.position.y;
+      }
+      setNodes((nds) => [...nds, createNodeFromItem("l4", { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim() }, { x, y })]);
     } else if (lvl === "L5") {
       const targetL4Id = expandedL4 || (l4List.length > 0 ? l4List[l4List.length - 1].id : null);
       if (!targetL4Id) { alert("L4가 없습니다. 먼저 L4를 추가해주세요."); return; }
@@ -446,13 +454,27 @@ export default function Home() {
       const newL5: L5Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id, isManual: true };
       setL5Map((prev) => ({ ...prev, [targetL4Id]: [...(prev[targetL4Id] || []), newL5] }));
       setExpandedL4(targetL4Id);
+      // 캔버스에도 즉시 추가 — 같은 L4 하위 L5 노드 오른쪽에 배치
+      const siblingL5 = nodesRef.current.filter((n) => {
+        const d = n.data as Record<string, unknown>;
+        return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(targetL4Id + ".");
+      });
+      let x = 200, y = 400;
+      if (siblingL5.length > 0) {
+        const last = siblingL5.reduce((a, b) => (a.position.x > b.position.x ? a : b));
+        x = last.position.x + 220; y = last.position.y;
+      } else {
+        const l4Node = nodesRef.current.find((n) => ((n.data as Record<string, unknown>).id as string) === targetL4Id);
+        if (l4Node) { x = l4Node.position.x; y = l4Node.position.y + 250; }
+      }
+      setNodes((nds) => [...nds, createNodeFromItem("l5", { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id }, { x, y })]);
     } else {
       alert(`${lvl} 레벨은 팔레트에서 직접 추가할 수 없습니다. L4 또는 L5만 추가 가능합니다.`);
       return;
     }
     setAddDataForm({ level: "L5", id: "", name: "", description: "", role: "" });
     setAddDataMode(false);
-  }, [addDataForm, selectedL3, l4List, l5Map, expandedL4]);
+  }, [addDataForm, selectedL3, l4List, l5Map, expandedL4, setNodes]);
 
   /* ═══ 캔버스 노드 x좌표 기준 ID 재번호 + 팔레트 동기화 ═══ */
   const handleRenumberByPosition = useCallback(() => {
@@ -953,7 +975,7 @@ export default function Home() {
       // 연결 대상 노드의 레벨에 따라 선 색상 결정 (L5=회색, 나머지=검정)
       const targetNode = nodes.find((n) => n.id === connection.target);
       const targetLevel = targetNode ? ((targetNode.data as Record<string, unknown>).level as string) : "";
-      const edgeColor = targetLevel === "L5" ? "#999999" : "#000000";
+      const edgeColor = targetLevel === "L5" ? "#555555" : "#000000";
 
       // DECISION 노드에서 나가는 연결이면 자동으로 라벨 입력 프롬프트
       const sourceNode = nodes.find((n) => n.id === connection.source);
