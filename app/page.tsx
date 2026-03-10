@@ -90,7 +90,8 @@ export default function Home() {
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
   const isRestoringRef = useRef(false);
-  const currentSnapRef = useRef<string>("");
+  const currentSnapRef = useRef<string>("");  // 항상 최신 상태 (키보드 핸들러용)
+  const historyBaseRef = useRef<string>("");  // 마지막으로 히스토리에 커밋된 상태
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // nodesRef: always up to date (for keyboard handlers)
@@ -100,18 +101,17 @@ export default function Home() {
   useEffect(() => {
     if (isRestoringRef.current) return;
     const snap = JSON.stringify({ nodes, edges });
-    // Debounced: push previous snapshot to undo stack after 500ms of no changes
+    currentSnapRef.current = snap; // 항상 최신 상태 유지
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      if (currentSnapRef.current && snap !== currentSnapRef.current) {
-        undoStackRef.current.push(currentSnapRef.current);
+      // historyBaseRef: 이전 커밋 기준으로 비교해야 debounce가 올바르게 동작
+      if (historyBaseRef.current && snap !== historyBaseRef.current) {
+        undoStackRef.current.push(historyBaseRef.current);
         if (undoStackRef.current.length > 50) undoStackRef.current.shift();
         redoStackRef.current = [];
       }
-      currentSnapRef.current = snap;
+      historyBaseRef.current = snap;
     }, 500);
-    // Always keep currentSnap up to date for undo reference
-    currentSnapRef.current = snap;
     return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current); };
   }, [nodes, edges]);
 
@@ -140,6 +140,7 @@ export default function Home() {
         // Pop previous
         const prev = stack.pop()!;
         currentSnapRef.current = prev;
+        historyBaseRef.current = prev;
         const parsed = JSON.parse(prev);
         isRestoringRef.current = true;
         setNodes(parsed.nodes);
@@ -155,6 +156,7 @@ export default function Home() {
         undoStackRef.current.push(currentSnapRef.current);
         const next = stack.pop()!;
         currentSnapRef.current = next;
+        historyBaseRef.current = next;
         const parsed = JSON.parse(next);
         isRestoringRef.current = true;
         setNodes(parsed.nodes);
