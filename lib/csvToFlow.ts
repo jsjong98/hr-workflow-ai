@@ -943,6 +943,138 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
 }
 
 /* ═══════════════════════════════════════════════
+ * buildMergedRows: CSV + 캔버스 머지 결과를 행 단위로 반환
+ * - unchanged: 원본 CSV 그대로
+ * - modified: 캔버스에서 수정된 행 (노란색)
+ * - new: 캔버스에서 새로 추가된 L5 노드 (초록색)
+ * ═══════════════════════════════════════════════ */
+export type RowStatus = "unchanged" | "modified" | "new";
+export interface MergedRow { cols: string[]; status: RowStatus; }
+
+export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
+  const nodeByL5Id = new Map<string, Node>();
+  const byLevel: Record<string, Map<string, Node>> = {
+    L2: new Map(), L3: new Map(), L4: new Map(), L5: new Map(),
+  };
+  for (const n of nodes) {
+    const d = nd(n);
+    const level = ((d.level as string) || "").toUpperCase();
+    const displayId = (d.id as string) || "";
+    if (level === "L5" && displayId) nodeByL5Id.set(displayId, n);
+    if (level && displayId && byLevel[level]) byLevel[level].set(displayId, n);
+  }
+
+  const findParent = (childId: string, parentLevel: string, explicitId?: string): Node | undefined => {
+    const map = byLevel[parentLevel];
+    if (!map) return undefined;
+    if (explicitId) { const f = map.get(explicitId); if (f) return f; }
+    const parts = childId.split(".");
+    parts.pop();
+    const prefix = parts.join(".");
+    return prefix ? map.get(prefix) : undefined;
+  };
+
+  const colsFromCsvRow = (r: CsvRow): string[] => [
+    r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
+    r.L5_ID, r.L5_Name, r.L5_Description,
+    r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
+    r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
+    r.sys_hr, r.sys_groupware, r.sys_office, r.sys_manual, r.sys_etc,
+    r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
+    r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
+    r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
+    r.logic_rule, r.logic_human, r.logic_mixed,
+  ];
+
+  const colsFromNode = (r: CsvRow, n: Node): string[] => {
+    const d = nd(n);
+    const actors = d.actors as Record<string, string> | undefined;
+    const systems = d.systems as Record<string, string> | undefined;
+    const pp = d.painPoints as Record<string, string> | undefined;
+    const inp = d.inputs as Record<string, string> | undefined;
+    const out = d.outputs as Record<string, string> | undefined;
+    const logic = d.logic as Record<string, string> | undefined;
+    return [
+      r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
+      r.L5_ID, (d.label as string) || r.L5_Name, (d.description as string) || r.L5_Description,
+      actors?.exec || r.actor_exec, actors?.hr || r.actor_hr,
+      actors?.teamlead || r.actor_teamlead, actors?.member || r.actor_member,
+      (d.mgrBody as string) || r.mgr_body, (d.staffCount as string) || r.staff_count,
+      (d.mainPerson as string) || r.main_person, (d.avgTime as string) || r.avg_time,
+      (d.freqCount as string) || r.freq_count,
+      systems?.hr || r.sys_hr, systems?.groupware || r.sys_groupware,
+      systems?.office || r.sys_office, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
+      pp?.speed || r.pp_speed, pp?.accuracy || r.pp_accuracy, pp?.repeat || r.pp_repeat,
+      pp?.data || r.pp_data, pp?.system || r.pp_system, pp?.comm || r.pp_comm, pp?.etc || r.pp_etc,
+      inp?.system || r.in_system, inp?.doc || r.in_doc, inp?.external || r.in_external,
+      inp?.request || r.in_request, inp?.etc || r.in_etc,
+      out?.system || r.out_system, out?.doc || r.out_doc, out?.comm || r.out_comm,
+      out?.decision || r.out_decision, out?.etc || r.out_etc,
+      logic?.rule || r.logic_rule, logic?.human || r.logic_human, logic?.mixed || r.logic_mixed,
+    ];
+  };
+
+  const results: MergedRow[] = [];
+  const matchedL5Ids = new Set<string>();
+
+  for (const r of csvRows) {
+    if (!r.L2_ID && !r.L3_ID && !r.L4_ID && !r.L5_ID) continue;
+    const node = r.L5_ID ? nodeByL5Id.get(r.L5_ID) : undefined;
+    if (!node) {
+      results.push({ cols: colsFromCsvRow(r), status: "unchanged" });
+    } else {
+      matchedL5Ids.add(r.L5_ID);
+      const original = colsFromCsvRow(r);
+      const merged = colsFromNode(r, node);
+      results.push({ cols: merged, status: merged.some((v, i) => v !== original[i]) ? "modified" : "unchanged" });
+    }
+  }
+
+  /* 캔버스에만 있는 새 L5 노드 */
+  const l5Sorted = Array.from(byLevel.L5.entries())
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const [l5Id, l5Node] of l5Sorted) {
+    if (matchedL5Ids.has(l5Id)) continue;
+    const d5 = nd(l5Node);
+    const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
+    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
+    const l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
+    const l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
+    const l3Node = l4Id ? findParent(l4Id, "L3", d5.l3Id as string) : undefined;
+    const l3Id = l3Node ? (nd(l3Node).id as string) || "" : (d5.l3Id as string) || "";
+    const l3Label = l3Node ? (nd(l3Node).label as string) || "" : (d5.l3Name as string) || "";
+    const l2Node = l3Id ? findParent(l3Id, "L2", d5.l2Id as string) : undefined;
+    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : (d5.l2Id as string) || "";
+    const l2Label = l2Node ? (nd(l2Node).label as string) || "" : (d5.l2Name as string) || "";
+    const actors = d5.actors as Record<string, string> | undefined;
+    const systems = d5.systems as Record<string, string> | undefined;
+    const pp = d5.painPoints as Record<string, string> | undefined;
+    const inp = d5.inputs as Record<string, string> | undefined;
+    const out = d5.outputs as Record<string, string> | undefined;
+    const logic = d5.logic as Record<string, string> | undefined;
+    results.push({
+      cols: [
+        l2Id, l2Label, l3Id, l3Label, l4Id, l4Label, l4Desc,
+        l5Id, (d5.label as string) || "", (d5.description as string) || "",
+        actors?.exec || "", actors?.hr || "", actors?.teamlead || "", actors?.member || "",
+        (d5.mgrBody as string) || "", (d5.staffCount as string) || "",
+        (d5.mainPerson as string) || "", (d5.avgTime as string) || "", (d5.freqCount as string) || "",
+        systems?.hr || "", systems?.groupware || "", systems?.office || "",
+        systems?.manual || "", systems?.etc || "",
+        pp?.speed || "", pp?.accuracy || "", pp?.repeat || "",
+        pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
+        inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
+        out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
+        logic?.rule || "", logic?.human || "", logic?.mixed || "",
+      ],
+      status: "new",
+    });
+  }
+
+  return results;
+}
+
+/* ═══════════════════════════════════════════════
  * 원본 CSV 전체 행 기반 + 캔버스 수정 merge → CSV 문자열
  * 캔버스에 없는 L5도 원본 CSV 그대로 포함
  * ═══════════════════════════════════════════════ */

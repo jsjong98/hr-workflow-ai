@@ -6,7 +6,49 @@ import PptxGenJS from "pptxgenjs";
 import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
-import { buildTemplateCsvString, buildMergedCsvString, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
+import { buildTemplateCsvString, buildMergedCsvString, buildMergedRows, type MergedRow, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
+
+/** CSV 머지 결과를 색상 강조 Excel(.xls) Blob으로 변환
+ *  - unchanged: 흰색 / modified: 노란색 / new: 초록색 */
+function buildColoredXls(rows: MergedRow[]): Blob {
+  const BG: Record<string, string> = {
+    new: "#C8E6C9",
+    modified: "#FFF9C4",
+    unchanged: "#FFFFFF",
+  };
+  const HEADER = [
+    "ID","두산 L2","ID","Name","ID","Name","Description",
+    "ID","Name","Description",
+    "수행주체_현업 임원","수행주체_HR","수행주체_현업 팀장","수행주체_현업 구성원",
+    "관리주체","담당자 수","주 담당자","평균 건당 소요시간","발생 빈도_건수",
+    "사용 시스템_HR 전용시스템","사용 시스템_그룹웨어_협업툴","사용 시스템_오피스_문서도구",
+    "사용 시스템_수작업_오프라인","사용 시스템_기타 전문 Tool",
+    "Pain Point_시간_속도","Pain Point_정확성","Pain Point_반복/수작업",
+    "Pain Point_정보_데이터","Pain Point_시스템_도구","Pain Point_의사소통_협업","Pain Point_기타",
+    "Input_시스템 데이터","Input_문서_서류","Input_외부 정보","Input_구두_메일 요청","Input_기타",
+    "Output_시스템 반영","Output_문서_보고서","Output_커뮤니케이션","Output_의사결정","Output_기타",
+    "업무 판단 로직_Rule_based","업무 판단 로직_사람 판단","업무 판단 로직_혼합",
+  ];
+  const esc = (s: string) =>
+    (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  let html =
+    `<html xmlns:o="urn:schemas-microsoft-com:office:office" ` +
+    `xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
+    `<head><meta charset="UTF-8"/>` +
+    `<style>td,th{border:1px solid #ccc;font-family:"Malgun Gothic",sans-serif;font-size:10px;` +
+    `padding:3px 5px;white-space:nowrap;}th{background:#D3D3D3;font-weight:bold;}</style>` +
+    `</head><body><table>`;
+  html += `<tr>${HEADER.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
+  for (const row of rows) {
+    const bg = BG[row.status] ?? "#FFFFFF";
+    html += `<tr style="background-color:${bg};">`;
+    html += row.cols.map((c) => `<td>${esc(c)}</td>`).join("");
+    html += "</tr>";
+  }
+  html += "</table></body></html>";
+  return new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+}
 
 interface ExportToolbarProps {
   nodes: Node[];
@@ -2321,16 +2363,31 @@ export default function ExportToolbar({
 
   /* ═══ Excel (CSV) Export ═══ */
   const handleExportExcel = useCallback(() => {
-    let csv: string;
-    if (csvRows && csvRows.length > 0) {
-      csv = buildMergedCsvString(csvRows, nodes);
+    /* 전체 시트 노드 수집 */
+    type FlowNode = import("@xyflow/react").Node;
+    const allNodes: FlowNode[] = [];
+    if (sheets && getSheetData) {
+      for (const s of sheets) {
+        const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
+        allNodes.push(...sd.nodes);
+      }
     } else {
-      if (nodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
-      csv = buildTemplateCsvString(nodes);
+      allNodes.push(...nodes);
     }
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `PwC_HR_Template_${Date.now()}.csv`);
-  }, [nodes, csvRows]);
+
+    if (csvRows && csvRows.length > 0) {
+      /* CSV 있음: 머지 + 색상 강조 .xls */
+      const rows = buildMergedRows(csvRows, allNodes);
+      const blob = buildColoredXls(rows);
+      saveAs(blob, `PwC_HR_Template_${Date.now()}.xls`);
+    } else {
+      /* CSV 없음: 캔버스 노드만 CSV */
+      if (allNodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
+      const csv = buildTemplateCsvString(allNodes);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      saveAs(blob, `PwC_HR_Template_${Date.now()}.csv`);
+    }
+  }, [nodes, edges, csvRows, sheets, getSheetData, activeSheetId]);
 
   /* ═══ All-Sheets Excel (CSV) Export ═══ */
   const handleExportAllExcel = useCallback(() => {
@@ -2404,19 +2461,10 @@ export default function ExportToolbar({
       <button
         onClick={handleExportExcel}
         className="text-[10px] font-medium bg-emerald-600 text-white rounded px-2 py-1.5 hover:bg-emerald-700 transition"
-        title={csvRows && csvRows.length > 0 ? "원본 CSV 전체 행 기반 + 시트 수정내용 통합 내보내기" : "현재 시트 캔버스 노드 내보내기"}
+        title={csvRows && csvRows.length > 0 ? "원본 CSV + 전체 시트 수정/추가 내용 통합 (수정=노란색, 추가=초록색)" : "전체 시트 캔버스 노드 내보내기"}
       >
         📗 {csvRows && csvRows.length > 0 ? "통합 Excel" : "Excel"}
       </button>
-      {sheets && sheets.length > 1 && (
-        <button
-          onClick={handleExportAllExcel}
-          className="text-[10px] font-medium bg-teal-600 text-white rounded px-2 py-1.5 hover:bg-teal-700 transition"
-          title={csvRows && csvRows.length > 0 ? "원본 CSV 전체 행 기반 + 전체 시트 수정내용 통합" : "전체 시트 노드 통합 내보내기"}
-        >
-          📘 {csvRows && csvRows.length > 0 ? "전체 통합" : "전체 Excel"}
-        </button>
-      )}
       <button
         onClick={handleExportCanvasExcel}
         className="text-[10px] font-medium bg-lime-600 text-white rounded px-2 py-1.5 hover:bg-lime-700 transition"
@@ -2424,24 +2472,6 @@ export default function ExportToolbar({
       >
         📋 시트만
       </button>
-      {csvRows && csvRows.length > 0 && (
-        <>
-          <button
-            onClick={() => handleExportBatchPPT(false)}
-            className="text-[10px] font-medium bg-rose-600 text-white rounded px-2 py-1.5 hover:bg-rose-700 transition"
-            title="CSV 기반 일괄 PPT — L4별 1페이지 (단일 파일)"
-          >
-            🗂️ 일괄 PPT
-          </button>
-          <button
-            onClick={() => handleExportBatchPPT(true)}
-            className="text-[10px] font-medium bg-pink-600 text-white rounded px-2 py-1.5 hover:bg-pink-700 transition"
-            title="CSV 기반 L3별 분할 PPT — L3마다 별도 PPT 파일"
-          >
-            📁 L3분할
-          </button>
-        </>
-      )}
     </div>
 </>
   );

@@ -1359,24 +1359,6 @@ export default function Home() {
               </div>
               <div className="px-4 py-2 border-b border-gray-100 flex gap-1.5">
                 <button
-                  onClick={handleViewFullTree}
-                  className="flex-1 text-[10px] font-medium bg-[#A62121] text-white rounded py-1.5 hover:bg-[#8A1B1B] transition"
-                >
-                  {"🌳 전체 트리"}
-                </button>
-                <button
-                  onClick={() => {
-                    setChatOpen(true);
-                    if (selectedL3) {
-                      const pd = summarizeL3ForAI(csvRows, selectedL3);
-                      setChatInitData(pd);
-                    }
-                  }}
-                  className="flex-1 text-[10px] font-medium bg-[#D95578] text-white rounded py-1.5 hover:bg-[#C44466] transition"
-                >
-                  {"🤖 AI Workflow"}
-                </button>
-                <button
                   onClick={() => { setPaletteEditMode(!paletteEditMode); setEditingPaletteItem(null); }}
                   className={`text-[10px] font-medium rounded px-2 py-1.5 transition ${
                     paletteEditMode
