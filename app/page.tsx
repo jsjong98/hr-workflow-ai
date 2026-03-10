@@ -97,65 +97,35 @@ export default function Home() {
   // nodesRef: always up to date (for keyboard handlers)
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
-  /* ── 캔버스 → 팔레트 역방향 동기화 ──────────────────────
-   * 노드의 id/label/description이 변경될 때만 실행 (position 변경 제외)
-   * rfNodeId(React Flow 내부 id) 기준으로 data.id 변경도 감지
-   * ──────────────────────────────────────────────────── */
-  // rfNodeId → data.id 이전 값 추적 (ID 변경 감지용)
-  const prevIdMapRef = useRef<Record<string, string>>({});
-
+  /* ── 캔버스 → 팔레트 역방향 동기화 (label/description만) ── */
   const nodeDataSig = useMemo(
     () =>
       nodes
         .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L5")
         .map((n) => {
           const d = n.data as Record<string, unknown>;
-          // n.id = React Flow 내부 ID, d.id = 비즈니스 ID
-          return `${n.id}:${d.id}|${d.label}|${d.description ?? ""}`;
+          return `${d.id}|${d.label}|${d.description ?? ""}`;
         })
         .join("\n"),
     [nodes]
   );
   useEffect(() => {
-    // 현재 rfNodeId → dataId 맵 구성
-    const currentIdMap: Record<string, string> = {};
-    nodesRef.current
-      .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L5")
-      .forEach((n) => {
-        const d = n.data as Record<string, unknown>;
-        currentIdMap[n.id] = d.id as string;
-      });
-
-    // 변경된 ID 감지: oldDataId → newDataId
-    const idChangeMap: Record<string, string> = {};
-    for (const [rfId, newDataId] of Object.entries(currentIdMap)) {
-      const oldDataId = prevIdMapRef.current[rfId];
-      if (oldDataId && oldDataId !== newDataId) {
-        idChangeMap[oldDataId] = newDataId;
-      }
-    }
-    prevIdMapRef.current = currentIdMap;
-
     setL5Map((prev) => {
       let changed = false;
       const next: Record<string, typeof prev[string]> = {};
       for (const [l4Id, items] of Object.entries(prev)) {
         next[l4Id] = items.map((item) => {
-          // ID 변경이 있었다면 새 ID로 해석
-          const resolvedId = idChangeMap[item.id] ?? item.id;
-          const idChanged = resolvedId !== item.id;
-
           const canvasNode = nodesRef.current.find((n) => {
             const d = n.data as Record<string, unknown>;
-            return (d.id as string) === resolvedId;
+            return (d.id as string) === item.id;
           });
-          if (canvasNode || idChanged) {
-            const d = (canvasNode?.data ?? {}) as Record<string, unknown>;
+          if (canvasNode) {
+            const d = canvasNode.data as Record<string, unknown>;
             const newName = (d.label as string) || item.name;
             const newDesc = (d.description as string) ?? item.description ?? "";
-            if (idChanged || newName !== item.name || newDesc !== (item.description ?? "")) {
+            if (newName !== item.name || newDesc !== (item.description ?? "")) {
               changed = true;
-              return { ...item, id: resolvedId, name: newName, description: newDesc };
+              return { ...item, name: newName, description: newDesc };
             }
           }
           return item;
@@ -431,9 +401,12 @@ export default function Home() {
     const lvl = addDataForm.level;
     if (lvl === "L4") {
       const parentL3 = selectedL3 || "";
-      const nextIdx = l4List.length + 1;
       const prefix = l4List.length > 0 ? l4List[0].id.split(".").slice(0, -1).join(".") : parentL3;
-      const newId = addDataForm.id.trim() || `${prefix}.${nextIdx}`;
+      const maxIdx = l4List.reduce((m, l4) => {
+        const last = parseInt(l4.id.split(".").pop() || "0", 10);
+        return Math.max(m, last);
+      }, 0);
+      const newId = addDataForm.id.trim() || `${prefix}.${maxIdx + 1}`;
       const newL4: L4Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l3Id: parentL3, isManual: true };
       setL4List((prev) => [...prev, newL4]);
       setL5Map((prev) => ({ ...prev, [newId]: [] }));
@@ -449,8 +422,11 @@ export default function Home() {
       const targetL4Id = expandedL4 || (l4List.length > 0 ? l4List[l4List.length - 1].id : null);
       if (!targetL4Id) { alert("L4가 없습니다. 먼저 L4를 추가해주세요."); return; }
       const existing = l5Map[targetL4Id] || [];
-      const nextIdx = existing.length + 1;
-      const newId = addDataForm.id.trim() || `${targetL4Id}.${nextIdx}`;
+      const maxIdx = existing.reduce((m, l5) => {
+        const last = parseInt(l5.id.split(".").pop() || "0", 10);
+        return Math.max(m, last);
+      }, 0);
+      const newId = addDataForm.id.trim() || `${targetL4Id}.${maxIdx + 1}`;
       const newL5: L5Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id, isManual: true };
       setL5Map((prev) => ({ ...prev, [targetL4Id]: [...(prev[targetL4Id] || []), newL5] }));
       setExpandedL4(targetL4Id);
