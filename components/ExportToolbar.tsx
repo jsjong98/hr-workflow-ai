@@ -274,7 +274,7 @@ export default function ExportToolbar({
 
       /* ── SwimLane background bands (if active sheet is swimlane) ── */
       const isSwimLane = currentSheet?.type === "swimlane";
-      const swimLanes = currentSheet?.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
+      const swimLanes = currentSheet?.lanes || ["현업 임원", "팀장", "HR 담당자", "구성원"];
       const SWIM_COLORS = swimLanes.map((_, i) => ({
         fill: i % 2 === 0 ? "F5F5F5" : "FFFFFF",
         border: "C0C0C0",
@@ -1332,7 +1332,7 @@ export default function ExportToolbar({
 
         // 수영레인 설정
         const isSwimLane = sheet.type === "swimlane";
-        const swimLanes = sheet.lanes || ["임원", "팀장", "HR 담당자", "구성원"];
+        const swimLanes = sheet.lanes || ["현업 임원", "팀장", "HR 담당자", "구성원"];
 
         // bbox 기반 좌표 변환
         let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;

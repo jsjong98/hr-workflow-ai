@@ -240,7 +240,7 @@ export default function Home() {
       // Create new
       sheetCountRef.current++;
       const newId = `sheet-${Date.now()}`;
-      const DEFAULT_4_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
+      const DEFAULT_4_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
       const lanes = type === "swimlane" ? (customLanes || DEFAULT_4_LANES) : undefined;
       const label = type === "swimlane"
         ? (lanes && lanes.length > 4 ? `${lanes.length}분할 시트` : "4분할 시트")

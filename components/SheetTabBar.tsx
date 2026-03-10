@@ -168,7 +168,7 @@ export default function SheetTabBar({
                 <span>🏊</span>
                 <div>
                   <div className="font-semibold text-gray-700">4분할 시트</div>
-                  <div className="text-[9px] text-gray-400">임원 · 팀장 · HR 담당자 · 구성원</div>
+                  <div className="text-[9px] text-gray-400">현업 임원 · 팀장 · HR 담당자 · 구성원</div>
                 </div>
               </button>
               <button

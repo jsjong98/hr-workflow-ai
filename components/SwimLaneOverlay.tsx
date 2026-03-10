@@ -17,7 +17,7 @@ interface Props {
   swimHeight?: number;
 }
 
-const DEFAULT_LANES = ["임원", "팀장", "HR 담당자", "구성원"];
+const DEFAULT_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
 
 /* ── PPT constants (must match ExportToolbar) ── */
 const PPT_W         = 13.33;
