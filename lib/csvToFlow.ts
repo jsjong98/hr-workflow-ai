@@ -1046,6 +1046,16 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     ];
   };
 
+  /* isManual 노드가 점유한 ID 목록 — CSV 행과 중복 방지 */
+  const manualL5Ids = new Set<string>();
+  for (const n of nodes) {
+    const d = nd(n);
+    if (((d.level as string) || "").toUpperCase() === "L5" && !!(d.isManual)) {
+      const did = (d.id as string) || "";
+      if (did) manualL5Ids.add(did);
+    }
+  }
+
   const results: MergedRow[] = [];
   const matchedL5Ids = new Set<string>();
 
@@ -1053,7 +1063,12 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     if (!r.L2_ID && !r.L3_ID && !r.L4_ID && !r.L5_ID) continue;
     const node = r.L5_ID ? nodeByL5Id.get(r.L5_ID) : undefined;
     if (!node) {
-      results.push({ cols: colsFromCsvRow(r), status: "unchanged" });
+      /* isManual 노드가 같은 ID를 점유 → CSV 행은 건너뜀 (새 노드 루프에서 처리) */
+      if (r.L5_ID && manualL5Ids.has(r.L5_ID)) {
+        matchedL5Ids.add(r.L5_ID);
+      } else {
+        results.push({ cols: colsFromCsvRow(r), status: "unchanged" });
+      }
     } else {
       matchedL5Ids.add(r.L5_ID);
       const original = colsFromCsvRow(r);
@@ -1170,6 +1185,16 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
     if (level === "L5" && nodeId && !isManual) nodeByL5Id.set(nodeId, n);
   }
 
+  /* isManual 노드가 점유한 ID — CSV 행과 중복 방지 */
+  const manualL5IdsCsv = new Set<string>();
+  for (const n of nodes) {
+    const d = nd(n);
+    if (((d.level as string) || "").toUpperCase() === "L5" && !!(d.isManual)) {
+      const did = (d.id as string) || "";
+      if (did) manualL5IdsCsv.add(did);
+    }
+  }
+
   const esc = (v: string) => {
     if (v.includes(",") || v.includes('"') || v.includes("\n")) {
       return `"${v.replace(/"/g, '""')}"`;
@@ -1183,6 +1208,8 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
 
     const node = r.L5_ID ? nodeByL5Id.get(r.L5_ID) : undefined;
     if (!node) {
+      /* isManual 노드가 같은 ID 점유 → CSV 행 건너뜀 */
+      if (r.L5_ID && manualL5IdsCsv.has(r.L5_ID)) continue;
       /* 캔버스에 없는 행: 원본 CSV 그대로 */
       dataRows.push([
         r.L2_ID, r["두산 L2"],
