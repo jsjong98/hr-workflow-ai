@@ -460,6 +460,7 @@ export default function Home() {
         .filter((n) => { const d = n.data as Record<string, unknown>; return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(targetL4Id + "."); })
         .reduce((m, n) => Math.max(m, parseInt(((n.data as Record<string, unknown>).id as string || "").split(".").pop() || "0", 10)), 0);
       const newId = addDataForm.id.trim() || `${targetL4Id}.${Math.max(paletteMaxL5, canvasMaxL5) + 1}`;
+      const roleVal = addDataForm.role.trim() || undefined;
       const newL5: L5Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id, isManual: true };
       setL5Map((prev) => {
         const existing = prev[targetL4Id] || [];
@@ -475,7 +476,7 @@ export default function Home() {
         let x = 200, y = 400;
         if (siblings.length > 0) { const last = siblings.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 220; y = last.position.y; }
         else { const l4Nd = nds.find((n) => ((n.data as Record<string, unknown>).id as string) === tgtL4); if (l4Nd) { x = l4Nd.position.x; y = l4Nd.position.y + 250; } }
-        return [...nds, createNodeFromItem("l5", { id: newId, name: nameL5, description: descL5, l4Id: tgtL4 }, { x, y })];
+        return [...nds, createNodeFromItem("l5", { id: newId, name: nameL5, description: descL5, l4Id: tgtL4, ...(roleVal ? { role: roleVal } : {}) }, { x, y })];
       });
     } else {
       alert(`${lvl} 레벨은 팔레트에서 직접 추가할 수 없습니다. L4 또는 L5만 추가 가능합니다.`);
@@ -1753,7 +1754,7 @@ export default function Home() {
                         <select
                           value={addDataForm.level}
                           onChange={(e) => setAddDataForm({ ...addDataForm, level: e.target.value as ManualItem["level"] })}
-                          className="w-14 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                          className="w-14 border border-gray-200 rounded px-1 py-1 text-[10px] text-gray-900"
                         >
                           <option value="L4">L4</option>
                           <option value="L5">L5</option>
@@ -1762,14 +1763,14 @@ export default function Home() {
                           value={addDataForm.id}
                           onChange={(e) => setAddDataForm({ ...addDataForm, id: e.target.value })}
                           placeholder="ID (자동)"
-                          className="w-16 border border-gray-200 rounded px-1 py-1 text-[10px]"
+                          className="w-16 border border-gray-200 rounded px-1 py-1 text-[10px] text-gray-900"
                         />
                         <input
                           value={addDataForm.name}
                           onChange={(e) => setAddDataForm({ ...addDataForm, name: e.target.value })}
                           onKeyDown={(e) => { if (e.key === "Enter") handleAddManualItem(); }}
                           placeholder="이름 *"
-                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px] text-gray-900"
                           autoFocus
                         />
                       </div>
@@ -1778,13 +1779,13 @@ export default function Home() {
                           value={addDataForm.description}
                           onChange={(e) => setAddDataForm({ ...addDataForm, description: e.target.value })}
                           placeholder="설명"
-                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                          className="flex-1 border border-gray-200 rounded px-1.5 py-1 text-[10px] text-gray-900"
                         />
                         <input
                           value={addDataForm.role}
                           onChange={(e) => setAddDataForm({ ...addDataForm, role: e.target.value })}
                           placeholder="수행주체"
-                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-[10px]"
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-[10px] text-gray-900"
                         />
                       </div>
                       <div className="flex gap-1">

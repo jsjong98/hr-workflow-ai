@@ -997,24 +997,51 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const inp = d.inputs as Record<string, string> | undefined;
     const out = d.outputs as Record<string, string> | undefined;
     const logic = d.logic as Record<string, string> | undefined;
+
+    /* ── NodeDetailPanel에서 사용자가 직접 편집한 flat 필드 ── */
+    const roleStr = d.role as string | null | undefined;
+    const systemStr = d.system as string | null | undefined;
+    const inputStr = d.inputData as string | null | undefined;
+    const outputStr = d.outputData as string | null | undefined;
+
+    /* 수행 주체: role이 저장된 경우 역매핑 → actor 열 결정
+       role이 없으면 기존 structured actors 사용 */
+    let actorExec = actors?.exec ?? r.actor_exec;
+    let actorHr = actors?.hr ?? r.actor_hr;
+    let actorTeamlead = actors?.teamlead ?? r.actor_teamlead;
+    let actorMember = actors?.member ?? r.actor_member;
+    if (roleStr != null) {
+      const parts = roleStr.split(",").map((s) => s.trim());
+      actorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
+      actorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
+      actorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
+      actorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
+    }
+
+    /* 사용 시스템: 사용자가 flat 텍스트로 편집했으면 sys_etc에 기록, 나머지는 structured 유지 */
+    const sysEtc = systemStr != null ? systemStr : (systems?.etc ?? r.sys_etc);
+
+    /* Input / Output: 사용자가 편집했으면 in_etc / out_etc에 기록 */
+    const inEtc = inputStr != null ? inputStr : (inp?.etc ?? r.in_etc);
+    const outEtc = outputStr != null ? outputStr : (out?.etc ?? r.out_etc);
+
     /* 메타데이터 필드는 ?? (nullish) 사용 — 빈 문자열("")도 노드 자신의 값으로 유지.
        || 사용 시 ID 재번호 후 잘못 매칭된 CSV 행의 값이 오염됨 */
     return [
       r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
       r.L5_ID, (d.label as string) || r.L5_Name, (d.description as string) || r.L5_Description,
-      actors?.exec ?? r.actor_exec, actors?.hr ?? r.actor_hr,
-      actors?.teamlead ?? r.actor_teamlead, actors?.member ?? r.actor_member,
+      actorExec, actorHr, actorTeamlead, actorMember,
       (d.mgrBody as string) ?? r.mgr_body, (d.staffCount as string) ?? r.staff_count,
       (d.mainPerson as string) ?? r.main_person, (d.avgTime as string) ?? r.avg_time,
       (d.freqCount as string) ?? r.freq_count,
       systems?.hr ?? r.sys_hr, systems?.groupware ?? r.sys_groupware,
-      systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, systems?.etc ?? r.sys_etc,
+      systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, sysEtc,
       pp?.speed ?? r.pp_speed, pp?.accuracy ?? r.pp_accuracy, pp?.repeat ?? r.pp_repeat,
       pp?.data ?? r.pp_data, pp?.system ?? r.pp_system, pp?.comm ?? r.pp_comm, pp?.etc ?? r.pp_etc,
       inp?.system ?? r.in_system, inp?.doc ?? r.in_doc, inp?.external ?? r.in_external,
-      inp?.request ?? r.in_request, inp?.etc ?? r.in_etc,
+      inp?.request ?? r.in_request, inEtc,
       out?.system ?? r.out_system, out?.doc ?? r.out_doc, out?.comm ?? r.out_comm,
-      out?.decision ?? r.out_decision, out?.etc ?? r.out_etc,
+      out?.decision ?? r.out_decision, outEtc,
       logic?.rule ?? r.logic_rule, logic?.human ?? r.logic_human, logic?.mixed ?? r.logic_mixed,
     ];
   };
@@ -1074,19 +1101,42 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const inp = d5.inputs as Record<string, string> | undefined;
     const out = d5.outputs as Record<string, string> | undefined;
     const logic = d5.logic as Record<string, string> | undefined;
+
+    /* NodeDetailPanel / 추가 폼에서 저장된 flat 필드 처리 */
+    const roleStr5 = d5.role as string | null | undefined;
+    const systemStr5 = d5.system as string | null | undefined;
+    const inputStr5 = d5.inputData as string | null | undefined;
+    const outputStr5 = d5.outputData as string | null | undefined;
+
+    let newActorExec = actors?.exec || "";
+    let newActorHr = actors?.hr || "";
+    let newActorTeamlead = actors?.teamlead || "";
+    let newActorMember = actors?.member || "";
+    if (roleStr5 != null) {
+      const parts = roleStr5.split(",").map((s) => s.trim());
+      newActorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
+      newActorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
+      newActorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
+      newActorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
+    }
+
+    const newSysEtc = systemStr5 != null ? systemStr5 : (systems?.etc || "");
+    const newInEtc = inputStr5 != null ? inputStr5 : (inp?.etc || "");
+    const newOutEtc = outputStr5 != null ? outputStr5 : (out?.etc || "");
+
     results.push({
       cols: [
         l2Id, l2Label, l3Id, l3Label, l4Id, l4Label, l4Desc,
         l5Id, (d5.label as string) || "", (d5.description as string) || "",
-        actors?.exec || "", actors?.hr || "", actors?.teamlead || "", actors?.member || "",
+        newActorExec, newActorHr, newActorTeamlead, newActorMember,
         (d5.mgrBody as string) || "", (d5.staffCount as string) || "",
         (d5.mainPerson as string) || "", (d5.avgTime as string) || "", (d5.freqCount as string) || "",
         systems?.hr || "", systems?.groupware || "", systems?.office || "",
-        systems?.external || "", systems?.manual || "", systems?.etc || "",
+        systems?.external || "", systems?.manual || "", newSysEtc,
         pp?.speed || "", pp?.accuracy || "", pp?.repeat || "",
         pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
-        inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
-        out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
+        inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", newInEtc,
+        out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", newOutEtc,
         logic?.rule || "", logic?.human || "", logic?.mixed || "",
       ],
       status: "new",
@@ -1157,6 +1207,29 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
       const out = d.outputs as Record<string, string> | undefined;
       const logic = d.logic as Record<string, string> | undefined;
 
+      /* NodeDetailPanel에서 편집한 flat 필드 */
+      const roleStr = d.role as string | null | undefined;
+      const systemStr = d.system as string | null | undefined;
+      const inputStr = d.inputData as string | null | undefined;
+      const outputStr = d.outputData as string | null | undefined;
+
+      /* 수행 주체: role이 저장된 경우 역매핑 */
+      let actorExec = actors?.exec ?? r.actor_exec;
+      let actorHr = actors?.hr ?? r.actor_hr;
+      let actorTeamlead = actors?.teamlead ?? r.actor_teamlead;
+      let actorMember = actors?.member ?? r.actor_member;
+      if (roleStr != null) {
+        const parts = roleStr.split(",").map((s) => s.trim());
+        actorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
+        actorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
+        actorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
+        actorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
+      }
+
+      const sysEtc = systemStr != null ? systemStr : (systems?.etc ?? r.sys_etc);
+      const inEtc = inputStr != null ? inputStr : (inp?.etc ?? r.in_etc);
+      const outEtc = outputStr != null ? outputStr : (out?.etc ?? r.out_etc);
+
       dataRows.push([
         r.L2_ID, r["두산 L2"],
         r.L3_ID, r.L3_Name,
@@ -1164,21 +1237,20 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
         r.L5_ID,
         (d.label as string) || r.L5_Name,
         (d.description as string) || r.L5_Description,
-        actors?.exec ?? r.actor_exec, actors?.hr ?? r.actor_hr,
-        actors?.teamlead ?? r.actor_teamlead, actors?.member ?? r.actor_member,
+        actorExec, actorHr, actorTeamlead, actorMember,
         (d.mgrBody as string) ?? r.mgr_body,
         (d.staffCount as string) ?? r.staff_count,
         (d.mainPerson as string) ?? r.main_person,
         (d.avgTime as string) ?? r.avg_time,
         (d.freqCount as string) ?? r.freq_count,
         systems?.hr ?? r.sys_hr, systems?.groupware ?? r.sys_groupware,
-        systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, systems?.etc ?? r.sys_etc,
+        systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, sysEtc,
         pp?.speed ?? r.pp_speed, pp?.accuracy ?? r.pp_accuracy, pp?.repeat ?? r.pp_repeat,
         pp?.data ?? r.pp_data, pp?.system ?? r.pp_system, pp?.comm ?? r.pp_comm, pp?.etc ?? r.pp_etc,
         inp?.system ?? r.in_system, inp?.doc ?? r.in_doc, inp?.external ?? r.in_external,
-        inp?.request ?? r.in_request, inp?.etc ?? r.in_etc,
+        inp?.request ?? r.in_request, inEtc,
         out?.system ?? r.out_system, out?.doc ?? r.out_doc, out?.comm ?? r.out_comm,
-        out?.decision ?? r.out_decision, out?.etc ?? r.out_etc,
+        out?.decision ?? r.out_decision, outEtc,
         logic?.rule ?? r.logic_rule, logic?.human ?? r.logic_human, logic?.mixed ?? r.logic_mixed,
       ]);
     }
