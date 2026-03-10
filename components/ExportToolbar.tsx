@@ -129,8 +129,8 @@ export default function ExportToolbar({
       const L5_LOWER_H  = 0.213;  // 0.54cm
       const L5_GAP      = 0.020;  // 0.05cm
       const L5_FIXED_H  = L5_UPPER_H + L5_GAP + L5_LOWER_H; // 0.918" = 2.33cm
-      const DECISION_W = 0.787;  // 2cm
-      const DECISION_H = 0.787;  // 2cm
+      const DECISION_W = 1.240;  // 3.15cm
+      const DECISION_H = 0.433;  // 1.1cm
       const MEMO_W = 1.5;   // ~3.8cm
       const MEMO_H = 0.5;   // ~1.27cm
       const DEF = LS.L4;
@@ -534,8 +534,8 @@ export default function ExportToolbar({
             shape: pptx.ShapeType.diamond,
             fill: { color: "F2A0AF" },
             line: { color: "D95578", width: 1.5 },
-            fontSize: 11, bold: true, color: "3B0716",
-            fontFace: FONT_FACE, valign: "middle", align: "center",
+            fontSize: 7, bold: true, color: "3B0716",
+            fontFace: "Noto Sans KR", valign: "middle", align: "center",
             objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
           shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
@@ -1043,21 +1043,46 @@ export default function ExportToolbar({
           if (!srcSid || !tgtSid) continue;
 
           const src = c.srcBox, tgt = c.tgtBox;
-          // L5: stCxn이 위쪽 박스를 참조하므로 위쪽 박스 중앙 Y 사용
-          let srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
-          let tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
-          // Y 스냅: 미세한 차이(≤0.08") → 동일 Y (대각선 방지)
-          if (Math.abs(srcConnY - tgtConnY) < 0.08) {
-            const avgY = (srcConnY + tgtConnY) / 2;
-            srcConnY = avgY; tgtConnY = avgY;
+          // 중심점
+          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
+          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
+          const cdx = tgtCx - srcCx, cdy = tgtCy - srcCy;
+          // L5: 위쪽 박스 중앙 Y 사용
+          const srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : srcCy;
+          const tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgtCy;
+
+          // diamond: 방향에 따라 0(위)/1(오른)/2(아래)/3(왼) | roundRect: right=3, left=1
+          let stIdx: number, x1: number, y1: number;
+          let endIdx: number, x2: number, y2: number;
+
+          if (c.srcIsDec) {
+            if (Math.abs(cdx) >= Math.abs(cdy)) {
+              if (cdx >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCy; }
+              else          { stIdx = 3; x1 = src.x;          y1 = srcCy; }
+            } else {
+              if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + src.h; }
+              else          { stIdx = 0; x1 = srcCx; y1 = src.y;          }
+            }
+          } else {
+            stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
           }
 
-          // roundRect=right:3,left:1 | diamond=right:1,left:3
-          const stIdx = c.srcIsDec ? 1 : 3, endIdx = c.tgtIsDec ? 3 : 1;
-          const x1 = src.x + src.w;  // source right edge
-          const y1 = srcConnY;
-          const x2 = tgt.x;          // target left edge
-          const y2 = tgtConnY;
+          if (c.tgtIsDec) {
+            if (Math.abs(cdx) >= Math.abs(cdy)) {
+              if (cdx >= 0) { endIdx = 3; x2 = tgt.x;         y2 = tgtCy; }
+              else          { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCy; }
+            } else {
+              if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y;          }
+              else          { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h;  }
+            }
+          } else {
+            endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
+          }
+
+          // Y 스냅: 비-DECISION 수평 연결에서 미세한 Y 차이 방지
+          if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+            const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
+          }
           // 같은 행 → 직선, 다른 행 → 꺾인선(bentConnector3)
           const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
 
@@ -1257,7 +1282,7 @@ export default function ExportToolbar({
         L3: { bg: "D95578", border: "D95578", text: "FFFFFF", fontSize: 12, pxW: 660, pxH: 240, pptW: 1.73, pptH: 0.63 },
         L4: { bg: LIGHT_GRAY, border: LIGHT_GRAY, text: "000000", fontSize: 12, pxW: 600, pxH: 220, pptW: 1.58, pptH: 0.58 },
         L5: { bg: "FFFFFF", border: LIGHT_GRAY, text: "000000", fontSize: 9, pxW: 540, pxH: 389, pptW: 1.24, pptH: 0.894 },
-        DECISION: { bg: "F2A0AF", border: "D95578", text: "3B0716", fontSize: 11, pxW: 220, pxH: 220, pptW: 0.787, pptH: 0.787 },
+        DECISION: { bg: "F2A0AF", border: "D95578", text: "3B0716", fontSize: 7, pxW: 220, pxH: 220, pptW: 1.240, pptH: 0.433 },
       };
       /* L5 2-box 고정 치수 (인치) — 스케일링 무시, 항상 이 크기 */
       const L5_FIXED_W_ALL  = 1.240;  // 3.15cm
@@ -1265,8 +1290,8 @@ export default function ExportToolbar({
       const L5_LOWER_H_ALL  = 0.213;  // 0.54cm
       const L5_GAP_ALL      = 0.020;  // 0.05cm
       const L5_FIXED_H_ALL  = L5_UPPER_H_ALL + L5_GAP_ALL + L5_LOWER_H_ALL; // 0.918"
-      const DECISION_W_ALL = 0.787;  // 2cm
-      const DECISION_H_ALL = 0.787;  // 2cm
+      const DECISION_W_ALL = 1.240;  // 3.15cm
+      const DECISION_H_ALL = 0.433;  // 1.1cm
       const MEMO_W_ALL = 1.5;
       const MEMO_H_ALL = 0.5;
       const DEF = LS.L4;
@@ -1655,14 +1680,14 @@ export default function ExportToolbar({
           const shapeList: GrpShapeMeta[] = [];
 
           if (level === "DECISION") {
-            /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
+            /* ── DECISION 마름모 (3.15cm × 1.1cm, 7pt) ── */
             slide.addText(dispLabel || "판정 조건", {
               x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL,
               shape: pptx.ShapeType.diamond,
               fill: { color: "F2A0AF" },
               line: { color: "D95578", width: 1.5 },
-              fontSize: 11, bold: true, color: "3B0716",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
+              fontSize: 7, bold: true, color: "3B0716",
+              fontFace: "Noto Sans KR", valign: "middle", align: "center",
               objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
             shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
@@ -1904,14 +1929,42 @@ export default function ExportToolbar({
           const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
           if (!srcSid || !tgtSid) continue;
           const src = c.srcBox, tgt = c.tgtBox;
-          let srcConnY2 = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
-          let tgtConnY2 = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
-          if (Math.abs(srcConnY2 - tgtConnY2) < 0.08) {
-            const avgY = (srcConnY2 + tgtConnY2) / 2;
-            srcConnY2 = avgY; tgtConnY2 = avgY;
+          const srcCxA = src.x + src.w / 2, srcCyA = src.y + src.h / 2;
+          const tgtCxA = tgt.x + tgt.w / 2, tgtCyA = tgt.y + tgt.h / 2;
+          const cdxA = tgtCxA - srcCxA, cdyA = tgtCyA - srcCyA;
+          const srcConnY2 = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : srcCyA;
+          const tgtConnY2 = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgtCyA;
+
+          let stIdx: number, x1: number, y1: number;
+          let endIdx: number, x2: number, y2: number;
+
+          if (c.srcIsDec) {
+            if (Math.abs(cdxA) >= Math.abs(cdyA)) {
+              if (cdxA >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCyA; }
+              else           { stIdx = 3; x1 = src.x;          y1 = srcCyA; }
+            } else {
+              if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + src.h; }
+              else           { stIdx = 0; x1 = srcCxA; y1 = src.y;          }
+            }
+          } else {
+            stIdx = 3; x1 = src.x + src.w; y1 = srcConnY2;
           }
-          const stIdx = c.srcIsDec ? 1 : 3, endIdx = c.tgtIsDec ? 3 : 1;
-          const x1 = src.x + src.w, y1 = srcConnY2, x2 = tgt.x, y2 = tgtConnY2;
+
+          if (c.tgtIsDec) {
+            if (Math.abs(cdxA) >= Math.abs(cdyA)) {
+              if (cdxA >= 0) { endIdx = 3; x2 = tgt.x;         y2 = tgtCyA; }
+              else           { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCyA; }
+            } else {
+              if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;          }
+              else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgt.h;  }
+            }
+          } else {
+            endIdx = 1; x2 = tgt.x; y2 = tgtConnY2;
+          }
+
+          if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+            const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
+          }
           const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
