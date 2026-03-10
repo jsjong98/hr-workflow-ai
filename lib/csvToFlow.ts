@@ -28,6 +28,7 @@ export interface CsvRow {
   sys_hr: string;           // 사용 시스템_HR 전용시스템
   sys_groupware: string;    // 사용 시스템_그룹웨어_협업툴
   sys_office: string;       // 사용 시스템_오피스_문서도구
+  sys_external: string;     // 사용 시스템_외부_연동시스템
   sys_manual: string;       // 사용 시스템_수작업_오프라인
   sys_etc: string;          // 사용 시스템_기타 전문 Tool
   pp_speed: string;         // Pain Point_시간_속도
@@ -90,7 +91,7 @@ export interface L5Item {
   mainPerson?: string;
   avgTime?: string;
   freqCount?: string;
-  systems?: { hr: string; groupware: string; office: string; manual: string; etc: string };
+  systems?: { hr: string; groupware: string; office: string; external: string; manual: string; etc: string };
   painPoints?: { speed: string; accuracy: string; repeat: string; data: string; system: string; comm: string; etc: string };
   inputs?: { system: string; doc: string; external: string; request: string; etc: string };
   outputs?: { system: string; doc: string; comm: string; decision: string; etc: string };
@@ -174,7 +175,7 @@ function buildL5Item(r: CsvRow): L5Item {
     mainPerson: r.main_person || "",
     avgTime: r.avg_time || "",
     freqCount: r.freq_count || "",
-    systems: { hr: r.sys_hr || "", groupware: r.sys_groupware || "", office: r.sys_office || "", manual: r.sys_manual || "", etc: r.sys_etc || "" },
+    systems: { hr: r.sys_hr || "", groupware: r.sys_groupware || "", office: r.sys_office || "", external: r.sys_external || "", manual: r.sys_manual || "", etc: r.sys_etc || "" },
     painPoints: { speed: r.pp_speed || "", accuracy: r.pp_accuracy || "", repeat: r.pp_repeat || "", data: r.pp_data || "", system: r.pp_system || "", comm: r.pp_comm || "", etc: r.pp_etc || "" },
     inputs: { system: r.in_system || "", doc: r.in_doc || "", external: r.in_external || "", request: r.in_request || "", etc: r.in_etc || "" },
     outputs: { system: r.out_system || "", doc: r.out_doc || "", comm: r.out_comm || "", decision: r.out_decision || "", etc: r.out_etc || "" },
@@ -639,7 +640,7 @@ const FIELD_KEYS: (keyof CsvRow)[] = [
   /* index 10~43: 새 열 */
   "actor_exec", "actor_hr", "actor_teamlead", "actor_member",
   "mgr_body", "staff_count", "main_person", "avg_time", "freq_count",
-  "sys_hr", "sys_groupware", "sys_office", "sys_manual", "sys_etc",
+  "sys_hr", "sys_groupware", "sys_office", "sys_external", "sys_manual", "sys_etc",
   "pp_speed", "pp_accuracy", "pp_repeat", "pp_data", "pp_system", "pp_comm", "pp_etc",
   "in_system", "in_doc", "in_external", "in_request", "in_etc",
   "out_system", "out_doc", "out_comm", "out_decision", "out_etc",
@@ -737,7 +738,7 @@ const TEMPLATE_HEADER = [
   "수행주체_임원", "수행주체_HR", "수행주체_현업 팀장", "수행주체_현업 구성원",
   "관리주체", "담당자 수", "주 담당자", "평균 건당 소요시간", "발생 빈도_건수",
   "사용 시스템_HR 전용시스템", "사용 시스템_그룹웨어_협업툴", "사용 시스템_오피스_문서도구",
-  "사용 시스템_수작업_오프라인", "사용 시스템_기타 전문 Tool",
+  "사용 시스템_외부_연동시스템", "사용 시스템_수작업_오프라인", "사용 시스템_기타 전문 Tool",
   "Pain Point_시간_속도", "Pain Point_정확성", "Pain Point_반복/수작업",
   "Pain Point_정보_데이터", "Pain Point_시스템_도구", "Pain Point_의사소통_협업", "Pain Point_기타",
   "Input_시스템 데이터", "Input_문서_서류", "Input_외부 정보", "Input_구두_메일 요청", "Input_기타",
@@ -870,7 +871,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
       /* 16    주담당자 */ (d5.mainPerson as string) || "",
       /* 17    소요시간 */ (d5.avgTime as string) || "",
       /* 18    빈도    */ (d5.freqCount as string) || "",
-      /* 19-23 시스템  */ systems?.hr || "", systems?.groupware || "", systems?.office || "", systems?.manual || "", systems?.etc || "",
+      /* 19-24 시스템  */ systems?.hr || "", systems?.groupware || "", systems?.office || "", systems?.external || "", systems?.manual || "", systems?.etc || "",
       /* 24-30 PP     */ pp?.speed || "", pp?.accuracy || "", pp?.repeat || "", pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
       /* 31-35 Input  */ inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
       /* 36-40 Output */ out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
@@ -891,7 +892,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
     if (l3Id) coveredL3.add(l3Id);
     if (l2Id) coveredL2.add(l2Id);
-    const row: string[] = new Array(44).fill("");
+    const row: string[] = new Array(45).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
     row[4] = l4Id; row[5] = (d4.label as string) || ""; row[6] = (d4.description as string) || "";
@@ -907,7 +908,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const d2 = l2Node ? nd(l2Node) : {};
     const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
     if (l2Id) coveredL2.add(l2Id);
-    const row: string[] = new Array(44).fill("");
+    const row: string[] = new Array(45).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
     dataRows.push(row);
@@ -918,7 +919,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
     if (coveredL2.has(l2Id)) continue;
     const d2 = nd(l2Node);
-    const row: string[] = new Array(44).fill("");
+    const row: string[] = new Array(45).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     dataRows.push(row);
   }
@@ -981,7 +982,7 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     r.L5_ID, r.L5_Name, r.L5_Description,
     r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
     r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
-    r.sys_hr, r.sys_groupware, r.sys_office, r.sys_manual, r.sys_etc,
+    r.sys_hr, r.sys_groupware, r.sys_office, r.sys_external, r.sys_manual, r.sys_etc,
     r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
     r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
     r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
@@ -1005,7 +1006,7 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
       (d.mainPerson as string) || r.main_person, (d.avgTime as string) || r.avg_time,
       (d.freqCount as string) || r.freq_count,
       systems?.hr || r.sys_hr, systems?.groupware || r.sys_groupware,
-      systems?.office || r.sys_office, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
+      systems?.office || r.sys_office, systems?.external || r.sys_external, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
       pp?.speed || r.pp_speed, pp?.accuracy || r.pp_accuracy, pp?.repeat || r.pp_repeat,
       pp?.data || r.pp_data, pp?.system || r.pp_system, pp?.comm || r.pp_comm, pp?.etc || r.pp_etc,
       inp?.system || r.in_system, inp?.doc || r.in_doc, inp?.external || r.in_external,
@@ -1062,7 +1063,7 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
         (d5.mgrBody as string) || "", (d5.staffCount as string) || "",
         (d5.mainPerson as string) || "", (d5.avgTime as string) || "", (d5.freqCount as string) || "",
         systems?.hr || "", systems?.groupware || "", systems?.office || "",
-        systems?.manual || "", systems?.etc || "",
+        systems?.external || "", systems?.manual || "", systems?.etc || "",
         pp?.speed || "", pp?.accuracy || "", pp?.repeat || "",
         pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
         inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
@@ -1112,7 +1113,7 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
         r.L5_ID, r.L5_Name, r.L5_Description,
         r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
         r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
-        r.sys_hr, r.sys_groupware, r.sys_office, r.sys_manual, r.sys_etc,
+        r.sys_hr, r.sys_groupware, r.sys_office, r.sys_external, r.sys_manual, r.sys_etc,
         r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
         r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
         r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
@@ -1143,7 +1144,7 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
         (d.avgTime as string) || r.avg_time,
         (d.freqCount as string) || r.freq_count,
         systems?.hr || r.sys_hr, systems?.groupware || r.sys_groupware,
-        systems?.office || r.sys_office, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
+        systems?.office || r.sys_office, systems?.external || r.sys_external, systems?.manual || r.sys_manual, systems?.etc || r.sys_etc,
         pp?.speed || r.pp_speed, pp?.accuracy || r.pp_accuracy, pp?.repeat || r.pp_repeat,
         pp?.data || r.pp_data, pp?.system || r.pp_system, pp?.comm || r.pp_comm, pp?.etc || r.pp_etc,
         inp?.system || r.in_system, inp?.doc || r.in_doc, inp?.external || r.in_external,

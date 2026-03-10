@@ -21,7 +21,7 @@ async function buildColoredXlsx(rows: MergedRow[]): Promise<Blob> {
     "수행주체_현업 임원","수행주체_HR","수행주체_현업 팀장","수행주체_현업 구성원",
     "관리주체","담당자 수","주 담당자","평균 건당 소요시간","발생 빈도_건수",
     "사용 시스템_HR 전용시스템","사용 시스템_그룹웨어_협업툴","사용 시스템_오피스_문서도구",
-    "사용 시스템_수작업_오프라인","사용 시스템_기타 전문 Tool",
+    "사용 시스템_외부_연동시스템","사용 시스템_수작업_오프라인","사용 시스템_기타 전문 Tool",
     "Pain Point_시간_속도","Pain Point_정확성","Pain Point_반복/수작업",
     "Pain Point_정보_데이터","Pain Point_시스템_도구","Pain Point_의사소통_협업","Pain Point_기타",
     "Input_시스템 데이터","Input_문서_서류","Input_외부 정보","Input_구두_메일 요청","Input_기타",
@@ -629,9 +629,11 @@ export default function ExportToolbar({
           /* ── L5 전용: 기타 역할 바 (위에 얹기) + 2-box ── */
           const ROLE_BAR_H = 0.142;  // 0.36cm
           const roleVal = (nd.data as Record<string, string>).role || "";
+          const roleDisplay = roleVal.startsWith("그 외:") ? roleVal.slice(4).trim()
+            : roleVal.startsWith("기타:") ? roleVal.slice(3).trim() : "";
           let l5YOffset = 0;
-          if (roleVal.startsWith("기타:") && roleVal.slice(3).trim()) {
-            s2.addText(roleVal.slice(3).trim(), {
+          if (roleDisplay) {
+            s2.addText(roleDisplay, {
               x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
               shape: pptx.ShapeType.rect,
               fill: { color: "DBEAFE" },
@@ -665,6 +667,7 @@ export default function ExportToolbar({
             if (sysMap.hr?.trim()) parts.push(sysMap.hr.trim());
             if (sysMap.groupware?.trim()) parts.push(sysMap.groupware.trim());
             if (sysMap.office?.trim()) parts.push(sysMap.office.trim());
+            if (sysMap.external?.trim()) parts.push(sysMap.external.trim());
             if (sysMap.manual?.trim()) parts.push(sysMap.manual.trim());
             if (sysMap.etc?.trim()) parts.push(sysMap.etc.trim());
             if (parts.length > 0) sysName = parts.join(" / ");
@@ -695,7 +698,7 @@ export default function ExportToolbar({
           if (sysMap) {
             const SYS_KEYS: { key: string }[] = [
               { key: "hr" }, { key: "groupware" },
-              { key: "office" }, { key: "manual" }, { key: "etc" },
+              { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
             ];
             const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
             if (activeSys.length > 0) {
@@ -710,26 +713,25 @@ export default function ExportToolbar({
           }
         }
 
-        // Custom role tag (기타:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
+        // Custom role tag (기타:value → 그 외:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
         if (level !== "L5") {
           const roleStr = (nd.data as Record<string, string>).role || "";
-          if (roleStr.startsWith("기타:")) {
-            const customName = roleStr.slice(3);
-            if (customName) {
-              const tagW = Math.max(box.w, L5_FIXED_W);
-              const tagH = 0.142;  // 0.36cm
-              s2.addText(customName, {
-                x: box.x, y: box.y - tagH,
-                w: tagW, h: tagH,
-                shape: pptx.ShapeType.rect,
-                fill: { color: "DBEAFE" },
-                line: { color: "93C5FD", width: 0.5 },
-                fontSize: 7, bold: true, color: "1D4ED8",
-                fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_${nd.id}_${shapeList.length}`,
-              });
-              shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
-            }
+          const customName = roleStr.startsWith("그 외:") ? roleStr.slice(4).trim()
+            : roleStr.startsWith("기타:") ? roleStr.slice(3).trim() : "";
+          if (customName) {
+            const tagW = Math.max(box.w, L5_FIXED_W);
+            const tagH = 0.142;  // 0.36cm
+            s2.addText(customName, {
+              x: box.x, y: box.y - tagH,
+              w: tagW, h: tagH,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DBEAFE" },
+              line: { color: "93C5FD", width: 0.5 },
+              fontSize: 7, bold: true, color: "1D4ED8",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
           }
         }
 
@@ -1781,8 +1783,10 @@ export default function ExportToolbar({
             const ROLE_BAR_H_S = 0.142;  // 0.36cm
             const roleVal = (nd.data as Record<string, string>).role || "";
             let l5YOff = 0;
-            if (roleVal.startsWith("기타:") && roleVal.slice(3).trim()) {
-              slide.addText(roleVal.slice(3).trim(), {
+            const roleBatchDisplay = roleVal.startsWith("그 외:") ? roleVal.slice(4).trim()
+              : roleVal.startsWith("기타:") ? roleVal.slice(3).trim() : "";
+            if (roleBatchDisplay) {
+              slide.addText(roleBatchDisplay, {
                 x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
                 shape: pptx.ShapeType.rect,
                 fill: { color: "DBEAFE" },
@@ -1811,7 +1815,7 @@ export default function ExportToolbar({
               sysName = sysStr;
             } else if (sysMap) {
               const SYS_KEYS = [
-                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "manual" }, { key: "etc" },
+                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
               ];
               const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
               if (active.length > 0) sysName = active.map(k => sysMap[k.key]!.trim()).join(", ");
@@ -1842,7 +1846,7 @@ export default function ExportToolbar({
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             if (sysMap) {
               const SYS_KEYS: { key: string }[] = [
-                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "manual" }, { key: "etc" },
+                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
               ];
               const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
               if (activeSys.length > 0) {
@@ -1857,26 +1861,25 @@ export default function ExportToolbar({
             }
           }
 
-          // Custom role tag (기타:value) — L5는 위에서 이미 바로 처리
+          // Custom role tag (기타:value → 그 외:value) — L5는 위에서 이미 바로 처리
           if (level !== "L5") {
             const roleStr = (nd.data as Record<string, string>).role || "";
-            if (roleStr.startsWith("기타:")) {
-              const customName = roleStr.slice(3);
-              if (customName) {
-                const tagW = Math.max(box.w, L5_FIXED_W_ALL);
-                const tagH = 0.142;
-                slide.addText(customName, {
-                  x: box.x, y: box.y - tagH,
-                  w: tagW, h: tagH,
-                  shape: pptx.ShapeType.rect,
-                  fill: { color: "DBEAFE" },
-                  line: { color: "93C5FD", width: 0.5 },
-                  fontSize: 7, bold: true, color: "1D4ED8",
-                  fontFace: FONT_FACE, valign: "middle", align: "center",
-                  objectName: `GRP_${nd.id}_${shapeList.length}`,
-                });
-                shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
-              }
+            const customName = roleStr.startsWith("그 외:") ? roleStr.slice(4).trim()
+              : roleStr.startsWith("기타:") ? roleStr.slice(3).trim() : "";
+            if (customName) {
+              const tagW = Math.max(box.w, L5_FIXED_W_ALL);
+              const tagH = 0.142;
+              slide.addText(customName, {
+                x: box.x, y: box.y - tagH,
+                w: tagW, h: tagH,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: { color: "93C5FD", width: 0.5 },
+                fontSize: 7, bold: true, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
             }
           }
 

@@ -34,7 +34,7 @@ interface L5ExtMeta {
   mainPerson?: string;
   avgTime?: string;
   freqCount?: string;
-  systems?: { hr: string; groupware: string; office: string; manual: string; etc: string };
+  systems?: { hr: string; groupware: string; office: string; external: string; manual: string; etc: string };
   painPoints?: { speed: string; accuracy: string; repeat: string; data: string; system: string; comm: string; etc: string };
   inputs?: { system: string; doc: string; external: string; request: string; etc: string };
   outputs?: { system: string; doc: string; comm: string; decision: string; etc: string };
@@ -52,6 +52,7 @@ const SYSTEM_LABEL_MAP: { key: string; label: string }[] = [
   { key: "hr",        label: "HR시스템" },
   { key: "groupware", label: "그룹웨어" },
   { key: "office",    label: "오피스" },
+  { key: "external",  label: "외부연동" },
   { key: "manual",    label: "수작업" },
   { key: "etc",       label: "기타" },
 ];
@@ -95,6 +96,7 @@ function getNodeMeta(node: Node): NodeMeta {
     if (sysObj.hr?.trim()) parts.push(sysObj.hr.trim());
     if (sysObj.groupware?.trim()) parts.push(sysObj.groupware.trim());
     if (sysObj.office?.trim()) parts.push(sysObj.office.trim());
+    if (sysObj.external?.trim()) parts.push(sysObj.external.trim());
     if (sysObj.manual?.trim()) parts.push(sysObj.manual.trim());
     if (sysObj.etc?.trim()) parts.push(sysObj.etc.trim());
     systemVal = parts.join(" / ");
@@ -172,7 +174,7 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
   const hasExt = ext && (
     ext.actors?.exec || ext.actors?.hr || ext.actors?.teamlead || ext.actors?.member ||
     ext.mgrBody || ext.staffCount || ext.mainPerson || ext.avgTime || ext.freqCount ||
-    ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.manual || ext.systems?.etc ||
+    ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.external || ext.systems?.manual || ext.systems?.etc ||
     ext.painPoints?.speed || ext.painPoints?.accuracy || ext.painPoints?.repeat || ext.painPoints?.data || ext.painPoints?.system || ext.painPoints?.comm || ext.painPoints?.etc ||
     ext.inputs?.system || ext.inputs?.doc || ext.inputs?.external || ext.inputs?.request || ext.inputs?.etc ||
     ext.outputs?.system || ext.outputs?.doc || ext.outputs?.comm || ext.outputs?.decision || ext.outputs?.etc ||
