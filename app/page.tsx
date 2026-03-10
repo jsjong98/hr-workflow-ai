@@ -402,48 +402,44 @@ export default function Home() {
     if (lvl === "L4") {
       const parentL3 = selectedL3 || "";
       const prefix = l4List.length > 0 ? l4List[0].id.split(".").slice(0, -1).join(".") : parentL3;
-      const maxIdx = l4List.reduce((m, l4) => {
-        const last = parseInt(l4.id.split(".").pop() || "0", 10);
-        return Math.max(m, last);
-      }, 0);
-      const newId = addDataForm.id.trim() || `${prefix}.${maxIdx + 1}`;
+      // ID: 팔레트 + 캔버스 양쪽의 최댓값 + 1 (연속 추가 시 stale 방지)
+      const paletteMax = l4List.reduce((m, l4) => Math.max(m, parseInt(l4.id.split(".").pop() || "0", 10)), 0);
+      const canvasMax = nodesRef.current
+        .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4")
+        .reduce((m, n) => Math.max(m, parseInt(((n.data as Record<string, unknown>).id as string || "").split(".").pop() || "0", 10)), 0);
+      const newId = addDataForm.id.trim() || `${prefix}.${Math.max(paletteMax, canvasMax) + 1}`;
       const newL4: L4Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l3Id: parentL3, isManual: true };
       setL4List((prev) => [...prev, newL4]);
       setL5Map((prev) => ({ ...prev, [newId]: [] }));
-      // 캔버스에도 즉시 추가 — 기존 L4 노드 오른쪽에 배치
-      const l4Nodes = nodesRef.current.filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4");
-      let x = 200, y = 100;
-      if (l4Nodes.length > 0) {
-        const last = l4Nodes.reduce((a, b) => (a.position.x > b.position.x ? a : b));
-        x = last.position.x + 280; y = last.position.y;
-      }
-      setNodes((nds) => [...nds, createNodeFromItem("l4", { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim() }, { x, y })]);
+      // 위치 계산을 setNodes functional update 안에서 → 항상 최신 nds 기준
+      const nameL4 = addDataForm.name.trim(); const descL4 = addDataForm.description.trim();
+      setNodes((nds) => {
+        const l4Nds = nds.filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4");
+        let x = 200, y = 100;
+        if (l4Nds.length > 0) { const last = l4Nds.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 280; y = last.position.y; }
+        return [...nds, createNodeFromItem("l4", { id: newId, name: nameL4, description: descL4 }, { x, y })];
+      });
     } else if (lvl === "L5") {
       const targetL4Id = expandedL4 || (l4List.length > 0 ? l4List[l4List.length - 1].id : null);
       if (!targetL4Id) { alert("L4가 없습니다. 먼저 L4를 추가해주세요."); return; }
-      const existing = l5Map[targetL4Id] || [];
-      const maxIdx = existing.reduce((m, l5) => {
-        const last = parseInt(l5.id.split(".").pop() || "0", 10);
-        return Math.max(m, last);
-      }, 0);
-      const newId = addDataForm.id.trim() || `${targetL4Id}.${maxIdx + 1}`;
+      // ID: 팔레트 + 캔버스 양쪽의 최댓값 + 1 (연속 추가 시 stale 방지)
+      const paletteMaxL5 = (l5Map[targetL4Id] || []).reduce((m, l5) => Math.max(m, parseInt(l5.id.split(".").pop() || "0", 10)), 0);
+      const canvasMaxL5 = nodesRef.current
+        .filter((n) => { const d = n.data as Record<string, unknown>; return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(targetL4Id + "."); })
+        .reduce((m, n) => Math.max(m, parseInt(((n.data as Record<string, unknown>).id as string || "").split(".").pop() || "0", 10)), 0);
+      const newId = addDataForm.id.trim() || `${targetL4Id}.${Math.max(paletteMaxL5, canvasMaxL5) + 1}`;
       const newL5: L5Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id, isManual: true };
       setL5Map((prev) => ({ ...prev, [targetL4Id]: [...(prev[targetL4Id] || []), newL5] }));
       setExpandedL4(targetL4Id);
-      // 캔버스에도 즉시 추가 — 같은 L4 하위 L5 노드 오른쪽에 배치
-      const siblingL5 = nodesRef.current.filter((n) => {
-        const d = n.data as Record<string, unknown>;
-        return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(targetL4Id + ".");
+      // 위치 계산을 setNodes functional update 안에서 → 항상 최신 nds 기준
+      const nameL5 = addDataForm.name.trim(); const descL5 = addDataForm.description.trim(); const tgtL4 = targetL4Id;
+      setNodes((nds) => {
+        const siblings = nds.filter((n) => { const d = n.data as Record<string, unknown>; return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(tgtL4 + "."); });
+        let x = 200, y = 400;
+        if (siblings.length > 0) { const last = siblings.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 220; y = last.position.y; }
+        else { const l4Nd = nds.find((n) => ((n.data as Record<string, unknown>).id as string) === tgtL4); if (l4Nd) { x = l4Nd.position.x; y = l4Nd.position.y + 250; } }
+        return [...nds, createNodeFromItem("l5", { id: newId, name: nameL5, description: descL5, l4Id: tgtL4 }, { x, y })];
       });
-      let x = 200, y = 400;
-      if (siblingL5.length > 0) {
-        const last = siblingL5.reduce((a, b) => (a.position.x > b.position.x ? a : b));
-        x = last.position.x + 220; y = last.position.y;
-      } else {
-        const l4Node = nodesRef.current.find((n) => ((n.data as Record<string, unknown>).id as string) === targetL4Id);
-        if (l4Node) { x = l4Node.position.x; y = l4Node.position.y + 250; }
-      }
-      setNodes((nds) => [...nds, createNodeFromItem("l5", { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id }, { x, y })]);
     } else {
       alert(`${lvl} 레벨은 팔레트에서 직접 추가할 수 없습니다. L4 또는 L5만 추가 가능합니다.`);
       return;
