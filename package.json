@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.10.1",
+    "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.11.13",
     "jszip": "^3.10.1",

@@ -40,9 +40,35 @@ function nodeToRow(n: Node): RowData {
 
 /* ═══ ID 재번호 ═══ */
 function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateAction<Node[]>>) {
-  const rows = nodes.map(nodeToRow);
-  const idMap = new Map<string, string>();
   const levelDepth: Record<string, number> = { L2: 1, L3: 2, L4: 3, L5: 4 };
+
+  /* ① 올바른 계층 ID(숫자+점)인지 확인 */
+  const isValidHierarchyId = (id: string) => /^\d+(\.\d+)*$/.test(id);
+
+  /* ② 유효한 계층 ID 순으로 정렬 → 그 다음 level 기준 정렬
+   *    "1" < "1.1" < "1.1.1" < "1.1.1.1" < "1.1.2" < "1.2" < "2" …
+   *    이 순서가 곧 깊이 우선(DFS) 순서이므로 renumber가 정확해짐 */
+  const sortedNodes = [...nodes].sort((a, b) => {
+    const da = (a.data || {}) as Record<string, unknown>;
+    const db = (b.data || {}) as Record<string, unknown>;
+    const idA = (da.id as string) || "";
+    const idB = (db.id as string) || "";
+    const validA = isValidHierarchyId(idA);
+    const validB = isValidHierarchyId(idB);
+
+    if (validA && !validB) return -1;   // 유효 ID 먼저
+    if (!validA && validB) return 1;
+    if (!validA && !validB) {
+      // 둘 다 비정상 ID → level 깊이 순
+      const depthA = levelDepth[((da.level as string) || "").toUpperCase()] || 99;
+      const depthB = levelDepth[((db.level as string) || "").toUpperCase()] || 99;
+      return depthA - depthB;
+    }
+    return idA.localeCompare(idB, undefined, { numeric: true });
+  });
+
+  const rows = sortedNodes.map(nodeToRow);
+  const idMap = new Map<string, string>();
   const currentParentId: Record<number, string> = {};
   const childCounters: Record<string, number> = {};
 
@@ -64,9 +90,16 @@ function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateActio
         idMap.set(row.nodeId, newId);
         currentParentId[depth] = newId;
       } else {
-        const key = `orphan-${depth}`;
+        /* 부모가 없는 경우: 가장 가까운 상위 레벨에 붙임 */
+        let foundParentId = "";
+        for (let pd = parentDepth - 1; pd >= 1; pd--) {
+          if (currentParentId[pd]) { foundParentId = currentParentId[pd]; break; }
+        }
+        const key = foundParentId ? `p-${foundParentId}` : `orphan-${depth}`;
         childCounters[key] = (childCounters[key] || 0) + 1;
-        const newId = `${childCounters[key]}`;
+        const newId = foundParentId
+          ? `${foundParentId}.${childCounters[key]}`
+          : `${childCounters[key]}`;
         idMap.set(row.nodeId, newId);
         currentParentId[depth] = newId;
       }

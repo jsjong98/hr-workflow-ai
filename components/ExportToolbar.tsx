@@ -8,14 +8,13 @@ import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
 import { buildTemplateCsvString, buildMergedCsvString, buildMergedRows, type MergedRow, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
 
-/** CSV 머지 결과를 색상 강조 Excel(.xls) Blob으로 변환
+/** CSV 머지 결과를 색상 강조 Excel(.xlsx) Blob으로 변환
  *  - unchanged: 흰색 / modified: 노란색 / new: 초록색 */
-function buildColoredXls(rows: MergedRow[]): Blob {
-  const BG: Record<string, string> = {
-    new: "#C8E6C9",
-    modified: "#FFF9C4",
-    unchanged: "#FFFFFF",
-  };
+async function buildColoredXlsx(rows: MergedRow[]): Promise<Blob> {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("HR Workflow");
+
   const HEADER = [
     "ID","두산 L2","ID","Name","ID","Name","Description",
     "ID","Name","Description",
@@ -29,25 +28,56 @@ function buildColoredXls(rows: MergedRow[]): Blob {
     "Output_시스템 반영","Output_문서_보고서","Output_커뮤니케이션","Output_의사결정","Output_기타",
     "업무 판단 로직_Rule_based","업무 판단 로직_사람 판단","업무 판단 로직_혼합",
   ];
-  const esc = (s: string) =>
-    (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  let html =
-    `<html xmlns:o="urn:schemas-microsoft-com:office:office" ` +
-    `xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
-    `<head><meta charset="UTF-8"/>` +
-    `<style>td,th{border:1px solid #ccc;font-family:"Malgun Gothic",sans-serif;font-size:10px;` +
-    `padding:3px 5px;white-space:nowrap;}th{background:#D3D3D3;font-weight:bold;}</style>` +
-    `</head><body><table>`;
-  html += `<tr>${HEADER.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
+  /* ── 헤더 행 추가 ── */
+  const headerRow = sheet.addRow(HEADER);
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3D3D3" } };
+    cell.font = { bold: true, name: "Malgun Gothic", size: 10 };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FFCCCCCC" } },
+      left: { style: "thin", color: { argb: "FFCCCCCC" } },
+      bottom: { style: "thin", color: { argb: "FFCCCCCC" } },
+      right: { style: "thin", color: { argb: "FFCCCCCC" } },
+    };
+    cell.alignment = { wrapText: false, vertical: "middle" };
+  });
+  headerRow.height = 18;
+
+  /* ── 배경색 맵 (ARGB) ── */
+  const BG_ARGB: Record<string, string> = {
+    new:       "FFC8E6C9",  // 초록
+    modified:  "FFFFF9C4",  // 노란
+    unchanged: "FFFFFFFF",  // 흰색
+  };
+
+  /* ── 데이터 행 추가 ── */
   for (const row of rows) {
-    const bg = BG[row.status] ?? "#FFFFFF";
-    html += `<tr style="background-color:${bg};">`;
-    html += row.cols.map((c) => `<td>${esc(c)}</td>`).join("");
-    html += "</tr>";
+    const dataRow = sheet.addRow(row.cols);
+    const argb = BG_ARGB[row.status] ?? "FFFFFFFF";
+    dataRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+      cell.font = { name: "Malgun Gothic", size: 10 };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFCCCCCC" } },
+        left: { style: "thin", color: { argb: "FFCCCCCC" } },
+        bottom: { style: "thin", color: { argb: "FFCCCCCC" } },
+        right: { style: "thin", color: { argb: "FFCCCCCC" } },
+      };
+      cell.alignment = { wrapText: false, vertical: "middle" };
+    });
+    dataRow.height = 16;
   }
-  html += "</table></body></html>";
-  return new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+
+  /* ── 열 너비 자동 설정 ── */
+  sheet.columns.forEach((col, i) => {
+    col.width = i < 2 ? 12 : i < 10 ? 20 : 14;
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 }
 
 interface ExportToolbarProps {
@@ -2362,7 +2392,7 @@ export default function ExportToolbar({
   }, [csvRows]);
 
   /* ═══ Excel (CSV) Export ═══ */
-  const handleExportExcel = useCallback(() => {
+  const handleExportExcel = useCallback(async () => {
     /* 전체 시트 노드 수집 */
     type FlowNode = import("@xyflow/react").Node;
     const allNodes: FlowNode[] = [];
@@ -2376,10 +2406,10 @@ export default function ExportToolbar({
     }
 
     if (csvRows && csvRows.length > 0) {
-      /* CSV 있음: 머지 + 색상 강조 .xls */
+      /* CSV 있음: 머지 + 색상 강조 .xlsx */
       const rows = buildMergedRows(csvRows, allNodes);
-      const blob = buildColoredXls(rows);
-      saveAs(blob, `PwC_HR_Template_${Date.now()}.xls`);
+      const blob = await buildColoredXlsx(rows);
+      saveAs(blob, `PwC_HR_Template_${Date.now()}.xlsx`);
     } else {
       /* CSV 없음: 캔버스 노드만 CSV */
       if (allNodes.length === 0) { alert("캔버스에 노드가 없습니다."); return; }
