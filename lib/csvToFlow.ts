@@ -1046,31 +1046,19 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     ];
   };
 
-  /* isManual 노드가 점유한 ID 목록 — CSV 행과 중복 방지 */
-  const manualL5Ids = new Set<string>();
-  for (const n of nodes) {
-    const d = nd(n);
-    if (((d.level as string) || "").toUpperCase() === "L5" && !!(d.isManual)) {
-      const did = (d.id as string) || "";
-      if (did) manualL5Ids.add(did);
-    }
-  }
-
   const results: MergedRow[] = [];
-  const matchedL5Ids = new Set<string>();
+  /* React Flow 내부 node.id 기준으로 CSV 매칭된 노드 추적
+     (display ID 기반 matchedL5Ids 와 달리 동일 display ID 충돌 없음) */
+  const matchedNodeIds = new Set<string>();
 
   for (const r of csvRows) {
     if (!r.L2_ID && !r.L3_ID && !r.L4_ID && !r.L5_ID) continue;
     const node = r.L5_ID ? nodeByL5Id.get(r.L5_ID) : undefined;
     if (!node) {
-      /* isManual 노드가 같은 ID를 점유 → CSV 행은 건너뜀 (새 노드 루프에서 처리) */
-      if (r.L5_ID && manualL5Ids.has(r.L5_ID)) {
-        matchedL5Ids.add(r.L5_ID);
-      } else {
-        results.push({ cols: colsFromCsvRow(r), status: "unchanged" });
-      }
+      /* 캔버스에 매칭 노드 없음 → 원본 CSV 그대로 포함 (isManual 충돌 포함) */
+      results.push({ cols: colsFromCsvRow(r), status: "unchanged" });
     } else {
-      matchedL5Ids.add(r.L5_ID);
+      matchedNodeIds.add(node.id);
       const original = colsFromCsvRow(r);
       const merged = colsFromNode(r, node);
       results.push({ cols: merged, status: merged.some((v, i) => v !== original[i]) ? "modified" : "unchanged" });
@@ -1083,12 +1071,18 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     if (r.L4_ID && !csvByL4.has(r.L4_ID)) csvByL4.set(r.L4_ID, r);
   }
 
-  /* 캔버스에만 있는 새 L5 노드 */
-  const l5Sorted = Array.from(byLevel.L5.entries())
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-  for (const [l5Id, l5Node] of l5Sorted) {
-    if (matchedL5Ids.has(l5Id)) continue;
+  /* 캔버스에만 있는 새 L5 노드 (CSV 매칭에서 제외된 전체 노드 순회)
+     byLevel.L5 대신 nodes 전체 순회 → isManual 노드도 모두 포착 */
+  const newNodesSorted = nodes
+    .filter(n => {
+      const d = nd(n);
+      return ((d.level as string) || "").toUpperCase() === "L5" && !matchedNodeIds.has(n.id);
+    })
+    .sort((a, b) => ((nd(a).id as string) || "").localeCompare((nd(b).id as string) || "", undefined, { numeric: true }));
+
+  for (const l5Node of newNodesSorted) {
     const d5 = nd(l5Node);
+    const l5Id = (d5.id as string) || "";
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
     let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
     let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
@@ -1158,9 +1152,49 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     });
   }
 
+  /* ── L5 ID 재번호: 새 노드(isManual)가 삽입된 L4 그룹은 순서 기반 재번호 ──
+   * 1) L4별로 그룹화  2) "new" 행이 있는 그룹만 재번호
+   * 3) 같은 ID면 "new" 우선 → 삽입(insert) 동작 구현 */
+  const byL4Group = new Map<string, number[]>();
+  results.forEach((row, i) => {
+    const l4Key = row.cols[4] || "__none__";
+    if (!byL4Group.has(l4Key)) byL4Group.set(l4Key, []);
+    byL4Group.get(l4Key)!.push(i);
+  });
+
+  for (const [l4Key, idxList] of byL4Group) {
+    const hasNew = idxList.some(i => results[i].status === "new");
+    if (!hasNew) continue; // 새 노드 없으면 재번호 불필요
+
+    /* L5_ID 기준 정렬, 같은 ID면 "new" 우선 */
+    idxList.sort((a, b) => {
+      const ia = results[a].cols[7] || "";
+      const ib = results[b].cols[7] || "";
+      const cmp = ia.localeCompare(ib, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+      const pa = results[a].status === "new" ? 0 : 1;
+      const pb = results[b].status === "new" ? 0 : 1;
+      return pa - pb;
+    });
+
+    /* 순서대로 새 ID 할당: L4_ID.1, L4_ID.2, ... */
+    const prefix = l4Key !== "__none__" ? l4Key + "." : "";
+    idxList.forEach((idx, pos) => {
+      const newL5Id = prefix + (pos + 1);
+      const oldL5Id = results[idx].cols[7];
+      if (newL5Id === oldL5Id) return;
+      const newCols = [...results[idx].cols];
+      newCols[7] = newL5Id;
+      results[idx] = {
+        cols: newCols,
+        /* ID가 바뀐 기존 행은 "modified"로 표시 */
+        status: results[idx].status === "unchanged" ? "modified" : results[idx].status,
+      };
+    });
+  }
+
   /* ── 전체 행을 L2→L3→L4→L5 ID 기준으로 정렬 ── */
   results.sort((a, b) => {
-    // cols 인덱스: 0=L2_ID, 2=L3_ID, 4=L4_ID, 7=L5_ID
     const keyOf = (cols: string[]) =>
       [cols[0] || "", cols[2] || "", cols[4] || "", cols[7] || ""]
         .join("\t");

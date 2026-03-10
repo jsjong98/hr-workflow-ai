@@ -2446,22 +2446,74 @@ export default function ExportToolbar({
     saveAs(blob, `PwC_HR_AllSheets_${Date.now()}.csv`);
   }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);
 
-  /* ═══ Canvas-Only Excel: 전체 시트에 올린 노드만 출력 (csvRows merge 없음) ═══ */
-  const handleExportCanvasExcel = useCallback(() => {
-    type FlowNode = import("@xyflow/react").Node;
-    const allNodes: FlowNode[] = [];
-    if (sheets && getSheetData) {
-      for (const s of sheets) {
-        const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
-        allNodes.push(...sd.nodes);
+  /* ═══ Canvas-Only Excel: 전체 시트 각각을 별도 워크시트로 출력 ═══ */
+  const handleExportCanvasExcel = useCallback(async () => {
+    if (!sheets || !getSheetData) { alert("sheets 정보가 없습니다."); return; }
+
+    /* 간단한 CSV 라인 파서 (quoted 필드 지원) */
+    function parseCsvLine(line: string): string[] {
+      const result: string[] = [];
+      let cur = ""; let inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQ) {
+          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (ch === '"') { inQ = false; }
+          else { cur += ch; }
+        } else {
+          if (ch === '"') { inQ = true; }
+          else if (ch === ',') { result.push(cur); cur = ""; }
+          else { cur += ch; }
+        }
       }
-    } else {
-      allNodes.push(...nodes);
+      result.push(cur);
+      return result;
     }
-    if (allNodes.length === 0) { alert("시트에 노드가 없습니다."); return; }
-    const csv = buildTemplateCsvString(allNodes, csvRows || undefined);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `PwC_HR_Canvas_${Date.now()}.csv`);
+
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    let hasAnyNode = false;
+
+    for (const s of sheets) {
+      const sd = s.id === activeSheetId ? { nodes, edges } : getSheetData(s.id);
+      const sheetNodes = sd.nodes;
+      if (sheetNodes.length === 0) continue;
+      hasAnyNode = true;
+
+      const csvStr = buildTemplateCsvString(sheetNodes, csvRows || undefined);
+      const lines = csvStr.replace(/^\uFEFF/, "").split("\n").filter(l => l.trim());
+
+      /* Excel 시트명: 특수문자 제거, 최대 31자 */
+      const wsName = s.name.replace(/[\\\/\*\?\:\[\]]/g, "").slice(0, 31) || `Sheet`;
+      const ws = workbook.addWorksheet(wsName);
+
+      lines.forEach((line, i) => {
+        const cells = parseCsvLine(line);
+        const row = ws.addRow(cells);
+        if (i === 0) {
+          row.eachCell(cell => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3D3D3" } };
+            cell.font = { bold: true, name: "Malgun Gothic", size: 10 };
+            cell.border = { top: { style: "thin", color: { argb: "FFCCCCCC" } }, left: { style: "thin", color: { argb: "FFCCCCCC" } }, bottom: { style: "thin", color: { argb: "FFCCCCCC" } }, right: { style: "thin", color: { argb: "FFCCCCCC" } } };
+            cell.alignment = { wrapText: false, vertical: "middle" };
+          });
+          row.height = 18;
+        } else {
+          row.eachCell({ includeEmpty: true }, cell => {
+            cell.font = { name: "Malgun Gothic", size: 10 };
+            cell.border = { top: { style: "thin", color: { argb: "FFCCCCCC" } }, left: { style: "thin", color: { argb: "FFCCCCCC" } }, bottom: { style: "thin", color: { argb: "FFCCCCCC" } }, right: { style: "thin", color: { argb: "FFCCCCCC" } } };
+            cell.alignment = { wrapText: false, vertical: "middle" };
+          });
+          row.height = 16;
+        }
+      });
+      ws.columns.forEach((col, i) => { col.width = i < 2 ? 12 : i < 10 ? 20 : 14; });
+    }
+
+    if (!hasAnyNode) { alert("모든 시트에 노드가 없습니다."); return; }
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    saveAs(blob, `PwC_HR_AllSheets_${Date.now()}.xlsx`);
   }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);
 
   return (
@@ -2505,9 +2557,9 @@ export default function ExportToolbar({
       <button
         onClick={handleExportCanvasExcel}
         className="text-[10px] font-medium bg-lime-600 text-white rounded px-2 py-1.5 hover:bg-lime-700 transition"
-        title="시트에 올린 노드만 내보내기 (원본 CSV 무관, 캔버스 기반)"
+        title="전체 시트를 각각 별도 워크시트로 내보내기 (원본 CSV 무관, 캔버스 기반)"
       >
-        📋 시트만
+        📋 전체 시트
       </button>
     </div>
 </>
