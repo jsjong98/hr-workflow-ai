@@ -8,6 +8,14 @@ import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
 import { buildTemplateCsvString, buildMergedCsvString, buildMergedRows, type MergedRow, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
 
+/* 역할 문자열에서 "그 외:xxx" 또는 "기타:xxx" 부분 추출 (콤마 구분 지원) */
+function extractCustomRole(role: string): string {
+  const parts = role.split(",").map(r => r.trim());
+  const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
+  if (!custom) return "";
+  return custom.startsWith("그 외:") ? custom.slice(4).trim() : custom.slice(3).trim();
+}
+
 /** CSV 머지 결과를 색상 강조 Excel(.xlsx) Blob으로 변환
  *  - unchanged: 흰색 / modified: 노란색 / new: 초록색 */
 async function buildColoredXlsx(rows: MergedRow[]): Promise<Blob> {
@@ -629,8 +637,7 @@ export default function ExportToolbar({
           /* ── L5 전용: 기타 역할 바 (위에 얹기) + 2-box ── */
           const ROLE_BAR_H = 0.142;  // 0.36cm
           const roleVal = (nd.data as Record<string, string>).role || "";
-          const roleDisplay = roleVal.startsWith("그 외:") ? roleVal.slice(4).trim()
-            : roleVal.startsWith("기타:") ? roleVal.slice(3).trim() : "";
+          const roleDisplay = extractCustomRole(roleVal);
           let l5YOffset = 0;
           if (roleDisplay) {
             s2.addText(roleDisplay, {
@@ -713,11 +720,10 @@ export default function ExportToolbar({
           }
         }
 
-        // Custom role tag (기타:value → 그 외:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
+        // Custom role tag (그 외:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
         if (level !== "L5") {
           const roleStr = (nd.data as Record<string, string>).role || "";
-          const customName = roleStr.startsWith("그 외:") ? roleStr.slice(4).trim()
-            : roleStr.startsWith("기타:") ? roleStr.slice(3).trim() : "";
+          const customName = extractCustomRole(roleStr);
           if (customName) {
             const tagW = Math.max(box.w, L5_FIXED_W);
             const tagH = 0.142;  // 0.36cm
@@ -1783,8 +1789,7 @@ export default function ExportToolbar({
             const ROLE_BAR_H_S = 0.142;  // 0.36cm
             const roleVal = (nd.data as Record<string, string>).role || "";
             let l5YOff = 0;
-            const roleBatchDisplay = roleVal.startsWith("그 외:") ? roleVal.slice(4).trim()
-              : roleVal.startsWith("기타:") ? roleVal.slice(3).trim() : "";
+            const roleBatchDisplay = extractCustomRole(roleVal);
             if (roleBatchDisplay) {
               slide.addText(roleBatchDisplay, {
                 x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
@@ -1861,11 +1866,10 @@ export default function ExportToolbar({
             }
           }
 
-          // Custom role tag (기타:value → 그 외:value) — L5는 위에서 이미 바로 처리
+          // Custom role tag (그 외:value) — L5는 위에서 이미 바로 처리
           if (level !== "L5") {
             const roleStr = (nd.data as Record<string, string>).role || "";
-            const customName = roleStr.startsWith("그 외:") ? roleStr.slice(4).trim()
-              : roleStr.startsWith("기타:") ? roleStr.slice(3).trim() : "";
+            const customName = extractCustomRole(roleStr);
             if (customName) {
               const tagW = Math.max(box.w, L5_FIXED_W_ALL);
               const tagH = 0.142;
@@ -2455,10 +2459,10 @@ export default function ExportToolbar({
       allNodes.push(...nodes);
     }
     if (allNodes.length === 0) { alert("시트에 노드가 없습니다."); return; }
-    const csv = buildTemplateCsvString(allNodes);
+    const csv = buildTemplateCsvString(allNodes, csvRows || undefined);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     saveAs(blob, `PwC_HR_Canvas_${Date.now()}.csv`);
-  }, [sheets, getSheetData, activeSheetId, nodes, edges]);
+  }, [sheets, getSheetData, activeSheetId, nodes, edges, csvRows]);
 
   return (
     <>

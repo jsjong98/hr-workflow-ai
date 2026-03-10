@@ -88,6 +88,7 @@ interface NodeData {
     hr: string;
     groupware: string;
     office: string;
+    external: string;
     manual: string;
     etc: string;
   };
@@ -98,9 +99,25 @@ const SYSTEM_TAGS: { key: keyof NonNullable<NodeData["systems"]>; label: string 
   { key: "hr",        label: "HR시스템" },
   { key: "groupware", label: "그룹웨어" },
   { key: "office",    label: "오피스"   },
+  { key: "external",  label: "외부연동" },
   { key: "manual",    label: "수작업"   },
   { key: "etc",       label: "기타툴"   },
 ];
+
+/* helper: 역할 문자열에서 '그 외:xxx' 또는 '기타:xxx' 부분 추출 (콤마 구분 지원) */
+function extractCustomRole(role?: string): string {
+  if (!role) return "";
+  const parts = role.split(",").map(r => r.trim());
+  const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
+  if (!custom) return "";
+  return custom.startsWith("그 외:") ? custom.slice(4).trim() : custom.slice(3).trim();
+}
+
+/** 역할 문자열이 '그 외' 또는 '기타' 본체(텍스트 없음) 또는 '그 외:xxx'를 포함하는지 */
+function hasCustomRole(role?: string): boolean {
+  if (!role) return false;
+  return role.split(",").map(r => r.trim()).some(r => r === "그 외" || r.startsWith("그 외:") || r === "기타" || r.startsWith("기타:"));
+}
 
 /* helper: check if any metadata exists */
 function hasMeta(d: NodeData): boolean {
@@ -115,6 +132,7 @@ function getL5SystemName(data: NodeData): string {
     if (data.systems.hr?.trim()) parts.push(data.systems.hr.trim());
     if (data.systems.groupware?.trim()) parts.push(data.systems.groupware.trim());
     if (data.systems.office?.trim()) parts.push(data.systems.office.trim());
+    if (data.systems.external?.trim()) parts.push(data.systems.external.trim());
     if (data.systems.manual?.trim()) parts.push(data.systems.manual.trim());
     if (data.systems.etc?.trim()) parts.push(data.systems.etc.trim());
     if (parts.length > 0) return parts.join(" / ");
@@ -145,12 +163,12 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
       <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
 
       {/* ── Custom role bar (그 외:value) — 위에 얹기 (0.36cm × 3.15cm) ── */}
-      {(data.role?.startsWith("그 외:") || data.role?.startsWith("기타:")) && (data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)).trim() && (
+      {extractCustomRole(data.role) && (
         <div
           className="bg-sky-100 border border-sky-300 flex items-center justify-center"
           style={{ height: 24, fontSize: 9, fontWeight: 700, color: '#1D4ED8' }}
         >
-          {(data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)).trim()}
+          {extractCustomRole(data.role)}
         </div>
       )}
 
@@ -178,7 +196,7 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
       {(data.memo || data.role || data.inputData || data.outputData || data.system) && (
         <div className="absolute top-1 left-1 flex items-center gap-1">
           {data.memo && <span className="text-[10px]" title="메모">📝</span>}
-          {data.role && !data.role.startsWith("기타:") && <span className="text-[10px]" title={`수행: ${data.role}`}>👤</span>}
+          {data.role && !hasCustomRole(data.role) && <span className="text-[10px]" title={`수행: ${data.role}`}>👤</span>}
           {data.inputData && <span className="text-[10px]" title="Input">📥</span>}
           {data.outputData && <span className="text-[10px]" title="Output">📤</span>}
         </div>
@@ -298,7 +316,7 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
       )}
 
       {/* Role badge (compact) */}
-      {data.role && !data.role.startsWith("그 외:") && !data.role.startsWith("기타:") && (
+      {data.role && !hasCustomRole(data.role) && (
         <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
           data.level === "L4"
             ? "bg-black/10 text-black/70"
@@ -309,12 +327,12 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
       )}
 
       {/* Custom role tag (그 외:value) — top-right overlap */}
-      {(data.role?.startsWith("그 외:") || data.role?.startsWith("기타:")) && (data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)) && (
+      {extractCustomRole(data.role) && (
         <div
           className="absolute z-20 text-[9px] font-semibold px-2.5 py-1 rounded bg-sky-100 text-sky-700 border border-sky-300 shadow-sm whitespace-nowrap"
           style={{ top: -10, right: -10 }}
         >
-          {data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)}
+          {extractCustomRole(data.role)}
         </div>
       )}
 

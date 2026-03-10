@@ -1033,6 +1033,12 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     }
   }
 
+  /* CSV L4_ID → CsvRow 매핑 (부모 계층 fallback) */
+  const csvByL4 = new Map<string, CsvRow>();
+  for (const r of csvRows) {
+    if (r.L4_ID && !csvByL4.has(r.L4_ID)) csvByL4.set(r.L4_ID, r);
+  }
+
   /* 캔버스에만 있는 새 L5 노드 */
   const l5Sorted = Array.from(byLevel.L5.entries())
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
@@ -1040,15 +1046,26 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     if (matchedL5Ids.has(l5Id)) continue;
     const d5 = nd(l5Node);
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
-    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
-    const l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
-    const l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
+    let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
+    let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
+    let l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
     const l3Node = l4Id ? findParent(l4Id, "L3", d5.l3Id as string) : undefined;
-    const l3Id = l3Node ? (nd(l3Node).id as string) || "" : (d5.l3Id as string) || "";
-    const l3Label = l3Node ? (nd(l3Node).label as string) || "" : (d5.l3Name as string) || "";
+    let l3Id = l3Node ? (nd(l3Node).id as string) || "" : (d5.l3Id as string) || "";
+    let l3Label = l3Node ? (nd(l3Node).label as string) || "" : (d5.l3Name as string) || "";
     const l2Node = l3Id ? findParent(l3Id, "L2", d5.l2Id as string) : undefined;
-    const l2Id = l2Node ? (nd(l2Node).id as string) || "" : (d5.l2Id as string) || "";
-    const l2Label = l2Node ? (nd(l2Node).label as string) || "" : (d5.l2Name as string) || "";
+    let l2Id = l2Node ? (nd(l2Node).id as string) || "" : (d5.l2Id as string) || "";
+    let l2Label = l2Node ? (nd(l2Node).label as string) || "" : (d5.l2Name as string) || "";
+
+    /* CSV fallback: L4_ID로 CSV 행에서 부모 계층(L2/L3) 복원 */
+    if (l4Id && (!l3Id || !l2Id)) {
+      const csvFallback = csvByL4.get(l4Id);
+      if (csvFallback) {
+        if (!l3Id) { l3Id = csvFallback.L3_ID; l3Label = l3Label || csvFallback.L3_Name; }
+        if (!l2Id) { l2Id = csvFallback.L2_ID; l2Label = l2Label || csvFallback["두산 L2"]; }
+        if (!l4Label) l4Label = csvFallback.L4_Name;
+        if (!l4Desc) l4Desc = csvFallback.L4_Description;
+      }
+    }
     const actors = d5.actors as Record<string, string> | undefined;
     const systems = d5.systems as Record<string, string> | undefined;
     const pp = d5.painPoints as Record<string, string> | undefined;
