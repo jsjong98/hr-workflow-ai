@@ -960,7 +960,9 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const d = nd(n);
     const level = ((d.level as string) || "").toUpperCase();
     const displayId = (d.id as string) || "";
-    if (level === "L5" && displayId) nodeByL5Id.set(displayId, n);
+    const isManual = !!(d.isManual);
+    /* isManual 노드는 CSV 행과 매칭하지 않음 — 항상 신규 행으로 처리 */
+    if (level === "L5" && displayId && !isManual) nodeByL5Id.set(displayId, n);
     if (level && displayId && byLevel[level]) byLevel[level].set(displayId, n);
   }
 
@@ -1079,13 +1081,14 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
  * 캔버스에 없는 L5도 원본 CSV 그대로 포함
  * ═══════════════════════════════════════════════ */
 export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
-  /* L5_ID → canvas node map */
+  /* L5_ID → canvas node map (isManual 노드는 제외 — CSV 행과 충돌 방지) */
   const nodeByL5Id = new Map<string, Node>();
   for (const n of nodes) {
     const d = nd(n);
     const level = ((d.level as string) || "").toUpperCase();
     const nodeId = (d.id as string) || "";
-    if (level === "L5" && nodeId) nodeByL5Id.set(nodeId, n);
+    const isManual = !!(d.isManual);
+    if (level === "L5" && nodeId && !isManual) nodeByL5Id.set(nodeId, n);
   }
 
   const esc = (v: string) => {
