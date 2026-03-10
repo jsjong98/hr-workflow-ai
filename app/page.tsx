@@ -449,7 +449,7 @@ export default function Home() {
         const l4Nds = nds.filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4");
         let x = 200, y = 100;
         if (l4Nds.length > 0) { const last = l4Nds.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 280; y = last.position.y; }
-        return [...nds, createNodeFromItem("l4", { id: newId, name: nameL4, description: descL4 }, { x, y })];
+        return [...nds, createNodeFromItem("l4", { id: newId, name: nameL4, description: descL4, isManual: true }, { x, y })];
       });
     } else if (lvl === "L5") {
       const targetL4Id = expandedL4 || (l4List.length > 0 ? l4List[l4List.length - 1].id : null);
@@ -476,7 +476,7 @@ export default function Home() {
         let x = 200, y = 400;
         if (siblings.length > 0) { const last = siblings.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 220; y = last.position.y; }
         else { const l4Nd = nds.find((n) => ((n.data as Record<string, unknown>).id as string) === tgtL4); if (l4Nd) { x = l4Nd.position.x; y = l4Nd.position.y + 250; } }
-        return [...nds, createNodeFromItem("l5", { id: newId, name: nameL5, description: descL5, l4Id: tgtL4, ...(roleVal ? { role: roleVal } : {}) }, { x, y })];
+        return [...nds, createNodeFromItem("l5", { id: newId, name: nameL5, description: descL5, l4Id: tgtL4, isManual: true, ...(roleVal ? { role: roleVal } : {}) }, { x, y })];
       });
     } else {
       alert(`${lvl} 레벨은 팔레트에서 직접 추가할 수 없습니다. L4 또는 L5만 추가 가능합니다.`);
