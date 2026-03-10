@@ -369,40 +369,40 @@ function DecisionNodeBase({ data, selected }: { data: DecisionNodeData; selected
       className="select-none relative"
       style={{ width: 220, height: 220 }}
     >
-      {/* ── Target handles ── */}
+      {/* ── Target handles — 꼭짓점에 정확히 위치 (vertex=8px 안쪽, handle 20px → offset=-2) ── */}
       <Handle type="target" position={Position.Top} id="t-top"
         className="!w-5 !h-5 !bg-transparent !border-0"
-        style={{ top: -10, left: '50%', transform: 'translateX(-50%)' }}
+        style={{ top: -2, left: '50%', transform: 'translateX(-50%)' }}
       />
       <Handle type="target" position={Position.Bottom} id="t-bottom"
         className="!w-5 !h-5 !bg-transparent !border-0"
-        style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
+        style={{ bottom: -2, left: '50%', transform: 'translateX(-50%)' }}
       />
       <Handle type="target" position={Position.Left} id="t-left"
         className="!w-5 !h-5 !bg-transparent !border-0"
-        style={{ left: -10, top: '50%', transform: 'translateY(-50%)' }}
+        style={{ left: -2, top: '50%', transform: 'translateY(-50%)' }}
       />
       <Handle type="target" position={Position.Right} id="t-right"
         className="!w-5 !h-5 !bg-transparent !border-0"
-        style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
+        style={{ right: -2, top: '50%', transform: 'translateY(-50%)' }}
       />
 
-      {/* ── Source handles (4방향 모두 source) ── */}
+      {/* ── Source handles ── */}
       <Handle type="source" position={Position.Bottom} id="bottom"
         className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
-        style={{ bottom: -10, left: '50%', transform: 'translateX(-50%)' }}
+        style={{ bottom: -2, left: '50%', transform: 'translateX(-50%)' }}
       />
       <Handle type="source" position={Position.Right} id="right"
         className="!w-5 !h-5 !bg-[#333333] !border-2 !border-white !z-10"
-        style={{ right: -10, top: '50%', transform: 'translateY(-50%)' }}
+        style={{ right: -2, top: '50%', transform: 'translateY(-50%)' }}
       />
       <Handle type="source" position={Position.Top} id="top"
         className="!w-5 !h-5 !bg-[#D95578] !border-2 !border-white !z-10"
-        style={{ top: -10, left: '50%', transform: 'translateX(-50%)' }}
+        style={{ top: -2, left: '50%', transform: 'translateX(-50%)' }}
       />
       <Handle type="source" position={Position.Left} id="left"
         className="!w-5 !h-5 !bg-[#D95578] !border-2 !border-white !z-10"
-        style={{ left: -10, top: '50%', transform: 'translateY(-50%)' }}
+        style={{ left: -2, top: '50%', transform: 'translateY(-50%)' }}
       />
 
       {/* ── Diamond SVG ── */}

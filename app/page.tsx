@@ -97,6 +97,47 @@ export default function Home() {
   // nodesRef: always up to date (for keyboard handlers)
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
+  /* ── 캔버스 → 팔레트 역방향 동기화 ──────────────────────
+   * 노드의 id/label/description이 변경될 때만 실행 (position 변경 제외)
+   * ──────────────────────────────────────────────────── */
+  const nodeDataSig = useMemo(
+    () =>
+      nodes
+        .filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L5")
+        .map((n) => {
+          const d = n.data as Record<string, unknown>;
+          return `${d.id}|${d.label}|${d.description ?? ""}`;
+        })
+        .join("\n"),
+    [nodes]
+  );
+  useEffect(() => {
+    setL5Map((prev) => {
+      let changed = false;
+      const next: Record<string, typeof prev[string]> = {};
+      for (const [l4Id, items] of Object.entries(prev)) {
+        next[l4Id] = items.map((item) => {
+          const canvasNode = nodesRef.current.find((n) => {
+            const d = n.data as Record<string, unknown>;
+            return (d.id as string) === item.id;
+          });
+          if (canvasNode) {
+            const d = canvasNode.data as Record<string, unknown>;
+            const newName = (d.label as string) || item.name;
+            const newDesc = (d.description as string) ?? item.description ?? "";
+            if (newName !== item.name || newDesc !== (item.description ?? "")) {
+              changed = true;
+              return { ...item, name: newName, description: newDesc };
+            }
+          }
+          return item;
+        });
+      }
+      return changed ? next : prev;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeDataSig]);
+
   // Track current state + debounced history push
   useEffect(() => {
     if (isRestoringRef.current) return;
