@@ -97,6 +97,30 @@ export default function Home() {
   // nodesRef: always up to date (for keyboard handlers)
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
+  // Guard: remove duplicate canvas nodes by data.id (safety net)
+  useEffect(() => {
+    const seen = new Set<string>();
+    let hasDups = false;
+    for (const n of nodes) {
+      const dataId = (n.data as Record<string, unknown>).id as string;
+      if (!dataId) continue;
+      if (seen.has(dataId)) { hasDups = true; break; }
+      seen.add(dataId);
+    }
+    if (!hasDups) return;
+    setNodes((nds) => {
+      const seenIds = new Set<string>();
+      return nds.filter((n) => {
+        const dataId = (n.data as Record<string, unknown>).id as string;
+        if (!dataId) return true;
+        if (seenIds.has(dataId)) return false;
+        seenIds.add(dataId);
+        return true;
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length]);
+
   /* ── 캔버스 → 팔레트 역방향 동기화 (label/description만) ── */
   const nodeDataSig = useMemo(
     () =>
@@ -114,7 +138,14 @@ export default function Home() {
       let changed = false;
       const next: Record<string, typeof prev[string]> = {};
       for (const [l4Id, items] of Object.entries(prev)) {
-        next[l4Id] = items.map((item) => {
+        // Dedup by id (guard against any duplicate entries)
+        const seen = new Set<string>();
+        const deduped = items.filter((item) => {
+          if (seen.has(item.id)) { changed = true; return false; }
+          seen.add(item.id);
+          return true;
+        });
+        next[l4Id] = deduped.map((item) => {
           const canvasNode = nodesRef.current.find((n) => {
             const d = n.data as Record<string, unknown>;
             return (d.id as string) === item.id;
@@ -409,11 +440,12 @@ export default function Home() {
         .reduce((m, n) => Math.max(m, parseInt(((n.data as Record<string, unknown>).id as string || "").split(".").pop() || "0", 10)), 0);
       const newId = addDataForm.id.trim() || `${prefix}.${Math.max(paletteMax, canvasMax) + 1}`;
       const newL4: L4Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l3Id: parentL3, isManual: true };
-      setL4List((prev) => [...prev, newL4]);
-      setL5Map((prev) => ({ ...prev, [newId]: [] }));
+      setL4List((prev) => prev.some((l4) => l4.id === newId) ? prev : [...prev, newL4]);
+      setL5Map((prev) => prev[newId] !== undefined ? prev : { ...prev, [newId]: [] });
       // 위치 계산을 setNodes functional update 안에서 → 항상 최신 nds 기준
       const nameL4 = addDataForm.name.trim(); const descL4 = addDataForm.description.trim();
       setNodes((nds) => {
+        if (nds.some((n) => ((n.data as Record<string, unknown>).id as string) === newId)) return nds;
         const l4Nds = nds.filter((n) => ((n.data as Record<string, unknown>).level as string)?.toUpperCase() === "L4");
         let x = 200, y = 100;
         if (l4Nds.length > 0) { const last = l4Nds.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 280; y = last.position.y; }
@@ -429,11 +461,16 @@ export default function Home() {
         .reduce((m, n) => Math.max(m, parseInt(((n.data as Record<string, unknown>).id as string || "").split(".").pop() || "0", 10)), 0);
       const newId = addDataForm.id.trim() || `${targetL4Id}.${Math.max(paletteMaxL5, canvasMaxL5) + 1}`;
       const newL5: L5Item = { id: newId, name: addDataForm.name.trim(), description: addDataForm.description.trim(), l4Id: targetL4Id, isManual: true };
-      setL5Map((prev) => ({ ...prev, [targetL4Id]: [...(prev[targetL4Id] || []), newL5] }));
+      setL5Map((prev) => {
+        const existing = prev[targetL4Id] || [];
+        if (existing.some((item) => item.id === newId)) return prev;
+        return { ...prev, [targetL4Id]: [...existing, newL5] };
+      });
       setExpandedL4(targetL4Id);
       // 위치 계산을 setNodes functional update 안에서 → 항상 최신 nds 기준
       const nameL5 = addDataForm.name.trim(); const descL5 = addDataForm.description.trim(); const tgtL4 = targetL4Id;
       setNodes((nds) => {
+        if (nds.some((n) => ((n.data as Record<string, unknown>).id as string) === newId)) return nds;
         const siblings = nds.filter((n) => { const d = n.data as Record<string, unknown>; return ((d.level as string)?.toUpperCase() === "L5") && (d.id as string)?.startsWith(tgtL4 + "."); });
         let x = 200, y = 400;
         if (siblings.length > 0) { const last = siblings.reduce((a, b) => (a.position.x > b.position.x ? a : b)); x = last.position.x + 220; y = last.position.y; }
@@ -1422,7 +1459,12 @@ export default function Home() {
               </div>
               <div className="px-4 py-2 border-b border-gray-100 flex gap-1.5">
                 <button
-                  onClick={() => { setPaletteEditMode(!paletteEditMode); setEditingPaletteItem(null); }}
+                  onClick={() => {
+                    const entering = !paletteEditMode;
+                    setPaletteEditMode(entering);
+                    setEditingPaletteItem(null);
+                    if (entering) { setAddDataMode(false); setAddDataForm({ level: "L5", id: "", name: "", description: "", role: "" }); }
+                  }}
                   className={`text-[10px] font-medium rounded px-2 py-1.5 transition ${
                     paletteEditMode
                       ? "bg-orange-500 text-white hover:bg-orange-600 ring-2 ring-orange-300"
