@@ -173,12 +173,12 @@ export default function SheetTabBar({
               </button>
               <button
                 className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-                onClick={() => { onAdd("swimlane", ["임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}
+                onClick={() => { onAdd("swimlane", ["현업 임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}
               >
                 <span>🏊</span>
                 <div>
                   <div className="font-semibold text-gray-700">6분할 시트</div>
-                  <div className="text-[9px] text-gray-400">임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div>
+                  <div className="text-[9px] text-gray-400">현업 임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div>
                 </div>
               </button>
             </div>
