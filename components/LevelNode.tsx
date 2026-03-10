@@ -144,13 +144,13 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
       <Handle type="source" position={Position.Left} id="left" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`} />
       <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
 
-      {/* ── Custom role bar (기타:value) — 위에 얹기 (0.36cm × 3.15cm) ── */}
-      {data.role?.startsWith("기타:") && data.role.slice(3).trim() && (
+      {/* ── Custom role bar (그 외:value) — 위에 얹기 (0.36cm × 3.15cm) ── */}
+      {(data.role?.startsWith("그 외:") || data.role?.startsWith("기타:")) && (data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)).trim() && (
         <div
           className="bg-sky-100 border border-sky-300 flex items-center justify-center"
           style={{ height: 24, fontSize: 9, fontWeight: 700, color: '#1D4ED8' }}
         >
-          {data.role.slice(3).trim()}
+          {(data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)).trim()}
         </div>
       )}
 
@@ -298,7 +298,7 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
       )}
 
       {/* Role badge (compact) */}
-      {data.role && !data.role.startsWith("기타:") && (
+      {data.role && !data.role.startsWith("그 외:") && !data.role.startsWith("기타:") && (
         <div className={`mt-3 inline-block text-sm px-3.5 py-1.5 rounded-full font-semibold ${
           data.level === "L4"
             ? "bg-black/10 text-black/70"
@@ -308,13 +308,13 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
         </div>
       )}
 
-      {/* Custom role tag (기타:value) — top-right overlap */}
-      {data.role?.startsWith("기타:") && data.role.slice(3) && (
+      {/* Custom role tag (그 외:value) — top-right overlap */}
+      {(data.role?.startsWith("그 외:") || data.role?.startsWith("기타:")) && (data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)) && (
         <div
           className="absolute z-20 text-[9px] font-semibold px-2.5 py-1 rounded bg-sky-100 text-sky-700 border border-sky-300 shadow-sm whitespace-nowrap"
           style={{ top: -10, right: -10 }}
         >
-          {data.role.slice(3)}
+          {data.role.slice(data.role.startsWith("그 외:") ? 4 : 3)}
         </div>
       )}
 

@@ -5,17 +5,11 @@ import type { Node } from "@xyflow/react";
 
 /* ── 수행 주체 선택지 ── */
 const ROLE_OPTIONS = [
-  "HR 담당자",
-  "임원 이상",
-  "팀장급",
-  "구성원",
-  "인사팀장",
-  "HRBP",
-  "채용 담당자",
-  "교육 담당자",
-  "IT 시스템",
-  "외부 업체",
-  "기타",
+  "임원 (=현업 임원)",
+  "HR",
+  "현업 팀장",
+  "현업 구성원",
+  "그 외",
 ] as const;
 
 export interface NodeMeta {
@@ -116,10 +110,10 @@ function getNodeMeta(node: Node): NodeMeta {
     const actors = d.actors as Record<string, string> | undefined;
     if (actors) {
       const parts: string[] = [];
-      if (actors.exec?.trim()) parts.push("임원 이상");
-      if (actors.hr?.trim()) parts.push("HR 담당자");
-      if (actors.teamlead?.trim()) parts.push("팀장급");
-      if (actors.member?.trim()) parts.push("구성원");
+      if (actors.exec?.trim()) parts.push("임원 (=현업 임원)");
+      if (actors.hr?.trim()) parts.push("HR");
+      if (actors.teamlead?.trim()) parts.push("현업 팀장");
+      if (actors.member?.trim()) parts.push("현업 구성원");
       roleVal = parts.join(", ");
     }
   }
@@ -237,8 +231,8 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           <div className="flex flex-wrap gap-1.5">
             {ROLE_OPTIONS.map((role) => {
               const activeRoles = (meta.role || "").split(",").map(r => r.trim()).filter(Boolean);
-              const isActive = role === "기타"
-                ? activeRoles.some(r => r === "기타" || r.startsWith("기타:"))
+              const isActive = role === "그 외"
+                ? activeRoles.some(r => r === "그 외" || r.startsWith("그 외:"))
                 : activeRoles.includes(role);
               return (
                 <button
@@ -246,11 +240,11 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
                   onClick={() => {
                     const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(Boolean);
                     let newRoles: string[];
-                    if (role === "기타") {
-                      const hasOther = currentRoles.some(r => r === "기타" || r.startsWith("기타:"));
+                    if (role === "그 외") {
+                      const hasOther = currentRoles.some(r => r === "그 외" || r.startsWith("그 외:"));
                       newRoles = hasOther
-                        ? currentRoles.filter(r => r !== "기타" && !r.startsWith("기타:"))
-                        : [...currentRoles, "기타"];
+                        ? currentRoles.filter(r => r !== "그 외" && !r.startsWith("그 외:"))
+                        : [...currentRoles, "그 외"];
                     } else {
                       newRoles = isActive
                         ? currentRoles.filter(r => r !== role)
@@ -269,19 +263,19 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
               );
             })}
           </div>
-          {/* 직접입력 필드 (기타: 변수 지원) */}
-          {(meta.role || "").split(",").map(r => r.trim()).some(r => r === "기타" || r.startsWith("기타:")) && (
+          {/* 직접입력 필드 (그 외 선택 시만 표시) */}
+          {(meta.role || "").split(",").map(r => r.trim()).some(r => r === "그 외" || r.startsWith("그 외:")) && (
             <input
               type="text"
               placeholder="직접 입력... (예: 큐벡스)"
               className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               value={(() => {
-                const r = (meta.role || "").split(",").map(x => x.trim()).find(x => x.startsWith("기타:"));
-                return r ? r.slice(3) : "";
+                const r = (meta.role || "").split(",").map(x => x.trim()).find(x => x.startsWith("그 외:"));
+                return r ? r.slice(4) : "";
               })()}
               onChange={(e) => {
-                const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(r => r !== "기타" && !r.startsWith("기타:"));
-                const newOther = e.target.value ? `기타:${e.target.value}` : "기타";
+                const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(r => r !== "그 외" && !r.startsWith("그 외:"));
+                const newOther = e.target.value ? `그 외:${e.target.value}` : "그 외";
                 setMeta({ ...meta, role: [...currentRoles, newOther].join(", ") });
               }}
             />
