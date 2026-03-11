@@ -1,7 +1,7 @@
 "use client";
 
-import { Handle, Position } from "@xyflow/react";
-import { memo } from "react";
+import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { memo, useState, useRef, useCallback } from "react";
 
 /* ─────────────────────────────────────────────
  * 레벨별 차별화 디자인 시스템 (진한→연한 그라디언트)
@@ -137,7 +137,7 @@ function getL5SystemName(data: NodeData): string {
     if (data.systems.etc?.trim()) parts.push(data.systems.etc.trim());
     if (parts.length > 0) return parts.join(" / ");
   }
-  return "시스템명";
+  return ""; // 시스템 데이터 없으면 공란
 }
 
 /* ─── L5 전용 2-Box 노드 (위: ID+레이블, 아래: 시스템명) ── */
@@ -489,11 +489,41 @@ interface MemoNodeData {
   [key: string]: unknown;
 }
 
-function MemoNodeBase({ data, selected }: { data: MemoNodeData; selected?: boolean }) {
+function MemoNodeBase({ id, data, selected }: { id: string; data: MemoNodeData; selected?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { setNodes } = useReactFlow();
+
   const text = data.text || data.memo || data.label || "";
+
+  const startEdit = useCallback(() => {
+    setEditText(text);
+    setEditing(true);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.select();
+    }, 30);
+  }, [text]);
+
+  const saveEdit = useCallback(() => {
+    setEditing(false);
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === id
+          ? { ...n, data: { ...n.data, text: editText, label: editText, memo: editText } }
+          : n
+      )
+    );
+  }, [id, editText, setNodes]);
+
   return (
-    <div style={{ minWidth: 140, maxWidth: 260 }} className="relative">
-      {/* 연결 핵들 */}
+    <div
+      style={{ minWidth: 140, maxWidth: 260 }}
+      className="relative"
+      onDoubleClick={editing ? undefined : startEdit}
+    >
+      {/* 연결 핸들 */}
       <Handle type="target" position={Position.Left} id="t-left"
         className="!w-2.5 !h-2.5 !bg-yellow-500 !border-yellow-600" />
       <Handle type="source" position={Position.Right} id="right"
@@ -506,19 +536,37 @@ function MemoNodeBase({ data, selected }: { data: MemoNodeData; selected?: boole
       {/* 노란 메모 박스 */}
       <div
         className={`bg-[#FFF9C4] rounded-lg shadow-md px-3 py-2.5 ${selected ? 'border-[2px] border-blue-500 ring-2 ring-blue-400/40' : 'border border-[#FBC02D]'}`}
-        style={{ fontSize: 9, lineHeight: '1.5', color: '#6D4C00', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+        style={{ fontSize: 9, lineHeight: '1.5', color: '#6D4C00', wordBreak: 'break-word' }}
       >
         <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-yellow-700 opacity-70">
-          📝 메모
+          📝 메모{editing && <span className="ml-1 text-blue-500 opacity-100">편집 중 (Blur 저장 · Esc 취소)</span>}
         </div>
-        {text || <span className="italic text-yellow-400">내용을 입력하세요...</span>}
+        {editing ? (
+          <textarea
+            ref={textareaRef}
+            className="nodrag nowheel w-full bg-transparent resize-none outline-none"
+            style={{ fontSize: 9, lineHeight: '1.5', color: '#6D4C00', minHeight: 60, fontFamily: 'inherit' }}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setEditing(false); }
+              e.stopPropagation();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <div style={{ whiteSpace: 'pre-wrap', minHeight: 20 }}>
+            {text || <span className="italic text-yellow-400">더블클릭해서 내용 입력...</span>}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export const MemoNode = memo(({ data, selected }: { data: MemoNodeData; selected?: boolean }) => (
-  <MemoNodeBase data={data} selected={selected} />
+export const MemoNode = memo(({ id, data, selected }: { id: string; data: MemoNodeData; selected?: boolean }) => (
+  <MemoNodeBase id={id} data={data} selected={selected} />
 ));
 MemoNode.displayName = "MemoNode";
 

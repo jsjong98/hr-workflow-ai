@@ -1114,6 +1114,8 @@ export default function Home() {
   /* ═══ Node click → open detail panel ═══ */
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
+      // 메모 노드는 인라인 편집으로 처리 — NodeDetailPanel 열지 않음
+      if (node.type === "memo") return;
       setSelectedNode(node);
     },
     []
