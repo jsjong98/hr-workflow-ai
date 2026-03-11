@@ -98,12 +98,15 @@ export default function Home() {
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
   // Guard: remove duplicate canvas nodes by data.id (safety net)
+  // L5 노드는 의도적 복제(같은 항목 여러 레인에 배치)를 허용하므로 중복 제거 제외
   useEffect(() => {
     const seen = new Set<string>();
     let hasDups = false;
     for (const n of nodes) {
-      const dataId = (n.data as Record<string, unknown>).id as string;
-      if (!dataId) continue;
+      const d = n.data as Record<string, unknown>;
+      const dataId = d.id as string;
+      const level = (d.level as string)?.toUpperCase();
+      if (!dataId || level === "L5") continue; // L5는 중복 허용
       if (seen.has(dataId)) { hasDups = true; break; }
       seen.add(dataId);
     }
@@ -111,8 +114,10 @@ export default function Home() {
     setNodes((nds) => {
       const seenIds = new Set<string>();
       return nds.filter((n) => {
-        const dataId = (n.data as Record<string, unknown>).id as string;
-        if (!dataId) return true;
+        const d = n.data as Record<string, unknown>;
+        const dataId = d.id as string;
+        const level = (d.level as string)?.toUpperCase();
+        if (!dataId || level === "L5") return true; // L5는 중복 허용
         if (seenIds.has(dataId)) return false;
         seenIds.add(dataId);
         return true;
