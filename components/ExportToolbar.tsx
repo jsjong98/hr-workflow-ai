@@ -1298,11 +1298,13 @@ export default function ExportToolbar({
             let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
             for (const si of matchedShapeIdxs) {
               const sh = shapes[si];
+              if (!sh) continue;
               const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
               const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
               gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
               gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
             }
+            if (!isFinite(gMinX)) continue;
             pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
@@ -1478,6 +1480,7 @@ export default function ExportToolbar({
         // bbox 기반 좌표 변환
         let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
         for (const nd of sNodes) {
+          if (!nd.position) continue;
           const s = LS[getLevel(nd)] || DEF;
           bMinX = Math.min(bMinX, nd.position.x);
           bMinY = Math.min(bMinY, nd.position.y);
@@ -1656,6 +1659,7 @@ export default function ExportToolbar({
         // ── Phase 1: raw PPT 위치 ──────────────────────────────────────────────
         const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
         for (const nd of sNodes) {
+          if (!nd.position) continue;
           const sv = LS[getLevel(nd)] || DEF;
           const isL5 = getLevel(nd) === "L5";
           const isDec = getLevel(nd) === "DECISION";
@@ -2187,11 +2191,13 @@ export default function ExportToolbar({
               let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
               for (const si of matchedShapeIdxs) {
                 const sh = shapes[si];
+                if (!sh) continue;
                 const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
                 const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
                 gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
                 gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
               }
+              if (!isFinite(gMinX)) continue;
               pendingGroupsA.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
             }
 
