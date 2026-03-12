@@ -764,6 +764,24 @@ export default function ExportToolbar({
         if (shapeList.length > 1) nodeGroupShapes[nd.id] = shapeList;
       }
 
+      // ── Phase 3.5: pptx.write() 전에 s2._slideObjects 인덱스로 shape ID 캡처 ──
+      // PptxGenJS는 _slideObjects[idx] → XML에서 id="${idx+2}" 로 씀 (id=1은 spTree 기본값)
+      const nodeShapeCnvIds: Record<string, number[]> = {};  // nodeId → [cNvPr id, ...]
+      {
+        const s2Objs = (s2 as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
+        for (const [nodeId] of Object.entries(nodeGroupShapes)) {
+          const prefix = `GRP_${nodeId}_`;
+          const ids: number[] = [];
+          for (let idx = 0; idx < s2Objs.length; idx++) {
+            const objName = s2Objs[idx]?.options?.objectName;
+            if (objName && objName.startsWith(prefix)) {
+              ids.push(idx + 2);  // PptxGenJS: id = idx + 2
+            }
+          }
+          if (ids.length >= 2) nodeShapeCnvIds[nodeId] = ids;
+        }
+      }
+
       // ── Phase 4: 엣지 메타 수집 (실제 그리기는 PPTX 후처리에서 진짜 커넥터로) ──────
       // nodeBoxes의 노드 이름을 Phase 3의 addText 순서와 매핑하기 위해 순서 기록
       const nodeDrawOrder: string[] = [];
@@ -1232,8 +1250,8 @@ export default function ExportToolbar({
         }
       }
 
-      // ── JSZip 후처리: 도형 그룹화 (objectName 우선 매칭, 일괄 처리) ──────
-      if (Object.keys(nodeGroupShapes).length > 0) {
+      // ── JSZip 후처리: 도형 그룹화 (cNvPr id 기반 매칭, 일괄 처리) ──────
+      if (Object.keys(nodeShapeCnvIds).length > 0) {
         let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
         if (grpSlideXml) {
           let grpMaxId = 0;
@@ -1243,12 +1261,14 @@ export default function ExportToolbar({
           }
           let grpNextId = grpMaxId + 1;
 
-          // GRP_ 이름이 있는 블록만 추출 (커넥터 레이블 등 무관 도형 제외)
-          const allSpBlocksRaw = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-          const allGrpSpBlocks = allSpBlocksRaw.filter(blk => /name="GRP_/.test(blk));
-          console.log(`[PPT grp] slide2.xml length=${grpSlideXml.length}, total sp=${allSpBlocksRaw.length}, GRP_ sp=${allGrpSpBlocks.length}, nodes=${Object.keys(nodeGroupShapes).length}`);
-          if (allGrpSpBlocks.length > 0) console.log(`[PPT grp] 첫 번째 GRP_ 블록 name:`, allGrpSpBlocks[0].match(/name="([^"]+)"/)?.[1]);
-          const claimedBlocks = new Set<string>();
+          // 모든 <p:sp> 블록 추출 (ID로 매칭 → 무관 도형 걱정 없음)
+          const allSpBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+          // id → block 맵
+          const idToBlock: Record<number, string> = {};
+          for (const blk of allSpBlocks) {
+            const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+            if (im) idToBlock[parseInt(im[1])] = blk;
+          }
 
           interface GrpPendingData {
             matchedBlocks: string[];
@@ -1256,49 +1276,29 @@ export default function ExportToolbar({
             id: number;
           }
           const pendingGroups: GrpPendingData[] = [];
+          const claimedIds = new Set<number>();
 
-          for (const [nodeId, shapes] of Object.entries(nodeGroupShapes)) {
-            if (shapes.length < 2) continue;
+          for (const [nodeId, cnvIds] of Object.entries(nodeShapeCnvIds)) {
+            const shapes = nodeGroupShapes[nodeId];
+            if (!shapes || shapes.length < 2) continue;
             const matchedBlocks: string[] = [];
-            const matchedIndices: number[] = [];
-            const tol = Math.round(EMU * 0.02);
+            const matchedShapeIdxs: number[] = [];
 
-            // Primary: objectName 기반 매칭 (정확)
-            for (let i = 0; i < shapes.length; i++) {
-              const targetName = `GRP_${nodeId}_${i}`;
-              for (const blk of allGrpSpBlocks) {
-                if (claimedBlocks.has(blk)) continue;
-                if (blk.includes(`name="${targetName}"`)) {
-                  matchedBlocks.push(blk); matchedIndices.push(i);
-                  claimedBlocks.add(blk); break;
-                }
-              }
-            }
-            // Fallback: 좌표 기반 매칭 (미매칭 도형만)
-            for (let i = 0; i < shapes.length; i++) {
-              if (matchedIndices.includes(i)) continue;
-              const sh = shapes[i];
-              const xEmu = Math.round(sh.x * EMU);
-              const yEmu = Math.round(sh.y * EMU);
-              for (const blk of allGrpSpBlocks) {
-                if (claimedBlocks.has(blk)) continue;
-                const om = blk.match(/<a:off\s([^>]*)\/?>/);
-                if (!om) continue;
-                const xm = om[1].match(/x="(-?\d+)"/);
-                const ym = om[1].match(/y="(-?\d+)"/);
-                if (!xm || !ym) continue;
-                if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
-                  matchedBlocks.push(blk); matchedIndices.push(i);
-                  claimedBlocks.add(blk); break;
-                }
-              }
+            for (let i = 0; i < cnvIds.length; i++) {
+              const cid = cnvIds[i];
+              if (claimedIds.has(cid)) continue;
+              const blk = idToBlock[cid];
+              if (!blk) continue;
+              matchedBlocks.push(blk);
+              matchedShapeIdxs.push(i);
+              claimedIds.add(cid);
             }
             if (matchedBlocks.length < 2) continue;
 
             // 바운딩 박스: shapeList 메타데이터에서 직접 계산
             let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
-            for (const idx of matchedIndices) {
-              const sh = shapes[idx];
+            for (const si of matchedShapeIdxs) {
+              const sh = shapes[si];
               const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
               const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
               gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
@@ -1307,7 +1307,6 @@ export default function ExportToolbar({
             pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
-          console.log(`[PPT grp] pendingGroups=${pendingGroups.length}`);
           // 수집 완료 후 일괄 XML 수정
           for (const pg of pendingGroups) {
             for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
@@ -1462,6 +1461,7 @@ export default function ExportToolbar({
         connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
         nodeGroupShapes: Record<string, { x: number; y: number; w: number; h: number }[]>;
+        nodeShapeCnvIds: Record<string, number[]>;
       }[] = [];
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
 
@@ -1984,7 +1984,21 @@ export default function ExportToolbar({
               label: e.label ? String(e.label) : undefined,
             });
           }
-          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes }, nodeGroupShapes: { ...sheetGroupShapes } });
+          // pptx.write() 전 slide._slideObjects 인덱스로 cNvPr id 캡처
+          const slideShapeCnvIds: Record<string, number[]> = {};
+          {
+            const slideObjs = (slide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
+            for (const [nodeId] of Object.entries(sheetGroupShapes)) {
+              const prefix = `GRP_${nodeId}_`;
+              const ids: number[] = [];
+              for (let idx = 0; idx < slideObjs.length; idx++) {
+                const on = slideObjs[idx]?.options?.objectName;
+                if (on && on.startsWith(prefix)) ids.push(idx + 2);
+              }
+              if (ids.length >= 2) slideShapeCnvIds[nodeId] = ids;
+            }
+          }
+          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes }, nodeGroupShapes: { ...sheetGroupShapes }, nodeShapeCnvIds: slideShapeCnvIds });
           slideIdx++;
         }
 
@@ -2120,8 +2134,8 @@ export default function ExportToolbar({
 
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
 
-        // ── 도형 그룹화: objectName 우선 매칭, 일괄 처리 ──────
-        if (sc.nodeGroupShapes && Object.keys(sc.nodeGroupShapes).length > 0) {
+        // ── 도형 그룹화: cNvPr id 기반 매칭, 일괄 처리 ──────
+        if (sc.nodeShapeCnvIds && Object.keys(sc.nodeShapeCnvIds).length > 0) {
           let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
           if (grpSlideXml) {
             let grpMaxId = 0;
@@ -2131,10 +2145,13 @@ export default function ExportToolbar({
             }
             let grpNextId = grpMaxId + 1;
 
-            // GRP_ 이름이 있는 블록만 추출
-            const allGrpSpBlocksA = (grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [])
-              .filter(blk => /name="GRP_/.test(blk));
-            const claimedBlocksA = new Set<string>();
+            // id → block 맵
+            const allSpBlocksA = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+            const idToBlockA: Record<number, string> = {};
+            for (const blk of allSpBlocksA) {
+              const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+              if (im) idToBlockA[parseInt(im[1])] = blk;
+            }
 
             interface GrpPendingDataA {
               matchedBlocks: string[];
@@ -2142,49 +2159,28 @@ export default function ExportToolbar({
               id: number;
             }
             const pendingGroupsA: GrpPendingDataA[] = [];
+            const claimedIdsA = new Set<number>();
 
-            for (const [nodeId, shapes] of Object.entries(sc.nodeGroupShapes)) {
-              if (shapes.length < 2) continue;
+            for (const [nodeId, cnvIds] of Object.entries(sc.nodeShapeCnvIds)) {
+              const shapes = sc.nodeGroupShapes[nodeId];
+              if (!shapes || shapes.length < 2) continue;
               const matchedBlocks: string[] = [];
-              const matchedIndices: number[] = [];
-              const tol = Math.round(EMU * 0.02);
+              const matchedShapeIdxs: number[] = [];
 
-              // Primary: objectName 기반 매칭
-              for (let i = 0; i < shapes.length; i++) {
-                const targetName = `GRP_${nodeId}_${i}`;
-                for (const blk of allGrpSpBlocksA) {
-                  if (claimedBlocksA.has(blk)) continue;
-                  if (blk.includes(`name="${targetName}"`)) {
-                    matchedBlocks.push(blk); matchedIndices.push(i);
-                    claimedBlocksA.add(blk); break;
-                  }
-                }
-              }
-              // Fallback: 좌표 기반 매칭 (미매칭 도형만)
-              for (let i = 0; i < shapes.length; i++) {
-                if (matchedIndices.includes(i)) continue;
-                const sh = shapes[i];
-                const xEmu = Math.round(sh.x * EMU);
-                const yEmu = Math.round(sh.y * EMU);
-                for (const blk of allGrpSpBlocksA) {
-                  if (claimedBlocksA.has(blk)) continue;
-                  const om = blk.match(/<a:off\s([^>]*)\/?>/);
-                  if (!om) continue;
-                  const xm = om[1].match(/x="(-?\d+)"/);
-                  const ym = om[1].match(/y="(-?\d+)"/);
-                  if (!xm || !ym) continue;
-                  if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
-                    matchedBlocks.push(blk); matchedIndices.push(i);
-                    claimedBlocksA.add(blk); break;
-                  }
-                }
+              for (let i = 0; i < cnvIds.length; i++) {
+                const cid = cnvIds[i];
+                if (claimedIdsA.has(cid)) continue;
+                const blk = idToBlockA[cid];
+                if (!blk) continue;
+                matchedBlocks.push(blk);
+                matchedShapeIdxs.push(i);
+                claimedIdsA.add(cid);
               }
               if (matchedBlocks.length < 2) continue;
 
-              // 바운딩 박스: shapeList 메타데이터에서 직접 계산
               let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
-              for (const idx of matchedIndices) {
-                const sh = shapes[idx];
+              for (const si of matchedShapeIdxs) {
+                const sh = shapes[si];
                 const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
                 const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
                 gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
@@ -2193,7 +2189,6 @@ export default function ExportToolbar({
               pendingGroupsA.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
             }
 
-            // 수집 완료 후 일괄 XML 수정
             for (const pg of pendingGroupsA) {
               for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
               const grpSp = `<p:grpSp>`
