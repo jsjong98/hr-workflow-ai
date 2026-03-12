@@ -1244,8 +1244,10 @@ export default function ExportToolbar({
           let grpNextId = grpMaxId + 1;
 
           // GRP_ 이름이 있는 블록만 추출 (커넥터 레이블 등 무관 도형 제외)
-          const allGrpSpBlocks = (grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [])
-            .filter(blk => /name="GRP_/.test(blk));
+          const allSpBlocksRaw = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+          const allGrpSpBlocks = allSpBlocksRaw.filter(blk => /name="GRP_/.test(blk));
+          console.log(`[PPT grp] slide2.xml length=${grpSlideXml.length}, total sp=${allSpBlocksRaw.length}, GRP_ sp=${allGrpSpBlocks.length}, nodes=${Object.keys(nodeGroupShapes).length}`);
+          if (allGrpSpBlocks.length > 0) console.log(`[PPT grp] 첫 번째 GRP_ 블록 name:`, allGrpSpBlocks[0].match(/name="([^"]+)"/)?.[1]);
           const claimedBlocks = new Set<string>();
 
           interface GrpPendingData {
@@ -1305,6 +1307,7 @@ export default function ExportToolbar({
             pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
+          console.log(`[PPT grp] pendingGroups=${pendingGroups.length}`);
           // 수집 완료 후 일괄 XML 수정
           for (const pg of pendingGroups) {
             for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
