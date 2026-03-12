@@ -606,6 +606,7 @@ export default function ExportToolbar({
         const dispLabel = getLabel(nd);
         const dispId = getDisplayId(nd);
         const shapeList: NodeShapeMeta[] = [];
+        let l5YOffset = 0;  // L5 role bar 높이 (메모 Y 계산에 사용)
 
         if (level === "DECISION") {
           /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
@@ -638,7 +639,6 @@ export default function ExportToolbar({
           const ROLE_BAR_H = 0.142;  // 0.36cm
           const roleVal = (nd.data as Record<string, string>).role || "";
           const roleDisplay = extractCustomRole(roleVal);
-          let l5YOffset = 0;
           if (roleDisplay) {
             s2.addText(roleDisplay, {
               x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
@@ -741,23 +741,24 @@ export default function ExportToolbar({
           }
         }
 
-        // Memo yellow box (노란색 네모 칸, 9pt)
+        // Memo yellow box (노란색 네모 칸, 7pt) — l5YOffset 반영으로 시스템명 박스와 겹치지 않음
         const memoStr = (nd.data as Record<string, string>).memo || "";
         if (memoStr) {
           const memoW = Math.max(box.w, 1.0);
           const memoH = 0.28;
+          const memoY = box.y + l5YOffset + box.h + 0.04;
           s2.addText(memoStr, {
-            x: box.x, y: box.y + box.h + 0.04,
+            x: box.x, y: memoY,
             w: memoW, h: memoH,
             shape: pptx.ShapeType.rect,
             fill: { color: "FFF9C4" },
             line: { color: "FBC02D", width: 0.5 },
-            fontSize: 9, color: "6D4C00",
+            fontSize: 7, color: "6D4C00",
             fontFace: FONT_FACE, valign: "middle", align: "left",
             margin: [0, 4, 0, 4],
             objectName: `GRP_${nd.id}_${shapeList.length}`,
           });
-          shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
+          shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
         }
         // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
         if (shapeList.length > 1) nodeGroupShapes[nd.id] = shapeList;
@@ -1773,6 +1774,7 @@ export default function ExportToolbar({
           const dispLabel = getLabel(nd);
           const dispId = getDisplayId(nd);
           const shapeList: GrpShapeMeta[] = [];
+          let l5YOff = 0;  // L5 role bar 높이 (메모 Y 계산에 사용)
 
           if (level === "DECISION") {
             /* ── DECISION 마름모 (3.15cm × 1.1cm, 7pt) ── */
@@ -1803,7 +1805,6 @@ export default function ExportToolbar({
             /* ── L5: 기타 역할 바 (위에 얹기) + 2-box ── */
             const ROLE_BAR_H_S = 0.142;  // 0.36cm
             const roleVal = (nd.data as Record<string, string>).role || "";
-            let l5YOff = 0;
             const roleBatchDisplay = extractCustomRole(roleVal);
             if (roleBatchDisplay) {
               slide.addText(roleBatchDisplay, {
@@ -1902,23 +1903,24 @@ export default function ExportToolbar({
             }
           }
 
-          // Memo yellow box (노란색 네모 칸, 9pt)
+          // Memo yellow box (노란색 네모 칸, 7pt) — l5YOff 반영으로 시스템명 박스와 겹치지 않음
           const memoStr = (nd.data as Record<string, string>).memo || "";
           if (memoStr) {
             const memoW = Math.max(box.w, 1.0);
             const memoH = 0.28;
+            const memoY = box.y + l5YOff + box.h + 0.04;
             slide.addText(memoStr, {
-              x: box.x, y: box.y + box.h + 0.04,
+              x: box.x, y: memoY,
               w: memoW, h: memoH,
               shape: pptx.ShapeType.rect,
               fill: { color: "FFF9C4" },
               line: { color: "FBC02D", width: 0.5 },
-              fontSize: 9, color: "6D4C00",
+              fontSize: 7, color: "6D4C00",
               fontFace: FONT_FACE, valign: "middle", align: "left",
               margin: [0, 4, 0, 4],
               objectName: `GRP_${nd.id}_${shapeList.length}`,
             });
-            shapeList.push({ x: box.x, y: box.y + box.h + 0.04, w: memoW, h: memoH });
+            shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
           }
           // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
           if (shapeList.length > 1) sheetGroupShapes[nd.id] = shapeList;
