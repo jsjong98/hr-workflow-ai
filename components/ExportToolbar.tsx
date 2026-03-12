@@ -1232,7 +1232,7 @@ export default function ExportToolbar({
         }
       }
 
-      // ── JSZip 후처리: 도형 그룹화 (좌표 기반 매칭 + objectName 폴백) ──────
+      // ── JSZip 후처리: 도형 그룹화 (objectName 우선 매칭, 일괄 처리) ──────
       if (Object.keys(nodeGroupShapes).length > 0) {
         let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
         if (grpSlideXml) {
@@ -1243,38 +1243,51 @@ export default function ExportToolbar({
           }
           let grpNextId = grpMaxId + 1;
 
+          // GRP_ 이름이 있는 블록만 추출 (커넥터 레이블 등 무관 도형 제외)
+          const allGrpSpBlocks = (grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [])
+            .filter(blk => /name="GRP_/.test(blk));
+          const claimedBlocks = new Set<string>();
+
+          interface GrpPendingData {
+            matchedBlocks: string[];
+            gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
+            id: number;
+          }
+          const pendingGroups: GrpPendingData[] = [];
+
           for (const [nodeId, shapes] of Object.entries(nodeGroupShapes)) {
             if (shapes.length < 2) continue;
-            const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
             const matchedBlocks: string[] = [];
             const matchedIndices: number[] = [];
-            const tol = Math.round(EMU * 0.015);
+            const tol = Math.round(EMU * 0.02);
 
-            // Primary: 좌표 기반 매칭
+            // Primary: objectName 기반 매칭 (정확)
             for (let i = 0; i < shapes.length; i++) {
+              const targetName = `GRP_${nodeId}_${i}`;
+              for (const blk of allGrpSpBlocks) {
+                if (claimedBlocks.has(blk)) continue;
+                if (blk.includes(`name="${targetName}"`)) {
+                  matchedBlocks.push(blk); matchedIndices.push(i);
+                  claimedBlocks.add(blk); break;
+                }
+              }
+            }
+            // Fallback: 좌표 기반 매칭 (미매칭 도형만)
+            for (let i = 0; i < shapes.length; i++) {
+              if (matchedIndices.includes(i)) continue;
               const sh = shapes[i];
               const xEmu = Math.round(sh.x * EMU);
               const yEmu = Math.round(sh.y * EMU);
-              for (const blk of spBlocks) {
-                if (matchedBlocks.includes(blk)) continue;
+              for (const blk of allGrpSpBlocks) {
+                if (claimedBlocks.has(blk)) continue;
                 const om = blk.match(/<a:off\s([^>]*)\/?>/);
                 if (!om) continue;
                 const xm = om[1].match(/x="(-?\d+)"/);
                 const ym = om[1].match(/y="(-?\d+)"/);
                 if (!xm || !ym) continue;
                 if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
-                  matchedBlocks.push(blk); matchedIndices.push(i); break;
-                }
-              }
-            }
-            // Fallback: objectName 기반 보완
-            for (let i = 0; i < shapes.length; i++) {
-              if (matchedIndices.includes(i)) continue;
-              const targetName = `GRP_${nodeId}_${i}`;
-              for (const blk of spBlocks) {
-                if (matchedBlocks.includes(blk)) continue;
-                if (blk.includes(`name="${targetName}"`)) {
-                  matchedBlocks.push(blk); matchedIndices.push(i); break;
+                  matchedBlocks.push(blk); matchedIndices.push(i);
+                  claimedBlocks.add(blk); break;
                 }
               }
             }
@@ -1289,18 +1302,20 @@ export default function ExportToolbar({
               gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
               gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
             }
+            pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
+          }
 
-            // 매칭된 도형 제거 후 그룹 삽입
-            for (const blk of matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
+          // 수집 완료 후 일괄 XML 수정
+          for (const pg of pendingGroups) {
+            for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
             const grpSp = `<p:grpSp>`
-              + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+              + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
               + `<p:grpSpPr><a:xfrm>`
-              + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
-              + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+              + `<a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
+              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
               + `</a:xfrm></p:grpSpPr>`
-              + matchedBlocks.join("")
+              + pg.matchedBlocks.join("")
               + `</p:grpSp>`;
-            grpNextId++;
             grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
           }
           zip.file(slide2Path, grpSlideXml);
@@ -2102,7 +2117,7 @@ export default function ExportToolbar({
 
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
 
-        // ── 도형 그룹화: 좌표 기반 매칭 + objectName 폴백 ──────
+        // ── 도형 그룹화: objectName 우선 매칭, 일괄 처리 ──────
         if (sc.nodeGroupShapes && Object.keys(sc.nodeGroupShapes).length > 0) {
           let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
           if (grpSlideXml) {
@@ -2113,38 +2128,51 @@ export default function ExportToolbar({
             }
             let grpNextId = grpMaxId + 1;
 
+            // GRP_ 이름이 있는 블록만 추출
+            const allGrpSpBlocksA = (grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [])
+              .filter(blk => /name="GRP_/.test(blk));
+            const claimedBlocksA = new Set<string>();
+
+            interface GrpPendingDataA {
+              matchedBlocks: string[];
+              gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
+              id: number;
+            }
+            const pendingGroupsA: GrpPendingDataA[] = [];
+
             for (const [nodeId, shapes] of Object.entries(sc.nodeGroupShapes)) {
               if (shapes.length < 2) continue;
-              const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
               const matchedBlocks: string[] = [];
               const matchedIndices: number[] = [];
-              const tol = Math.round(EMU * 0.015);
+              const tol = Math.round(EMU * 0.02);
 
-              // Primary: 좌표 기반 매칭
+              // Primary: objectName 기반 매칭
               for (let i = 0; i < shapes.length; i++) {
+                const targetName = `GRP_${nodeId}_${i}`;
+                for (const blk of allGrpSpBlocksA) {
+                  if (claimedBlocksA.has(blk)) continue;
+                  if (blk.includes(`name="${targetName}"`)) {
+                    matchedBlocks.push(blk); matchedIndices.push(i);
+                    claimedBlocksA.add(blk); break;
+                  }
+                }
+              }
+              // Fallback: 좌표 기반 매칭 (미매칭 도형만)
+              for (let i = 0; i < shapes.length; i++) {
+                if (matchedIndices.includes(i)) continue;
                 const sh = shapes[i];
                 const xEmu = Math.round(sh.x * EMU);
                 const yEmu = Math.round(sh.y * EMU);
-                for (const blk of spBlocks) {
-                  if (matchedBlocks.includes(blk)) continue;
+                for (const blk of allGrpSpBlocksA) {
+                  if (claimedBlocksA.has(blk)) continue;
                   const om = blk.match(/<a:off\s([^>]*)\/?>/);
                   if (!om) continue;
                   const xm = om[1].match(/x="(-?\d+)"/);
                   const ym = om[1].match(/y="(-?\d+)"/);
                   if (!xm || !ym) continue;
                   if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
-                    matchedBlocks.push(blk); matchedIndices.push(i); break;
-                  }
-                }
-              }
-              // Fallback: objectName 기반 보완
-              for (let i = 0; i < shapes.length; i++) {
-                if (matchedIndices.includes(i)) continue;
-                const targetName = `GRP_${nodeId}_${i}`;
-                for (const blk of spBlocks) {
-                  if (matchedBlocks.includes(blk)) continue;
-                  if (blk.includes(`name="${targetName}"`)) {
-                    matchedBlocks.push(blk); matchedIndices.push(i); break;
+                    matchedBlocks.push(blk); matchedIndices.push(i);
+                    claimedBlocksA.add(blk); break;
                   }
                 }
               }
@@ -2159,17 +2187,20 @@ export default function ExportToolbar({
                 gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
                 gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
               }
+              pendingGroupsA.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
+            }
 
-              for (const blk of matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
+            // 수집 완료 후 일괄 XML 수정
+            for (const pg of pendingGroupsA) {
+              for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
               const grpSp = `<p:grpSp>`
-                + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+                + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
                 + `<p:grpSpPr><a:xfrm>`
-                + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
-                + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
+                + `<a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
+                + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
                 + `</a:xfrm></p:grpSpPr>`
-                + matchedBlocks.join("")
+                + pg.matchedBlocks.join("")
                 + `</p:grpSp>`;
-              grpNextId++;
               grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
             }
             zip.file(slidePath, grpSlideXml);
