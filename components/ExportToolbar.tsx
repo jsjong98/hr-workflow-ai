@@ -2523,24 +2523,39 @@ export default function ExportToolbar({
   const handleExportCanvasExcel = useCallback(async () => {
     if (!sheets || !getSheetData) { alert("sheets 정보가 없습니다."); return; }
 
-    /* 간단한 CSV 라인 파서 (quoted 필드 지원) */
-    function parseCsvLine(line: string): string[] {
-      const result: string[] = [];
-      let cur = ""; let inQ = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (inQ) {
-          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-          else if (ch === '"') { inQ = false; }
-          else { cur += ch; }
-        } else {
-          if (ch === '"') { inQ = true; }
-          else if (ch === ',') { result.push(cur); cur = ""; }
-          else { cur += ch; }
+    /* 멀티라인 quoted 필드를 올바르게 처리하는 전체 CSV 파서 */
+    function parseCsvFull(csv: string): string[][] {
+      const records: string[][] = [];
+      let i = 0;
+      const n = csv.length;
+      while (i < n) {
+        const record: string[] = [];
+        while (i < n) {
+          let field = "";
+          if (csv[i] === '"') {
+            i++; // opening quote
+            while (i < n) {
+              if (csv[i] === '"') {
+                if (csv[i + 1] === '"') { field += '"'; i += 2; }
+                else { i++; break; }
+              } else { field += csv[i++]; }
+            }
+          } else {
+            while (i < n && csv[i] !== ',' && csv[i] !== '\n' && csv[i] !== '\r') {
+              field += csv[i++];
+            }
+          }
+          record.push(field);
+          if (i < n && csv[i] === ',') { i++; }
+          else break;
+        }
+        if (i < n && csv[i] === '\r') i++;
+        if (i < n && csv[i] === '\n') i++;
+        if (record.length > 1 || (record.length === 1 && record[0] !== '')) {
+          records.push(record);
         }
       }
-      result.push(cur);
-      return result;
+      return records;
     }
 
     const ExcelJS = (await import("exceljs")).default;
@@ -2554,14 +2569,13 @@ export default function ExportToolbar({
       hasAnyNode = true;
 
       const csvStr = buildTemplateCsvString(sheetNodes, csvRows || undefined);
-      const lines = csvStr.replace(/^\uFEFF/, "").split("\n").filter(l => l.trim());
+      const allRows = parseCsvFull(csvStr.replace(/^\uFEFF/, "")).filter(r => r.length > 0);
 
       /* Excel 시트명: 특수문자 제거, 최대 31자 */
       const wsName = s.name.replace(/[\\\/\*\?\:\[\]]/g, "").slice(0, 31) || `Sheet`;
       const ws = workbook.addWorksheet(wsName);
 
-      lines.forEach((line, i) => {
-        const cells = parseCsvLine(line);
+      allRows.forEach((cells, i) => {
         const row = ws.addRow(cells);
         if (i === 0) {
           row.eachCell(cell => {
@@ -2572,12 +2586,13 @@ export default function ExportToolbar({
           });
           row.height = 18;
         } else {
+          const hasLineBreak = cells.some(c => c.includes("\n"));
           row.eachCell({ includeEmpty: true }, cell => {
             cell.font = { name: "Malgun Gothic", size: 10 };
             cell.border = { top: { style: "thin", color: { argb: "FFCCCCCC" } }, left: { style: "thin", color: { argb: "FFCCCCCC" } }, bottom: { style: "thin", color: { argb: "FFCCCCCC" } }, right: { style: "thin", color: { argb: "FFCCCCCC" } } };
-            cell.alignment = { wrapText: false, vertical: "middle" };
+            cell.alignment = { wrapText: hasLineBreak, vertical: "middle" };
           });
-          row.height = 16;
+          if (!hasLineBreak) row.height = 16;
         }
       });
       ws.columns.forEach((col, i) => { col.width = i < 2 ? 12 : i < 10 ? 20 : 14; });
