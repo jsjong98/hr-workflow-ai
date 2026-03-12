@@ -1102,7 +1102,7 @@ export default function ExportToolbar({
       const zip = await JSZip.loadAsync(pptxBlob);
 
       const slide2Path = "ppt/slides/slide2.xml";
-      const slide2Xml = await zip.file(slide2Path)?.async("string");
+      let slide2Xml = await zip.file(slide2Path)?.async("string") || "";
       if (slide2Xml && connectors.length > 0) {
         // shape ID ↔ nodeId 매핑 (EMU 좌표로 매칭)
         const shapeIdMap: Record<string, string> = {};   // nodeId → cNvPr id
@@ -1245,14 +1245,13 @@ export default function ExportToolbar({
         }
 
         if (cxnXml) {
-          const modified = slide2Xml.replace("</p:spTree>", cxnXml + "</p:spTree>");
-          zip.file(slide2Path, modified);
+          slide2Xml = slide2Xml.replace("</p:spTree>", cxnXml + "</p:spTree>");
         }
       }
 
       // ── JSZip 후처리: 도형 그룹화 (cNvPr id 기반 매칭, 일괄 처리) ──────
       if (Object.keys(nodeShapeCnvIds).length > 0) {
-        let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
+        let grpSlideXml = slide2Xml;
         if (grpSlideXml) {
           let grpMaxId = 0;
           for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
@@ -1320,9 +1319,12 @@ export default function ExportToolbar({
               + `</p:grpSp>`;
             grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
           }
-          zip.file(slide2Path, grpSlideXml);
+          slide2Xml = grpSlideXml;
         }
       }
+
+      // slide2.xml 최종 저장 (커넥터·그룹화 반영)
+      if (slide2Xml) zip.file(slide2Path, slide2Xml);
 
       // 다운로드
       const finalBlob = await zip.generateAsync({
@@ -2021,11 +2023,14 @@ export default function ExportToolbar({
       const zip = await JSZip.loadAsync(pptxBlob);
 
       for (const sc of allSlideConnectors) {
-        if (sc.connectors.length === 0) continue;
+        const hasConnectors = sc.connectors.length > 0;
+        const hasGroups = sc.nodeShapeCnvIds && Object.keys(sc.nodeShapeCnvIds).length > 0;
+        if (!hasConnectors && !hasGroups) continue;
         const slidePath = `ppt/slides/slide${sc.slideIndex}.xml`;
-        const slideXml = await zip.file(slidePath)?.async("string");
+        let slideXml = await zip.file(slidePath)?.async("string") || "";
         if (!slideXml) continue;
 
+        if (hasConnectors) {
         // shape ID ↔ nodeId 매핑 (EMU 좌표 매칭)
         const shapeIdMap: Record<string, string> = {};
         let maxShapeId = 0;
@@ -2132,11 +2137,12 @@ export default function ExportToolbar({
           nextId++;
         }
 
-        if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
+        if (cxnXml) slideXml = slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>");
+        } // end if (hasConnectors)
 
         // ── 도형 그룹화: cNvPr id 기반 매칭, 일괄 처리 ──────
-        if (sc.nodeShapeCnvIds && Object.keys(sc.nodeShapeCnvIds).length > 0) {
-          let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
+        if (hasGroups) {
+          let grpSlideXml = slideXml;
           if (grpSlideXml) {
             let grpMaxId = 0;
             for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
@@ -2201,9 +2207,12 @@ export default function ExportToolbar({
                 + `</p:grpSp>`;
               grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
             }
-            zip.file(slidePath, grpSlideXml);
+            slideXml = grpSlideXml;
           }
-        }
+        } // end if (hasGroups)
+
+        // 슬라이드 XML 최종 저장 (커넥터·그룹화 반영)
+        zip.file(slidePath, slideXml);
       }
 
       const finalBlob = await zip.generateAsync({
