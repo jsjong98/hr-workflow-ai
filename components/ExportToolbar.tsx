@@ -666,7 +666,7 @@ export default function ExportToolbar({
           // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
           const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
           const sysStr = (nd.data as Record<string, string>).system || "";
-          let sysName = "시스템명";
+          let sysName = "";
           if (sysStr) {
             sysName = sysStr;
           } else if (sysMap) {
@@ -1231,7 +1231,7 @@ export default function ExportToolbar({
         }
       }
 
-      // ── JSZip 후처리: 도형 그룹화 (objectName 기반 매칭) ──────
+      // ── JSZip 후처리: 도형 그룹화 (좌표 기반 매칭 + objectName 폴백) ──────
       if (Object.keys(nodeGroupShapes).length > 0) {
         let grpSlideXml = await zip.file(slide2Path)?.async("string") || "";
         if (grpSlideXml) {
@@ -1244,45 +1244,60 @@ export default function ExportToolbar({
 
           for (const [nodeId, shapes] of Object.entries(nodeGroupShapes)) {
             if (shapes.length < 2) continue;
-            // objectName 기반으로 <p:sp> 블록 매칭
             const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-            const matched: string[] = [];
+            const matchedBlocks: string[] = [];
+            const matchedIndices: number[] = [];
+            const tol = Math.round(EMU * 0.015);
 
+            // Primary: 좌표 기반 매칭
             for (let i = 0; i < shapes.length; i++) {
-              const targetName = `GRP_${nodeId}_${i}`;
+              const sh = shapes[i];
+              const xEmu = Math.round(sh.x * EMU);
+              const yEmu = Math.round(sh.y * EMU);
               for (const blk of spBlocks) {
-                if (matched.includes(blk)) continue;
-                // name="GRP_nodeId_N" 패턴으로 매칭
-                if (blk.includes(`name="${targetName}"`)) {
-                  matched.push(blk); break;
+                if (matchedBlocks.includes(blk)) continue;
+                const om = blk.match(/<a:off\s([^>]*)\/?>/);
+                if (!om) continue;
+                const xm = om[1].match(/x="(-?\d+)"/);
+                const ym = om[1].match(/y="(-?\d+)"/);
+                if (!xm || !ym) continue;
+                if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
+                  matchedBlocks.push(blk); matchedIndices.push(i); break;
                 }
               }
             }
-            if (matched.length < 2) continue;
+            // Fallback: objectName 기반 보완
+            for (let i = 0; i < shapes.length; i++) {
+              if (matchedIndices.includes(i)) continue;
+              const targetName = `GRP_${nodeId}_${i}`;
+              for (const blk of spBlocks) {
+                if (matchedBlocks.includes(blk)) continue;
+                if (blk.includes(`name="${targetName}"`)) {
+                  matchedBlocks.push(blk); matchedIndices.push(i); break;
+                }
+              }
+            }
+            if (matchedBlocks.length < 2) continue;
 
-            // Compute bounding box in EMU
+            // 바운딩 박스: shapeList 메타데이터에서 직접 계산
             let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
-            for (const blk of matched) {
-              const om = blk.match(/<a:off\s([^>]*)\/?>/);
-              const em = blk.match(/<a:ext\s([^>]*)\/?>/);
-              if (!om || !em) continue;
-              const bx = parseInt(om[1].match(/x="(\d+)"/)![1]);
-              const by = parseInt(om[1].match(/y="(\d+)"/)![1]);
-              const bcx = parseInt(em[1].match(/cx="(\d+)"/)![1]);
-              const bcy = parseInt(em[1].match(/cy="(\d+)"/)![1]);
+            for (const idx of matchedIndices) {
+              const sh = shapes[idx];
+              const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
+              const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
               gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
               gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
             }
 
-            // Remove matched shapes from XML, then insert group
-            for (const blk of matched) grpSlideXml = grpSlideXml.replace(blk, "");
+            // 매칭된 도형 제거 후 그룹 삽입
+            for (const blk of matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
             const grpSp = `<p:grpSp>`
               + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
               + `<p:grpSpPr><a:xfrm>`
               + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
               + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
               + `</a:xfrm></p:grpSpPr>`
-              + matched.join("")
+              + matchedBlocks.join("")
               + `</p:grpSp>`;
             grpNextId++;
             grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
@@ -1815,7 +1830,7 @@ export default function ExportToolbar({
             shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             const sysStr = (nd.data as Record<string, string>).system || "";
-            let sysName = "시스템명";
+            let sysName = "";
             if (sysStr) {
               sysName = sysStr;
             } else if (sysMap) {
@@ -2085,7 +2100,7 @@ export default function ExportToolbar({
 
         if (cxnXml) zip.file(slidePath, slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>"));
 
-        // ── 도형 그룹화: objectName 기반 매칭 ──────
+        // ── 도형 그룹화: 좌표 기반 매칭 + objectName 폴백 ──────
         if (sc.nodeGroupShapes && Object.keys(sc.nodeGroupShapes).length > 0) {
           let grpSlideXml = await zip.file(slidePath)?.async("string") || "";
           if (grpSlideXml) {
@@ -2099,40 +2114,58 @@ export default function ExportToolbar({
             for (const [nodeId, shapes] of Object.entries(sc.nodeGroupShapes)) {
               if (shapes.length < 2) continue;
               const spBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-              const matched: string[] = [];
+              const matchedBlocks: string[] = [];
+              const matchedIndices: number[] = [];
+              const tol = Math.round(EMU * 0.015);
 
+              // Primary: 좌표 기반 매칭
               for (let i = 0; i < shapes.length; i++) {
-                const targetName = `GRP_${nodeId}_${i}`;
+                const sh = shapes[i];
+                const xEmu = Math.round(sh.x * EMU);
+                const yEmu = Math.round(sh.y * EMU);
                 for (const blk of spBlocks) {
-                  if (matched.includes(blk)) continue;
-                  if (blk.includes(`name="${targetName}"`)) {
-                    matched.push(blk); break;
+                  if (matchedBlocks.includes(blk)) continue;
+                  const om = blk.match(/<a:off\s([^>]*)\/?>/);
+                  if (!om) continue;
+                  const xm = om[1].match(/x="(-?\d+)"/);
+                  const ym = om[1].match(/y="(-?\d+)"/);
+                  if (!xm || !ym) continue;
+                  if (Math.abs(parseInt(xm[1]) - xEmu) < tol && Math.abs(parseInt(ym[1]) - yEmu) < tol) {
+                    matchedBlocks.push(blk); matchedIndices.push(i); break;
                   }
                 }
               }
-              if (matched.length < 2) continue;
+              // Fallback: objectName 기반 보완
+              for (let i = 0; i < shapes.length; i++) {
+                if (matchedIndices.includes(i)) continue;
+                const targetName = `GRP_${nodeId}_${i}`;
+                for (const blk of spBlocks) {
+                  if (matchedBlocks.includes(blk)) continue;
+                  if (blk.includes(`name="${targetName}"`)) {
+                    matchedBlocks.push(blk); matchedIndices.push(i); break;
+                  }
+                }
+              }
+              if (matchedBlocks.length < 2) continue;
 
+              // 바운딩 박스: shapeList 메타데이터에서 직접 계산
               let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
-              for (const blk of matched) {
-                const om = blk.match(/<a:off\s([^>]*)\/?>/);
-                const em = blk.match(/<a:ext\s([^>]*)\/?>/);
-                if (!om || !em) continue;
-                const bx = parseInt(om[1].match(/x="(\d+)"/)![1]);
-                const by = parseInt(om[1].match(/y="(\d+)"/)![1]);
-                const bcx = parseInt(em[1].match(/cx="(\d+)"/)![1]);
-                const bcy = parseInt(em[1].match(/cy="(\d+)"/)![1]);
+              for (const idx of matchedIndices) {
+                const sh = shapes[idx];
+                const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
+                const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
                 gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
                 gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
               }
 
-              for (const blk of matched) grpSlideXml = grpSlideXml.replace(blk, "");
+              for (const blk of matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
               const grpSp = `<p:grpSp>`
                 + `<p:nvGrpSpPr><p:cNvPr id="${grpNextId}" name="Group ${grpNextId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
                 + `<p:grpSpPr><a:xfrm>`
                 + `<a:off x="${gMinX}" y="${gMinY}"/><a:ext cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
                 + `<a:chOff x="${gMinX}" y="${gMinY}"/><a:chExt cx="${gMaxX - gMinX}" cy="${gMaxY - gMinY}"/>`
                 + `</a:xfrm></p:grpSpPr>`
-                + matched.join("")
+                + matchedBlocks.join("")
                 + `</p:grpSp>`;
               grpNextId++;
               grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
@@ -2329,7 +2362,7 @@ export default function ExportToolbar({
               });
 
               // ── 시스템명 (하단 박스) ──
-              let sysName = "시스템명";
+              let sysName = "";
               if (l5.systems) {
                 const active = SYS_KEYS.filter(k => (l5.systems as Record<string, string>)[k.key]?.trim());
                 if (active.length > 0) sysName = active.map(k => k.label).join(", ");
