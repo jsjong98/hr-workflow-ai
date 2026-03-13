@@ -1195,7 +1195,7 @@ export default function ExportToolbar({
           const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
           // 엣지 색상: L5↔L5 = 회색(DEDEDE), 나머지 = 검정(333333)
           const isL5Edge = c.srcIsL5 && c.tgtIsL5;
-          const lineClr = isL5Edge ? "DEDEDE" : "333333";
+          const lineClr = isL5Edge ? "999999" : "333333";
 
           cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
             + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
@@ -2109,7 +2109,7 @@ export default function ExportToolbar({
           const flipH2 = x2 < x1 ? ' flipH="1"' : "", flipV2 = y2 < y1 ? ' flipV="1"' : "";
           const headArr2 = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
           const isL5Edge2 = c.srcIsL5 && c.tgtIsL5;
-          const lineClr2 = isL5Edge2 ? "DEDEDE" : "333333";
+          const lineClr2 = isL5Edge2 ? "999999" : "333333";
           cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH2}${flipV2}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
           nextId++;
         }
