@@ -38,6 +38,14 @@ fi
 
 echo "✅ npm v$(npm -v) 확인"
 
+# -- 2.5. 설정 파일 복원 (메일 패키징 시 .mjs → .mjs.txt 변환됨) --
+for f in *.mjs.txt; do
+    [ -e "$f" ] || continue
+    target="${f%.txt}"
+    mv "$f" "$target"
+    echo "✅ 복원: $target"
+done
+
 # -- 3. 패키지 설치 (최초 1회) --
 if [ ! -d "node_modules" ]; then
     echo ""
@@ -54,6 +62,24 @@ if [ ! -d "node_modules" ]; then
     echo "✅ 패키지 설치 완료"
 else
     echo "✅ 패키지 이미 설치됨"
+fi
+
+# -- 3.5. .env.local 확인 (OpenAI API Key) --
+if [ ! -f ".env.local" ]; then
+    echo ""
+    echo "⚠️  .env.local 파일이 없습니다."
+    echo "   AI 워크플로우 기능에는 OpenAI API Key가 필요합니다."
+    echo ""
+    read -p "OpenAI API Key를 입력하세요 (건너뛰려면 Enter): " API_KEY
+    if [ -n "$API_KEY" ]; then
+        echo "OPENAI_API_KEY=\"$API_KEY\"" > .env.local
+        echo "✅ .env.local 생성 완료"
+    else
+        echo "OPENAI_API_KEY=\"\"" > .env.local
+        echo "⏭  API Key 없이 진행합니다. AI 기능은 사용할 수 없습니다."
+    fi
+else
+    echo "✅ .env.local 확인됨"
 fi
 
 # -- 4. 서버 시작 --

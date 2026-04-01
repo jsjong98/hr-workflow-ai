@@ -30,6 +30,14 @@ fi
 
 echo "[OK] npm v$(npm -v) detected."
 
+# -- 2.5. Restore config files (email packaging renames .mjs → .mjs.txt) --
+for f in *.mjs.txt; do
+    [ -e "$f" ] || continue
+    target="${f%.txt}"
+    mv "$f" "$target"
+    echo "[OK] Restored: $target"
+done
+
 # -- 3. Install dependencies if needed --
 if [ ! -d "node_modules" ]; then
     echo ""
