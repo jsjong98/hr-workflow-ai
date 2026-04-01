@@ -71,7 +71,7 @@ echo   Stop: Close this window or press Ctrl+C
 echo =====================================================
 echo.
 
-call npx next dev --turbopack -p 3000
+call npm run dev -- --turbopack -p 3000
 
 echo.
 echo [INFO] Server stopped.
