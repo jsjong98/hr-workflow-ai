@@ -42,11 +42,52 @@ export default function SheetTabBar({
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addMenuDivRef = useRef<HTMLDivElement>(null);
 
-  /* Custom swimlane dialog state */
+  /* Custom swimlane dialog */
   const [showCustomDialog, setShowCustomDialog] = useState(false);
   const [customInputs, setCustomInputs] = useState<string[]>(["", "", "", ""]);
 
-  /* Close context menu on outside click */
+  /* Tab scroll state */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  /* Update arrows on mount, resize, and scroll */
+  useEffect(() => {
+    updateScrollButtons();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollButtons);
+    const ro = new ResizeObserver(updateScrollButtons);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateScrollButtons);
+      ro.disconnect();
+    };
+  }, [updateScrollButtons, sheets]);
+
+  /* Scroll active tab into view when it changes */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const activeTab = el.querySelector(`[data-sheet-id="${activeSheetId}"]`) as HTMLElement | null;
+    if (activeTab) {
+      activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+      setTimeout(updateScrollButtons, 50);
+    }
+  }, [activeSheetId, updateScrollButtons]);
+
+  const scrollBy = useCallback((dir: -1 | 1) => {
+    scrollRef.current?.scrollBy({ left: dir * 160, behavior: "smooth" });
+  }, []);
+
+  /* Close menus on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) setCtxMenu(null);
@@ -55,22 +96,18 @@ export default function SheetTabBar({
     return () => document.removeEventListener("mousedown", handler);
   }, [ctxMenu]);
 
-  /* Close add menu on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
       if (
         addBtnRef.current && !addBtnRef.current.contains(t) &&
         addMenuDivRef.current && !addMenuDivRef.current.contains(t)
-      ) {
-        setAddMenuOpen(false);
-      }
+      ) setAddMenuOpen(false);
     };
     if (addMenuOpen) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [addMenuOpen]);
 
-  /* Focus input when editing starts */
   useEffect(() => {
     if (editingId && inputRef.current) {
       inputRef.current.focus();
@@ -85,62 +122,96 @@ export default function SheetTabBar({
   }, []);
 
   const commitRename = useCallback(() => {
-    if (editingId && editName.trim()) {
-      onRename(editingId, editName.trim());
-    }
+    if (editingId && editName.trim()) onRename(editingId, editName.trim());
     setEditingId(null);
   }, [editingId, editName, onRename]);
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1 bg-gray-100 border-t border-gray-200 select-none overflow-x-auto">
-      {sheets.map((sheet) => {
-        const isActive = sheet.id === activeSheetId;
-        const isEditing = editingId === sheet.id;
+    <div className="flex items-stretch bg-gray-100 border-t border-gray-200 select-none h-8">
 
-        return (
-          <div
-            key={sheet.id}
-            className={
-              "group flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-t-md cursor-pointer transition-colors relative " +
-              (isActive
-                ? "bg-white text-gray-800 border border-b-0 border-gray-200 shadow-sm -mb-[1px] z-10"
-                : "bg-gray-50 text-gray-500 hover:bg-gray-200/60 border border-transparent")
-            }
-            onClick={() => onSelect(sheet.id)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setCtxMenu({ id: sheet.id, x: e.clientX, y: e.clientY });
-            }}
-            onDoubleClick={() => startRename(sheet.id, sheet.name)}
-          >
-            {/* Icon */}
-            <span className="text-[10px]">
-              {sheet.type === "swimlane" ? "🏊" : "📄"}
-            </span>
+      {/* ── Left scroll arrow ── */}
+      <button
+        onClick={() => scrollBy(-1)}
+        disabled={!canScrollLeft}
+        className={
+          "flex-shrink-0 w-6 flex items-center justify-center border-r border-gray-200 transition-colors text-xs " +
+          (canScrollLeft
+            ? "text-gray-500 hover:bg-gray-200 cursor-pointer"
+            : "text-gray-300 cursor-default")
+        }
+        title="왼쪽으로"
+      >
+        ‹
+      </button>
 
-            {/* Name or Input */}
-            {isEditing ? (
-              <input
-                ref={inputRef}
-                className="text-[11px] w-20 px-1 py-0 border border-blue-400 rounded outline-none bg-white"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename();
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="truncate max-w-[100px]">{sheet.name}</span>
-            )}
-          </div>
-        );
-      })}
+      {/* ── Scrollable tab strip ── */}
+      <div
+        ref={scrollRef}
+        className="flex-1 flex items-center gap-0.5 px-1 overflow-x-auto"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
+        <style>{`.tab-scroll::-webkit-scrollbar{display:none}`}</style>
+        {sheets.map((sheet) => {
+          const isActive = sheet.id === activeSheetId;
+          const isEditing = editingId === sheet.id;
+          return (
+            <div
+              key={sheet.id}
+              data-sheet-id={sheet.id}
+              className={
+                "flex-shrink-0 flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded-t-md cursor-pointer transition-colors relative " +
+                (isActive
+                  ? "bg-white text-gray-800 border border-b-0 border-gray-200 shadow-sm h-full"
+                  : "bg-gray-50 text-gray-500 hover:bg-gray-200/60 border border-transparent")
+              }
+              onClick={() => onSelect(sheet.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtxMenu({ id: sheet.id, x: e.clientX, y: e.clientY });
+              }}
+              onDoubleClick={() => startRename(sheet.id, sheet.name)}
+            >
+              <span className="text-[10px]">
+                {sheet.type === "swimlane" ? "🏊" : "📄"}
+              </span>
+              {isEditing ? (
+                <input
+                  ref={inputRef}
+                  className="text-[11px] w-20 px-1 py-0 border border-blue-400 rounded outline-none bg-white"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitRename();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="truncate max-w-[100px]">{sheet.name}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
-      {/* Add Sheet Button */}
-      <div className="relative ml-1">
+      {/* ── Right scroll arrow ── */}
+      <button
+        onClick={() => scrollBy(1)}
+        disabled={!canScrollRight}
+        className={
+          "flex-shrink-0 w-6 flex items-center justify-center border-l border-gray-200 transition-colors text-xs " +
+          (canScrollRight
+            ? "text-gray-500 hover:bg-gray-200 cursor-pointer"
+            : "text-gray-300 cursor-default")
+        }
+        title="오른쪽으로"
+      >
+        ›
+      </button>
+
+      {/* ── Add sheet button ── */}
+      <div className="flex-shrink-0 relative flex items-center border-l border-gray-200 px-1">
         <button
           ref={addBtnRef}
           onClick={() => setAddMenuOpen(!addMenuOpen)}
@@ -149,6 +220,7 @@ export default function SheetTabBar({
         >
           +
         </button>
+
         {addMenuOpen && addBtnRef.current && (() => {
           const rect = addBtnRef.current!.getBoundingClientRect();
           return (
@@ -206,7 +278,7 @@ export default function SheetTabBar({
         })()}
       </div>
 
-      {/* Custom Swim Lane Dialog */}
+      {/* ── Custom Swim Lane Dialog ── */}
       {showCustomDialog && (
         <div
           className="fixed inset-0 bg-black/30 z-[9999] flex items-center justify-center"
@@ -218,7 +290,6 @@ export default function SheetTabBar({
           >
             <h3 className="text-[13px] font-bold text-gray-800 mb-3">커스텀 Swim Lane 설정</h3>
             <p className="text-[10px] text-gray-400 mb-3">레인 이름을 입력하세요 (2~10개)</p>
-
             <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto mb-3">
               {customInputs.map((val, i) => (
                 <div key={i} className="flex items-center gap-1.5">
@@ -240,7 +311,6 @@ export default function SheetTabBar({
                 </div>
               ))}
             </div>
-
             {customInputs.length < 10 && (
               <button
                 className="w-full text-[11px] text-blue-500 hover:text-blue-700 py-1 mb-3 border border-dashed border-blue-200 rounded hover:border-blue-400 transition-colors"
@@ -249,7 +319,6 @@ export default function SheetTabBar({
                 + 레인 추가
               </button>
             )}
-
             <div className="flex gap-2 justify-end">
               <button
                 className="px-3 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 rounded transition-colors"
@@ -272,7 +341,7 @@ export default function SheetTabBar({
         </div>
       )}
 
-      {/* Context Menu */}
+      {/* ── Context Menu ── */}
       {ctxMenu && (
         <div
           ref={menuRef}
