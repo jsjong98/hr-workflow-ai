@@ -126,6 +126,8 @@ export default function SwimLaneOverlay({
   const handleDividerMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
     e.preventDefault();
     e.stopPropagation();
+    // Also stop native event to prevent ReactFlow pan
+    e.nativeEvent.stopImmediatePropagation();
     dragRef.current = {
       dividerIndex: idx,
       startY: e.clientY,
@@ -286,6 +288,7 @@ export default function SwimLaneOverlay({
           return (
             <div
               key={`handle-${i}`}
+              className="nopan nodrag"
               style={{
                 position: "absolute",
                 left: frameL,
