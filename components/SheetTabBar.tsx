@@ -127,7 +127,7 @@ export default function SheetTabBar({
   }, [editingId, editName, onRename]);
 
   return (
-    <div className="flex items-stretch bg-gray-100 border-t border-gray-200 select-none h-8">
+    <div className="flex items-stretch bg-gray-100 border-t border-gray-200 select-none h-8 min-w-0 overflow-hidden">
 
       {/* ── Left scroll arrow ── */}
       <button
@@ -147,10 +147,10 @@ export default function SheetTabBar({
       {/* ── Scrollable tab strip ── */}
       <div
         ref={scrollRef}
-        className="flex-1 flex items-center gap-0.5 px-1 overflow-x-auto"
+        className="flex-1 min-w-0 flex items-center gap-0.5 px-1 overflow-x-auto"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
-        <style>{`.tab-scroll::-webkit-scrollbar{display:none}`}</style>
+        <style>{`[data-tab-scroll]::-webkit-scrollbar{display:none}`}</style>
         {sheets.map((sheet) => {
           const isActive = sheet.id === activeSheetId;
           const isEditing = editingId === sheet.id;
