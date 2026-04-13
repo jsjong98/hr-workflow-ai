@@ -10,6 +10,8 @@ export interface Sheet {
   type: SheetType;
   /** swimlane labels (only for swimlane type) */
   lanes?: string[];
+  /** per-lane heights in canvas pixels (only for swimlane type) */
+  laneHeights?: number[];
 }
 
 interface Props {
@@ -39,6 +41,10 @@ export default function SheetTabBar({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addMenuDivRef = useRef<HTMLDivElement>(null);
+
+  /* Custom swimlane dialog state */
+  const [showCustomDialog, setShowCustomDialog] = useState(false);
+  const [customInputs, setCustomInputs] = useState<string[]>(["", "", "", ""]);
 
   /* Close context menu on outside click */
   useEffect(() => {
@@ -181,10 +187,90 @@ export default function SheetTabBar({
                   <div className="text-[9px] text-gray-400">현업 임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div>
                 </div>
               </button>
+              <button
+                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                onClick={() => {
+                  setCustomInputs(["", "", "", ""]);
+                  setShowCustomDialog(true);
+                  setAddMenuOpen(false);
+                }}
+              >
+                <span>✏️</span>
+                <div>
+                  <div className="font-semibold text-gray-700">커스텀 시트</div>
+                  <div className="text-[9px] text-gray-400">레인 개수·이름 직접 설정</div>
+                </div>
+              </button>
             </div>
           );
         })()}
       </div>
+
+      {/* Custom Swim Lane Dialog */}
+      {showCustomDialog && (
+        <div
+          className="fixed inset-0 bg-black/30 z-[9999] flex items-center justify-center"
+          onMouseDown={() => setShowCustomDialog(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl border border-gray-200 p-5 w-80"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[13px] font-bold text-gray-800 mb-3">커스텀 Swim Lane 설정</h3>
+            <p className="text-[10px] text-gray-400 mb-3">레인 이름을 입력하세요 (2~10개)</p>
+
+            <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto mb-3">
+              {customInputs.map((val, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-400 w-4 text-right">{i + 1}</span>
+                  <input
+                    className="flex-1 text-[11px] px-2 py-1 border border-gray-200 rounded outline-none focus:border-blue-400"
+                    placeholder={`레인 ${i + 1} 이름`}
+                    value={val}
+                    onChange={(e) => setCustomInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
+                  />
+                  {customInputs.length > 2 && (
+                    <button
+                      className="text-[11px] text-red-400 hover:text-red-600 px-1"
+                      onClick={() => setCustomInputs((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {customInputs.length < 10 && (
+              <button
+                className="w-full text-[11px] text-blue-500 hover:text-blue-700 py-1 mb-3 border border-dashed border-blue-200 rounded hover:border-blue-400 transition-colors"
+                onClick={() => setCustomInputs((prev) => [...prev, ""])}
+              >
+                + 레인 추가
+              </button>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-3 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 rounded transition-colors"
+                onClick={() => setShowCustomDialog(false)}
+              >
+                취소
+              </button>
+              <button
+                className="px-3 py-1.5 text-[11px] bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                onClick={() => {
+                  const filled = customInputs.map((v, i) => v.trim() || `레인 ${i + 1}`);
+                  onAdd("swimlane", filled);
+                  setShowCustomDialog(false);
+                }}
+              >
+                만들기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Context Menu */}
       {ctxMenu && (

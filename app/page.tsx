@@ -320,7 +320,7 @@ export default function Home() {
       const DEFAULT_4_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
       const lanes = type === "swimlane" ? (customLanes || DEFAULT_4_LANES) : undefined;
       const label = type === "swimlane"
-        ? (lanes && lanes.length > 4 ? `${lanes.length}분할 시트` : "4분할 시트")
+        ? `${lanes?.length ?? 4}분할 시트`
         : "빈 시트";
       const newSheet: Sheet = {
         id: newId,
@@ -343,6 +343,13 @@ export default function Home() {
     },
     [activeSheetId, nodes, edges, setNodes, setEdges]
   );
+
+  /* Update lane heights for active swim lane sheet */
+  const handleLaneHeightsChange = useCallback((heights: number[]) => {
+    setSheets((prev) => prev.map((s) =>
+      s.id === activeSheetId ? { ...s, laneHeights: heights } : s
+    ));
+  }, [activeSheetId]);
 
   /* Delete a sheet */
   const handleDeleteSheet = useCallback(
@@ -1189,11 +1196,12 @@ export default function Home() {
       const detail = (e as CustomEvent).detail;
       if (detail?.sheets && Array.isArray(detail.sheets)) {
         /* ── Multi-sheet JSON format ── */
-        const loadedSheets: Sheet[] = detail.sheets.map((s: { id: string; name: string; type: SheetType; lanes?: string[] }) => ({
+        const loadedSheets: Sheet[] = detail.sheets.map((s: { id: string; name: string; type: SheetType; lanes?: string[]; laneHeights?: number[] }) => ({
           id: s.id,
           name: s.name,
           type: s.type || "blank",
           lanes: s.lanes,
+          laneHeights: s.laneHeights,
         }));
         // 1) sheetDataRef 멃저 채우기 (ref는 동기)
         for (const sd of detail.sheets as { id: string; nodes: Node[]; edges: Edge[] }[]) {
@@ -1916,7 +1924,12 @@ export default function Home() {
 
                 {/* Swimlane overlay — uses useViewport(), must be inside ReactFlow */}
                 {activeSheet.type === "swimlane" && (
-                  <SwimLaneOverlay key="swimlane" lanes={activeSheet.lanes} />
+                  <SwimLaneOverlay
+                    key="swimlane"
+                    lanes={activeSheet.lanes}
+                    laneHeights={activeSheet.laneHeights}
+                    onLaneHeightsChange={handleLaneHeightsChange}
+                  />
                 )}
 
                 <Controls key="controls" position="bottom-right" />

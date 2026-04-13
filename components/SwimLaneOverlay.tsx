@@ -3,21 +3,25 @@
 /**
  * SwimLaneOverlay — PPT-proportioned slide frame overlay
  *
+ * Supports per-lane height adjustment via drag handles.
  * Uses useNodes() to compute the SAME scale (sc) as the PPT export,
  * then maps the PPT slide boundary to canvas coordinates.
- *
- * X-axis: uses sc (from bbox + scRef) — matches PPT node placement
- * Y-axis: uses px1 (swim lane height mapping) — matches PPT Phase 2.6
  */
 
 import { useViewport, useNodes } from "@xyflow/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Props {
   lanes?: string[];
   swimHeight?: number;
+  /** Per-lane heights in canvas pixels. Falls back to swimHeight/lanes.length. */
+  laneHeights?: number[];
+  /** Called when user drags a divider to resize lanes. */
+  onLaneHeightsChange?: (heights: number[]) => void;
 }
 
 const DEFAULT_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
+const MIN_LANE_H = 80;
 
 /* ── PPT constants (must match ExportToolbar) ── */
 const PPT_W         = 13.33;
@@ -26,7 +30,7 @@ const PPT_PAD_X     = 1.25;
 const PPT_PAD_TOP   = 1.575;
 const PPT_PAD_BOT   = 0.35;
 const PPT_SL_BOTTOM = PPT_H - PPT_PAD_BOT + 0.05;  // 7.2"
-const PPT_MAX_SWIM_H = PPT_SL_BOTTOM - 0.65;        // 6.55" max swim area
+const PPT_MAX_SWIM_H = PPT_SL_BOTTOM - 0.65;        // 6.55"
 
 /* ── Node canvas sizes (must match ExportToolbar LS) ── */
 const NS: Record<string, { w: number; h: number }> = {
@@ -44,22 +48,98 @@ const DIVIDER_COLOR = "#B0B0B0";
 const TITLE_FILL    = "rgba(241,245,249,0.5)";
 const OVERFLOW_FILL = "rgba(254,226,226,0.15)";
 const MARGIN_COLOR  = "#CBD5E1";
+const HANDLE_HOVER  = "#6366F1";
 
 export default function SwimLaneOverlay({
   lanes = DEFAULT_LANES,
-  swimHeight = 2400,
+  swimHeight: swimHeightProp = 2400,
+  laneHeights: laneHeightsProp,
+  onLaneHeightsChange,
 }: Props) {
   const { x, y, zoom } = useViewport();
   const allNodes = useNodes();
-  const laneH = swimHeight / lanes.length;
 
-  /* ── Y-axis: fixed swim-lane scale (dynamic band height for 4/6 lanes) ── */
+  /* ── Effective lane heights ── */
+  const defaultH = swimHeightProp / lanes.length;
+  const baseHeights: number[] = (laneHeightsProp && laneHeightsProp.length === lanes.length)
+    ? laneHeightsProp
+    : Array(lanes.length).fill(defaultH);
+
+  const [draggingHeights, setDraggingHeights] = useState<number[] | null>(null);
+  const [hoveredDivider, setHoveredDivider] = useState<number | null>(null);
+  const laneHeights = draggingHeights || baseHeights;
+  const swimHeight = laneHeights.reduce((a, b) => a + b, 0);
+
+  /* Cumulative Y positions (canvas pixels, y=0 = top of lane 0) */
+  const cumulativeY: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < laneHeights.length; i++) {
+    cumulativeY.push(acc);
+    acc += laneHeights[i];
+  }
+
+  /* ── Drag refs ── */
+  const dragRef = useRef<{
+    dividerIndex: number;
+    startY: number;
+    startHeights: number[];
+  } | null>(null);
+  const currentDragHeightsRef = useRef<number[] | null>(null);
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  const onChangeRef = useRef(onLaneHeightsChange);
+  useEffect(() => { onChangeRef.current = onLaneHeightsChange; }, [onLaneHeightsChange]);
+
+  /* Global mouse events for drag */
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const { dividerIndex, startY, startHeights } = dragRef.current;
+      const dy = (e.clientY - startY) / zoomRef.current;
+      const total = startHeights[dividerIndex] + startHeights[dividerIndex + 1];
+      const newAbove = Math.max(MIN_LANE_H, Math.min(total - MIN_LANE_H, startHeights[dividerIndex] + dy));
+      const newHeights = [...startHeights];
+      newHeights[dividerIndex] = newAbove;
+      newHeights[dividerIndex + 1] = total - newAbove;
+      currentDragHeightsRef.current = newHeights;
+      setDraggingHeights([...newHeights]);
+    };
+
+    const onMouseUp = () => {
+      if (!dragRef.current) return;
+      if (currentDragHeightsRef.current) {
+        onChangeRef.current?.(currentDragHeightsRef.current);
+      }
+      dragRef.current = null;
+      currentDragHeightsRef.current = null;
+      setDraggingHeights(null);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = {
+      dividerIndex: idx,
+      startY: e.clientY,
+      startHeights: [...laneHeights],
+    };
+  }, [laneHeights]);
+
+  /* ── Y-axis scale ── */
   const PPT_SWIM_BAND = Math.min(1.535, PPT_MAX_SWIM_H / lanes.length);
   const totalSwimIn = PPT_SWIM_BAND * lanes.length;
-  const px1 = swimHeight / totalSwimIn;              // ~390.9
-  const slTop = PPT_SL_BOTTOM - totalSwimIn;         // ~1.06"
+  const px1 = swimHeight / totalSwimIn;
+  const slTop = PPT_SL_BOTTOM - totalSwimIn;
 
-  /* ── X-axis: compute sc from bbox (same as PPT export) ── */
+  /* ── X-axis: compute sc from bbox ── */
   let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
   for (const nd of allNodes) {
     const lv = (nd.data as Record<string, string>)?.level || "L4";
@@ -78,7 +158,7 @@ export default function SwimLaneOverlay({
   const scFit = Math.min(areaW / bRangeX, areaH / bRangeY);
   const sc = Math.min(scFit, SC_REF);
 
-  /* ── Frame in canvas coords (X: 1/sc, Y: px1) ── */
+  /* ── Frame in canvas coords ── */
   const frameL = bMinX - PPT_PAD_X / sc;
   const frameW = PPT_W / sc;
   const frameT = -(slTop * px1);
@@ -90,6 +170,8 @@ export default function SwimLaneOverlay({
 
   const extW = frameW + 800;
   const extH = frameH + 300;
+
+  const isDragging = draggingHeights !== null;
 
   return (
     <div style={{
@@ -133,12 +215,33 @@ export default function SwimLaneOverlay({
           <line x1={contentR} y1={titleH} x2={contentR} y2={titleH + swimHeight}
             stroke={MARGIN_COLOR} strokeWidth={1} strokeDasharray="6 4" opacity={0.5} />
 
-          {/* Swim lane dividers */}
-          {Array.from({ length: lanes.length + 1 }, (_, i) => (
-            <line key={`d${i}`}
-              x1={0} y1={titleH + i * laneH}
-              x2={frameW} y2={titleH + i * laneH}
-              stroke={DIVIDER_COLOR} strokeWidth={1.5} strokeDasharray="10 6" />
+          {/* Swim lane dividers (top + between each lane + bottom) */}
+          {Array.from({ length: lanes.length + 1 }, (_, i) => {
+            const yPos = titleH + (i < lanes.length ? cumulativeY[i] : swimHeight);
+            const isInner = i > 0 && i < lanes.length;
+            const isHovered = isInner && hoveredDivider === i - 1;
+            const isActiveDrag = isInner && isDragging && dragRef.current?.dividerIndex === i - 1;
+            return (
+              <line key={`d${i}`}
+                x1={0} y1={yPos}
+                x2={frameW} y2={yPos}
+                stroke={isActiveDrag ? HANDLE_HOVER : isHovered ? HANDLE_HOVER : DIVIDER_COLOR}
+                strokeWidth={isActiveDrag ? 2.5 : isHovered ? 2 : 1.5}
+                strokeDasharray={isActiveDrag ? "none" : "10 6"}
+                opacity={isActiveDrag ? 0.8 : 1}
+              />
+            );
+          })}
+
+          {/* Lane height labels when dragging */}
+          {isDragging && laneHeights.map((h, i) => (
+            <text key={`ht${i}`}
+              x={frameW - 8}
+              y={titleH + cumulativeY[i] + h / 2 + 4}
+              fontSize={10} fill="#6366F1" textAnchor="end"
+              fontFamily="'Noto Sans KR',sans-serif" opacity={0.8}>
+              {Math.round(h)}px
+            </text>
           ))}
 
           {/* PPT badge */}
@@ -162,7 +265,7 @@ export default function SwimLaneOverlay({
           <div key={`lbl-${i}`} style={{
             position: "absolute",
             left: frameL + 12,
-            top: i * laneH + 10,
+            top: cumulativeY[i] + 10,
             width: 120, height: 30,
             display: "flex", alignItems: "center", justifyContent: "center",
             background: "#FFF", border: "1.5px solid #B0B0B0", borderRadius: 2,
@@ -174,6 +277,45 @@ export default function SwimLaneOverlay({
             }}>{label}</span>
           </div>
         ))}
+
+        {/* Draggable divider handles (between adjacent lanes) */}
+        {lanes.length > 1 && Array.from({ length: lanes.length - 1 }, (_, i) => {
+          const divY = cumulativeY[i + 1];
+          const isActive = isDragging && dragRef.current?.dividerIndex === i;
+          const isHovered = hoveredDivider === i;
+          return (
+            <div
+              key={`handle-${i}`}
+              style={{
+                position: "absolute",
+                left: frameL,
+                top: divY - 6,
+                width: frameW,
+                height: 12,
+                cursor: onLaneHeightsChange ? "row-resize" : "default",
+                pointerEvents: onLaneHeightsChange ? "auto" : "none",
+                zIndex: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              onMouseEnter={() => setHoveredDivider(i)}
+              onMouseLeave={() => setHoveredDivider(null)}
+              onMouseDown={onLaneHeightsChange ? (e) => handleDividerMouseDown(e, i) : undefined}
+            >
+              {/* Visual pill indicator on hover/drag */}
+              {(isHovered || isActive) && (
+                <div style={{
+                  width: 48, height: 5,
+                  borderRadius: 3,
+                  background: isActive ? HANDLE_HOVER : "#A5B4FC",
+                  boxShadow: "0 1px 4px rgba(99,102,241,0.4)",
+                  transition: "background 0.1s",
+                }} />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
