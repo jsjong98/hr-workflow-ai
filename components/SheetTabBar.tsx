@@ -8,9 +8,7 @@ export interface Sheet {
   id: string;
   name: string;
   type: SheetType;
-  /** swimlane labels (only for swimlane type) */
   lanes?: string[];
-  /** per-lane heights in canvas pixels (only for swimlane type) */
   laneHeights?: number[];
 }
 
@@ -41,12 +39,10 @@ export default function SheetTabBar({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addMenuDivRef = useRef<HTMLDivElement>(null);
-
-  /* Custom swimlane dialog */
   const [showCustomDialog, setShowCustomDialog] = useState(false);
   const [customInputs, setCustomInputs] = useState<string[]>(["", "", "", ""]);
 
-  /* Tab scroll state */
+  /* Scroll state */
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -58,7 +54,6 @@ export default function SheetTabBar({
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
   }, []);
 
-  /* Update arrows on mount, resize, and scroll */
   useEffect(() => {
     updateScrollButtons();
     const el = scrollRef.current;
@@ -66,61 +61,40 @@ export default function SheetTabBar({
     el.addEventListener("scroll", updateScrollButtons);
     const ro = new ResizeObserver(updateScrollButtons);
     ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", updateScrollButtons);
-      ro.disconnect();
-    };
+    return () => { el.removeEventListener("scroll", updateScrollButtons); ro.disconnect(); };
   }, [updateScrollButtons, sheets]);
 
-  /* Scroll active tab into view when it changes */
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const activeTab = el.querySelector(`[data-sheet-id="${activeSheetId}"]`) as HTMLElement | null;
-    if (activeTab) {
-      activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
-      setTimeout(updateScrollButtons, 50);
-    }
+    if (activeTab) { activeTab.scrollIntoView({ block: "nearest", inline: "nearest" }); setTimeout(updateScrollButtons, 50); }
   }, [activeSheetId, updateScrollButtons]);
 
-  const scrollBy = useCallback((dir: -1 | 1) => {
+  const scrollTabs = useCallback((dir: -1 | 1) => {
     scrollRef.current?.scrollBy({ left: dir * 160, behavior: "smooth" });
   }, []);
 
-  /* Close menus on outside click */
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) setCtxMenu(null);
-    };
-    if (ctxMenu) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) setCtxMenu(null); };
+    if (ctxMenu) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
   }, [ctxMenu]);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const h = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (
-        addBtnRef.current && !addBtnRef.current.contains(t) &&
-        addMenuDivRef.current && !addMenuDivRef.current.contains(t)
-      ) setAddMenuOpen(false);
+      if (addBtnRef.current && !addBtnRef.current.contains(t) && addMenuDivRef.current && !addMenuDivRef.current.contains(t)) setAddMenuOpen(false);
     };
-    if (addMenuOpen) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    if (addMenuOpen) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
   }, [addMenuOpen]);
 
   useEffect(() => {
-    if (editingId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
+    if (editingId && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
   }, [editingId]);
 
-  const startRename = useCallback((id: string, currentName: string) => {
-    setEditingId(id);
-    setEditName(currentName);
-    setCtxMenu(null);
-  }, []);
-
+  const startRename = useCallback((id: string, name: string) => { setEditingId(id); setEditName(name); setCtxMenu(null); }, []);
   const commitRename = useCallback(() => {
     if (editingId && editName.trim()) onRename(editingId, editName.trim());
     setEditingId(null);
@@ -129,28 +103,19 @@ export default function SheetTabBar({
   return (
     <div className="flex items-stretch bg-gray-100 border-t border-gray-200 select-none h-8 min-w-0 overflow-hidden">
 
-      {/* ── Left scroll arrow ── */}
+      {/* 왼쪽 화살표 */}
       <button
-        onClick={() => scrollBy(-1)}
+        onClick={() => scrollTabs(-1)}
         disabled={!canScrollLeft}
-        className={
-          "flex-shrink-0 w-6 flex items-center justify-center border-r border-gray-200 transition-colors text-xs " +
-          (canScrollLeft
-            ? "text-gray-500 hover:bg-gray-200 cursor-pointer"
-            : "text-gray-300 cursor-default")
-        }
-        title="왼쪽으로"
-      >
-        ‹
-      </button>
+        className={"flex-shrink-0 w-5 flex items-center justify-center border-r border-gray-200 text-xs transition-colors " + (canScrollLeft ? "text-gray-500 hover:bg-gray-200 cursor-pointer" : "text-gray-300 cursor-default")}
+      >‹</button>
 
-      {/* ── Scrollable tab strip ── */}
+      {/* 탭 스크롤 영역 — + 버튼도 이 안에 포함 */}
       <div
         ref={scrollRef}
         className="flex-1 min-w-0 flex items-center gap-0.5 px-1 overflow-x-auto"
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        style={{ scrollbarWidth: "none" } as React.CSSProperties}
       >
-        <style>{`[data-tab-scroll]::-webkit-scrollbar{display:none}`}</style>
         {sheets.map((sheet) => {
           const isActive = sheet.id === activeSheetId;
           const isEditing = editingId === sheet.id;
@@ -159,21 +124,16 @@ export default function SheetTabBar({
               key={sheet.id}
               data-sheet-id={sheet.id}
               className={
-                "flex-shrink-0 flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded-t-md cursor-pointer transition-colors relative " +
+                "flex-shrink-0 flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded-t-md cursor-pointer transition-colors " +
                 (isActive
                   ? "bg-white text-gray-800 border border-b-0 border-gray-200 shadow-sm h-full"
                   : "bg-gray-50 text-gray-500 hover:bg-gray-200/60 border border-transparent")
               }
               onClick={() => onSelect(sheet.id)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setCtxMenu({ id: sheet.id, x: e.clientX, y: e.clientY });
-              }}
+              onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ id: sheet.id, x: e.clientX, y: e.clientY }); }}
               onDoubleClick={() => startRename(sheet.id, sheet.name)}
             >
-              <span className="text-[10px]">
-                {sheet.type === "swimlane" ? "🏊" : "📄"}
-              </span>
+              <span className="text-[10px]">{sheet.type === "swimlane" ? "🏊" : "📄"}</span>
               {isEditing ? (
                 <input
                   ref={inputRef}
@@ -181,10 +141,7 @@ export default function SheetTabBar({
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitRename();
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setEditingId(null); }}
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
@@ -193,101 +150,61 @@ export default function SheetTabBar({
             </div>
           );
         })}
+
+        {/* + 버튼: 마지막 탭 바로 옆 */}
+        <div className="flex-shrink-0 relative flex items-center ml-1">
+          <button
+            ref={addBtnRef}
+            onClick={() => setAddMenuOpen((v) => !v)}
+            className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors text-sm font-bold"
+            title="새 시트 추가"
+          >+</button>
+
+          {addMenuOpen && addBtnRef.current && (() => {
+            const rect = addBtnRef.current!.getBoundingClientRect();
+            return (
+              <div
+                ref={addMenuDivRef}
+                className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 z-[9999]"
+                style={{ left: rect.left, bottom: window.innerHeight - rect.top + 4 }}
+              >
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  onClick={() => { onAdd("blank"); setAddMenuOpen(false); }}>
+                  <span>📄</span>
+                  <div><div className="font-semibold text-gray-700">빈 시트 (격자)</div><div className="text-[9px] text-gray-400">흰 도화지 + 격자선</div></div>
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  onClick={() => { onAdd("swimlane"); setAddMenuOpen(false); }}>
+                  <span>🏊</span>
+                  <div><div className="font-semibold text-gray-700">4분할 시트</div><div className="text-[9px] text-gray-400">현업 임원 · 팀장 · HR 담당자 · 구성원</div></div>
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  onClick={() => { onAdd("swimlane", ["현업 임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}>
+                  <span>🏊</span>
+                  <div><div className="font-semibold text-gray-700">6분할 시트</div><div className="text-[9px] text-gray-400">현업 임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div></div>
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  onClick={() => { setCustomInputs(["", "", "", ""]); setShowCustomDialog(true); setAddMenuOpen(false); }}>
+                  <span>✏️</span>
+                  <div><div className="font-semibold text-gray-700">커스텀 시트</div><div className="text-[9px] text-gray-400">레인 개수·이름 직접 설정</div></div>
+                </button>
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
-      {/* ── Right scroll arrow ── */}
+      {/* 오른쪽 화살표 */}
       <button
-        onClick={() => scrollBy(1)}
+        onClick={() => scrollTabs(1)}
         disabled={!canScrollRight}
-        className={
-          "flex-shrink-0 w-6 flex items-center justify-center border-l border-gray-200 transition-colors text-xs " +
-          (canScrollRight
-            ? "text-gray-500 hover:bg-gray-200 cursor-pointer"
-            : "text-gray-300 cursor-default")
-        }
-        title="오른쪽으로"
-      >
-        ›
-      </button>
+        className={"flex-shrink-0 w-5 flex items-center justify-center border-l border-gray-200 text-xs transition-colors " + (canScrollRight ? "text-gray-500 hover:bg-gray-200 cursor-pointer" : "text-gray-300 cursor-default")}
+      >›</button>
 
-      {/* ── Add sheet button ── */}
-      <div className="flex-shrink-0 relative flex items-center border-l border-gray-200 px-1">
-        <button
-          ref={addBtnRef}
-          onClick={() => setAddMenuOpen(!addMenuOpen)}
-          className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors text-sm font-bold"
-          title="새 시트 추가"
-        >
-          +
-        </button>
-
-        {addMenuOpen && addBtnRef.current && (() => {
-          const rect = addBtnRef.current!.getBoundingClientRect();
-          return (
-            <div
-              ref={addMenuDivRef}
-              className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-44 z-[9999]"
-              style={{ left: rect.left, bottom: window.innerHeight - rect.top + 4 }}
-            >
-              <button
-                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-                onClick={() => { onAdd("blank"); setAddMenuOpen(false); }}
-              >
-                <span>📄</span>
-                <div>
-                  <div className="font-semibold text-gray-700">빈 시트 (격자)</div>
-                  <div className="text-[9px] text-gray-400">흰 도화지 + 격자선</div>
-                </div>
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-                onClick={() => { onAdd("swimlane"); setAddMenuOpen(false); }}
-              >
-                <span>🏊</span>
-                <div>
-                  <div className="font-semibold text-gray-700">4분할 시트</div>
-                  <div className="text-[9px] text-gray-400">현업 임원 · 팀장 · HR 담당자 · 구성원</div>
-                </div>
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-                onClick={() => { onAdd("swimlane", ["현업 임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}
-              >
-                <span>🏊</span>
-                <div>
-                  <div className="font-semibold text-gray-700">6분할 시트</div>
-                  <div className="text-[9px] text-gray-400">현업 임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div>
-                </div>
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
-                onClick={() => {
-                  setCustomInputs(["", "", "", ""]);
-                  setShowCustomDialog(true);
-                  setAddMenuOpen(false);
-                }}
-              >
-                <span>✏️</span>
-                <div>
-                  <div className="font-semibold text-gray-700">커스텀 시트</div>
-                  <div className="text-[9px] text-gray-400">레인 개수·이름 직접 설정</div>
-                </div>
-              </button>
-            </div>
-          );
-        })()}
-      </div>
-
-      {/* ── Custom Swim Lane Dialog ── */}
+      {/* 커스텀 다이얼로그 */}
       {showCustomDialog && (
-        <div
-          className="fixed inset-0 bg-black/30 z-[9999] flex items-center justify-center"
-          onMouseDown={() => setShowCustomDialog(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl border border-gray-200 p-5 w-80"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/30 z-[9999] flex items-center justify-center" onMouseDown={() => setShowCustomDialog(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-5 w-80" onMouseDown={(e) => e.stopPropagation()}>
             <h3 className="text-[13px] font-bold text-gray-800 mb-3">커스텀 Swim Lane 설정</h3>
             <p className="text-[10px] text-gray-400 mb-3">레인 이름을 입력하세요 (2~10개)</p>
             <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto mb-3">
@@ -301,72 +218,37 @@ export default function SheetTabBar({
                     onChange={(e) => setCustomInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
                   />
                   {customInputs.length > 2 && (
-                    <button
-                      className="text-[11px] text-red-400 hover:text-red-600 px-1"
-                      onClick={() => setCustomInputs((prev) => prev.filter((_, j) => j !== i))}
-                    >
-                      ×
-                    </button>
+                    <button className="text-[11px] text-red-400 hover:text-red-600 px-1"
+                      onClick={() => setCustomInputs((prev) => prev.filter((_, j) => j !== i))}>×</button>
                   )}
                 </div>
               ))}
             </div>
             {customInputs.length < 10 && (
-              <button
-                className="w-full text-[11px] text-blue-500 hover:text-blue-700 py-1 mb-3 border border-dashed border-blue-200 rounded hover:border-blue-400 transition-colors"
-                onClick={() => setCustomInputs((prev) => [...prev, ""])}
-              >
-                + 레인 추가
-              </button>
+              <button className="w-full text-[11px] text-blue-500 hover:text-blue-700 py-1 mb-3 border border-dashed border-blue-200 rounded hover:border-blue-400 transition-colors"
+                onClick={() => setCustomInputs((prev) => [...prev, ""])}>+ 레인 추가</button>
             )}
             <div className="flex gap-2 justify-end">
-              <button
-                className="px-3 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 rounded transition-colors"
-                onClick={() => setShowCustomDialog(false)}
-              >
-                취소
-              </button>
-              <button
-                className="px-3 py-1.5 text-[11px] bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                onClick={() => {
-                  const filled = customInputs.map((v, i) => v.trim() || `레인 ${i + 1}`);
-                  onAdd("swimlane", filled);
-                  setShowCustomDialog(false);
-                }}
-              >
-                만들기
-              </button>
+              <button className="px-3 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 rounded transition-colors"
+                onClick={() => setShowCustomDialog(false)}>취소</button>
+              <button className="px-3 py-1.5 text-[11px] bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                onClick={() => { onAdd("swimlane", customInputs.map((v, i) => v.trim() || `레인 ${i + 1}`)); setShowCustomDialog(false); }}>만들기</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Context Menu ── */}
+      {/* 컨텍스트 메뉴 */}
       {ctxMenu && (
-        <div
-          ref={menuRef}
-          className="fixed bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-36 z-50"
-          style={{ left: ctxMenu.x, top: ctxMenu.y - 120 }}
-        >
-          <button
-            className="w-full text-left px-3 py-1.5 text-[11px] text-gray-700 hover:bg-blue-50 transition"
-            onClick={() => startRename(ctxMenu.id, sheets.find((s) => s.id === ctxMenu.id)?.name || "")}
-          >
-            ✏️ 이름 변경
-          </button>
-          <button
-            className="w-full text-left px-3 py-1.5 text-[11px] text-gray-700 hover:bg-blue-50 transition"
-            onClick={() => { onDuplicate(ctxMenu.id); setCtxMenu(null); }}
-          >
-            📋 복제
-          </button>
+        <div ref={menuRef} className="fixed bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-36 z-50"
+          style={{ left: ctxMenu.x, top: ctxMenu.y - 120 }}>
+          <button className="w-full text-left px-3 py-1.5 text-[11px] text-gray-700 hover:bg-blue-50 transition"
+            onClick={() => startRename(ctxMenu.id, sheets.find((s) => s.id === ctxMenu.id)?.name || "")}>✏️ 이름 변경</button>
+          <button className="w-full text-left px-3 py-1.5 text-[11px] text-gray-700 hover:bg-blue-50 transition"
+            onClick={() => { onDuplicate(ctxMenu.id); setCtxMenu(null); }}>📋 복제</button>
           {sheets.length > 1 && (
-            <button
-              className="w-full text-left px-3 py-1.5 text-[11px] text-red-500 hover:bg-red-50 transition"
-              onClick={() => { onDelete(ctxMenu.id); setCtxMenu(null); }}
-            >
-              🗑️ 삭제
-            </button>
+            <button className="w-full text-left px-3 py-1.5 text-[11px] text-red-500 hover:bg-red-50 transition"
+              onClick={() => { onDelete(ctxMenu.id); setCtxMenu(null); }}>🗑️ 삭제</button>
           )}
         </div>
       )}
