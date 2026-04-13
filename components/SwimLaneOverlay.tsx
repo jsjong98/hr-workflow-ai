@@ -280,46 +280,57 @@ export default function SwimLaneOverlay({
           </div>
         ))}
 
-        {/* Draggable divider handles (between adjacent lanes) */}
-        {lanes.length > 1 && Array.from({ length: lanes.length - 1 }, (_, i) => {
-          const divY = cumulativeY[i + 1];
-          const isActive = isDragging && dragRef.current?.dividerIndex === i;
-          const isHovered = hoveredDivider === i;
-          return (
-            <div
-              key={`handle-${i}`}
-              className="nopan nodrag"
-              style={{
-                position: "absolute",
-                left: frameL,
-                top: divY - 6,
-                width: frameW,
-                height: 12,
-                cursor: onLaneHeightsChange ? "row-resize" : "default",
-                pointerEvents: onLaneHeightsChange ? "auto" : "none",
-                zIndex: 10,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-              onMouseEnter={() => setHoveredDivider(i)}
-              onMouseLeave={() => setHoveredDivider(null)}
-              onMouseDown={onLaneHeightsChange ? (e) => handleDividerMouseDown(e, i) : undefined}
-            >
-              {/* Visual pill indicator on hover/drag */}
-              {(isHovered || isActive) && (
-                <div style={{
-                  width: 48, height: 5,
-                  borderRadius: 3,
-                  background: isActive ? HANDLE_HOVER : "#A5B4FC",
-                  boxShadow: "0 1px 4px rgba(99,102,241,0.4)",
-                  transition: "background 0.1s",
-                }} />
-              )}
-            </div>
-          );
-        })}
       </div>
+
+      {/* ── Drag handles: screen-space coordinates so hit area is always 20px regardless of zoom ── */}
+      {onLaneHeightsChange && lanes.length > 1 && Array.from({ length: lanes.length - 1 }, (_, i) => {
+        // Convert canvas divider Y to screen Y (relative to ReactFlow container)
+        const screenY = y + cumulativeY[i + 1] * zoom;
+        const screenX = Math.max(0, x + frameL * zoom);
+        const screenW = frameW * zoom;
+        const isActive = isDragging && dragRef.current?.dividerIndex === i;
+        const isHovered = hoveredDivider === i;
+        return (
+          <div
+            key={`handle-${i}`}
+            className="nopan nodrag"
+            style={{
+              position: "absolute",
+              left: screenX,
+              top: screenY - 10,
+              width: screenW,
+              height: 20,
+              cursor: "row-resize",
+              pointerEvents: "auto",
+              zIndex: 200,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onMouseEnter={() => setHoveredDivider(i)}
+            onMouseLeave={() => setHoveredDivider(null)}
+            onMouseDown={(e) => handleDividerMouseDown(e, i)}
+          >
+            {/* Always-visible subtle grip dots */}
+            <div style={{
+              display: "flex", gap: 3, alignItems: "center",
+              opacity: isActive ? 1 : isHovered ? 0.9 : 0.35,
+              transition: "opacity 0.15s",
+              pointerEvents: "none",
+            }}>
+              {[0,1,2,3,4].map(j => (
+                <div key={j} style={{
+                  width: isHovered || isActive ? 5 : 4,
+                  height: isHovered || isActive ? 5 : 4,
+                  borderRadius: "50%",
+                  background: isActive ? HANDLE_HOVER : isHovered ? HANDLE_HOVER : "#888",
+                  transition: "all 0.15s",
+                }} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
