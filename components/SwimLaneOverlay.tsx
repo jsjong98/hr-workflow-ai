@@ -294,9 +294,9 @@ export default function SwimLaneOverlay({
               const screenY = handleScreenPositions[i]?.y ?? 0;
               const isActive = isDragging && dragRef.current?.dividerIndex === i;
               const isHovered = hoveredDivider === i;
+              // 레인 레이블 영역(왼쪽 ~150px)만 인터랙티브 — 노드 영역 간섭 방지
               const left  = Math.max(0, frameScreenLeft);
-              const right = frameScreenRight;
-              const width = Math.max(right - left, 60);
+              const width = 150;
               return (
                 <div
                   key={`portal-handle-${i}`}

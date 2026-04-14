@@ -369,27 +369,38 @@ export default function ExportToolbar({
       const SL_BAND_TOP = SL_BAND_BOTTOM - SWIM_BAND_H * swimLanes.length;
       const TOTAL_SWIM_H = SWIM_BAND_H * swimLanes.length;
 
-      // ── 동적 레인 높이: 2행 레인에 더 많은 공간 배분 ──
+      // ── 캔버스 레인 경계 (laneHeights 반영) ──
+      const canvasLaneH = (currentSheet?.laneHeights && currentSheet.laneHeights.length === swimLanes.length)
+        ? currentSheet.laneHeights
+        : Array(swimLanes.length).fill(2400 / swimLanes.length);
+      const canvasCumY: number[] = [];
+      { let ct = 0; for (const h of canvasLaneH) { canvasCumY.push(ct); ct += h; } canvasCumY.push(ct); }
+      const getCanvasLaneIdx = (rfY: number) => {
+        for (let li = 0; li < swimLanes.length - 1; li++) { if (rfY < canvasCumY[li + 1]) return li; }
+        return swimLanes.length - 1;
+      };
+
+      // ── 동적 레인 높이: 빈 레인 최소화, 내용 있는 레인에 비례 배분 ──
       const dynamicLaneH: number[] = swimLanes.map(() => SWIM_BAND_H);
       const dynamicLaneTops: number[] = [];
       if (isSwimLane) {
-        const CL_H = 2400 / swimLanes.length; // canvas lane height (dynamic)
-        const laneRowCounts: number[] = [];
-        for (let li = 0; li < swimLanes.length; li++) {
-          const ys: number[] = [];
-          for (const nd of nodes) {
-            const idx = Math.min(Math.max(Math.floor(nd.position.y / CL_H), 0), swimLanes.length - 1);
-            if (idx === li) ys.push(nd.position.y);
-          }
-          ys.sort((a, b) => a - b);
-          let rows = 0, lastY = -Infinity;
-          for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
-          laneRowCounts.push(Math.max(rows, 1));
+        const laneRowCounts: number[] = Array(swimLanes.length).fill(0);
+        for (const nd of nodes) {
+          const li = getCanvasLaneIdx(nd.position.y);
+          laneRowCounts[li]++;
         }
-        const totalW = laneRowCounts.reduce((s, c) => s + c, 0);
-        const MIN_H = 0.7; // 최소 레인 높이
+        const MIN_EMPTY    = 0.25; // 빈 레인 최소 높이 (")
+        const MIN_OCCUPIED = 0.55; // 내용 있는 레인 최소 높이 (")
         for (let i = 0; i < swimLanes.length; i++) {
-          dynamicLaneH[i] = Math.max(TOTAL_SWIM_H * laneRowCounts[i] / totalW, MIN_H);
+          dynamicLaneH[i] = laneRowCounts[i] === 0 ? MIN_EMPTY : MIN_OCCUPIED;
+        }
+        const fixedH  = dynamicLaneH.reduce((s, h) => s + h, 0);
+        const remainH = Math.max(0, TOTAL_SWIM_H - fixedH);
+        const totalNodes = laneRowCounts.reduce((s, c) => s + c, 0);
+        if (totalNodes > 0 && remainH > 0) {
+          for (let i = 0; i < swimLanes.length; i++) {
+            if (laneRowCounts[i] > 0) dynamicLaneH[i] += remainH * (laneRowCounts[i] / totalNodes);
+          }
         }
         // 정규화: 합 = TOTAL_SWIM_H
         const hSum = dynamicLaneH.reduce((s, h) => s + h, 0);
@@ -529,13 +540,11 @@ export default function ExportToolbar({
 
       // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
       if (isSwimLane) {
-        const CANVAS_LANE_H = 2400 / swimLanes.length;
         const laneMap: Record<number, string[]> = {};
         for (const nd of nodes) {
           const box = nodeBoxes[nd.id];
           if (!box) continue;
-          const rfY = nd.position.y;
-          const laneIdx = Math.min(Math.max(Math.floor(rfY / CANVAS_LANE_H), 0), swimLanes.length - 1);
+          const laneIdx = getCanvasLaneIdx(nd.position.y);
           if (!laneMap[laneIdx]) laneMap[laneIdx] = [];
           laneMap[laneIdx].push(nd.id);
         }
@@ -1499,26 +1508,33 @@ export default function ExportToolbar({
         const SL_TOP_S = SL_BOTTOM_S - SWIM_BAND_H_S * swimLanes.length;
         const TOTAL_SWIM_H_S = SWIM_BAND_H_S * swimLanes.length;
 
-        // ── 동적 레인 높이: 2행 레인에 더 많은 공간 배분 ──
+        // ── 캔버스 레인 경계 (sheet.laneHeights 반영) ──
+        const sCanvasLaneH = (sheet.laneHeights && sheet.laneHeights.length === swimLanes.length)
+          ? sheet.laneHeights
+          : Array(swimLanes.length).fill(2400 / swimLanes.length);
+        const sCanvasCumY: number[] = [];
+        { let ct = 0; for (const h of sCanvasLaneH) { sCanvasCumY.push(ct); ct += h; } sCanvasCumY.push(ct); }
+        const getSLaneIdx = (rfY: number) => {
+          for (let li = 0; li < swimLanes.length - 1; li++) { if (rfY < sCanvasCumY[li + 1]) return li; }
+          return swimLanes.length - 1;
+        };
+
+        // ── 동적 레인 높이: 빈 레인 최소화, 내용 있는 레인에 비례 배분 ──
         const dynLH_S: number[] = swimLanes.map(() => SWIM_BAND_H_S);
         const dynLT_S: number[] = [];
         if (isSwimLane) {
-          const CL_H_S = 2400 / swimLanes.length; // canvas lane height (dynamic)
-          const lrc: number[] = [];
-          for (let li = 0; li < swimLanes.length; li++) {
-            const ys: number[] = [];
-            for (const nd of sNodes) {
-              const idx = Math.min(Math.max(Math.floor(nd.position.y / CL_H_S), 0), swimLanes.length - 1);
-              if (idx === li) ys.push(nd.position.y);
+          const lrc: number[] = Array(swimLanes.length).fill(0);
+          for (const nd of sNodes) { lrc[getSLaneIdx(nd.position.y)]++; }
+          const MN_EMPTY = 0.25, MN_OCC = 0.55;
+          for (let i = 0; i < swimLanes.length; i++) dynLH_S[i] = lrc[i] === 0 ? MN_EMPTY : MN_OCC;
+          const fixedH  = dynLH_S.reduce((s, h) => s + h, 0);
+          const remainH = Math.max(0, TOTAL_SWIM_H_S - fixedH);
+          const totalN  = lrc.reduce((s, c) => s + c, 0);
+          if (totalN > 0 && remainH > 0) {
+            for (let i = 0; i < swimLanes.length; i++) {
+              if (lrc[i] > 0) dynLH_S[i] += remainH * (lrc[i] / totalN);
             }
-            ys.sort((a, b) => a - b);
-            let rows = 0, lastY = -Infinity;
-            for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
-            lrc.push(Math.max(rows, 1));
           }
-          const tw = lrc.reduce((s, c) => s + c, 0);
-          const MN = 0.7;
-          for (let i = 0; i < swimLanes.length; i++) dynLH_S[i] = Math.max(TOTAL_SWIM_H_S * lrc[i] / tw, MN);
           const hs = dynLH_S.reduce((s, h) => s + h, 0);
           for (let i = 0; i < dynLH_S.length; i++) dynLH_S[i] *= TOTAL_SWIM_H_S / hs;
         }
@@ -1729,13 +1745,11 @@ export default function ExportToolbar({
 
         // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
         if (isSwimLane) {
-          const CANVAS_LANE_H = 2400 / swimLanes.length;
           const laneMap2: Record<number, string[]> = {};
           for (const nd of sNodes) {
             const box = nodeBoxes[nd.id];
             if (!box) continue;
-            const rfY = nd.position.y;
-            const laneIdx = Math.min(Math.max(Math.floor(rfY / CANVAS_LANE_H), 0), swimLanes.length - 1);
+            const laneIdx = getSLaneIdx(nd.position.y);
             if (!laneMap2[laneIdx]) laneMap2[laneIdx] = [];
             laneMap2[laneIdx].push(nd.id);
           }
