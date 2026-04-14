@@ -17,6 +17,7 @@ interface Props {
   swimHeight?: number;
   laneHeights?: number[];
   onLaneHeightsChange?: (heights: number[]) => void;
+  canvasRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 const DEFAULT_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
@@ -54,6 +55,7 @@ export default function SwimLaneOverlay({
   swimHeight: swimHeightProp = 2400,
   laneHeights: laneHeightsProp,
   onLaneHeightsChange,
+  canvasRef,
 }: Props) {
   const { x, y, zoom } = useViewport();
   const allNodes = useNodes();
@@ -295,8 +297,15 @@ export default function SwimLaneOverlay({
               const isActive = isDragging && dragRef.current?.dividerIndex === i;
               const isHovered = hoveredDivider === i;
               // 레인 레이블 영역(왼쪽 ~150px)만 인터랙티브 — 노드 영역 간섭 방지
-              const left  = Math.max(0, frameScreenLeft);
+              // canvasRef가 있으면 캔버스 경계로 클리핑 (팔레트 패널 간섭 방지)
+              const canvasRect = canvasRef?.current?.getBoundingClientRect();
+              const canvasLeft = canvasRect?.left ?? 0;
+              const canvasTop  = canvasRect?.top  ?? 0;
+              const canvasBot  = canvasRect?.bottom ?? window.innerHeight;
+              const left  = Math.max(canvasLeft, frameScreenLeft);
               const width = 150;
+              // 캔버스 수직 범위 밖이면 숨김
+              const visible = screenY >= canvasTop && screenY <= canvasBot;
               return (
                 <div
                   key={`portal-handle-${i}`}
@@ -308,10 +317,9 @@ export default function SwimLaneOverlay({
                     height: 24,
                     cursor: "row-resize",
                     zIndex: 9999,
-                    display: "flex",
+                    display: visible ? "flex" : "none",
                     alignItems: "center",
                     justifyContent: "center",
-                    /* Debug: background: "rgba(255,0,0,0.1)", */
                   }}
                   onMouseEnter={() => setHoveredDivider(i)}
                   onMouseLeave={() => setHoveredDivider(null)}

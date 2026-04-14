@@ -1929,6 +1929,7 @@ export default function Home() {
                     lanes={activeSheet.lanes}
                     laneHeights={activeSheet.laneHeights}
                     onLaneHeightsChange={handleLaneHeightsChange}
+                    canvasRef={reactFlowWrapper}
                   />
                 )}
 
