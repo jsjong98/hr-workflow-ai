@@ -1263,7 +1263,7 @@ export default function Home() {
    * RENDER
    * ═══════════════════════════════════════════════ */
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 overflow-hidden">
       {/* ═══════════ LEFT PANEL ═══════════ */}
       <div className="w-[340px] min-w-[300px] border-r border-gray-200 flex flex-col bg-white">
         {/* Header + File Upload */}
@@ -1862,7 +1862,7 @@ export default function Home() {
       </div>
 
       {/* ═══════════ RIGHT PANEL — CANVAS + TABS + CHAT ═══════════ */}
-      <div className="flex-1 flex relative">
+      <div className="flex-1 min-w-0 flex relative overflow-hidden">
         {/* Canvas area + SheetTabBar */}
         <div className="flex-1 min-w-0 flex flex-col relative">
           {/* Canvas */}
