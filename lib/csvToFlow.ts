@@ -1082,18 +1082,15 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     })
     .sort((a, b) => ((nd(a).id as string) || "").localeCompare((nd(b).id as string) || "", undefined, { numeric: true }));
 
-  /* 새 노드 루프에서 이미 출력된 display ID 추적
-     - isManual=false인 캔버스 복제 노드는 display ID 기준으로 중복 1개만 출력
-     - isManual=true 노드(수동 추가)는 항상 출력 (insert-with-renumber 동작) */
+  /* 새 노드 루프에서 이미 출력된 display ID 추적 — manual/비manual 무관하게 중복 방지 */
   const outputDisplayIds = new Set<string>(matchedDisplayIds);
 
   for (const l5Node of newNodesSorted) {
     const d5 = nd(l5Node);
     const l5Id = (d5.id as string) || "";
-    const isManualNode = !!(d5.isManual);
-    /* 비수동 복제 노드: 같은 display ID가 이미 출력된 경우 건너뜀 */
-    if (!isManualNode && outputDisplayIds.has(l5Id)) continue;
-    if (!isManualNode) outputDisplayIds.add(l5Id);
+    /* 같은 displayId면 manual 여부 관계없이 1개만 출력 */
+    if (l5Id && outputDisplayIds.has(l5Id)) continue;
+    if (l5Id) outputDisplayIds.add(l5Id);
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
     let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
     let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
