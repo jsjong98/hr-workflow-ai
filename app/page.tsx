@@ -1864,7 +1864,7 @@ export default function Home() {
       {/* ═══════════ RIGHT PANEL — CANVAS + TABS + CHAT ═══════════ */}
       <div className="flex-1 flex relative">
         {/* Canvas area + SheetTabBar */}
-        <div className="flex-1 flex flex-col relative">
+        <div className="flex-1 min-w-0 flex flex-col relative">
           {/* Canvas */}
           <div className="flex-1 relative" ref={reactFlowWrapper}>
             {csvRows.length === 0 && nodes.length === 0 ? (
