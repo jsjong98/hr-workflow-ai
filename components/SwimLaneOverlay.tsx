@@ -296,14 +296,19 @@ export default function SwimLaneOverlay({
               const screenY = handleScreenPositions[i]?.y ?? 0;
               const isActive = isDragging && dragRef.current?.dividerIndex === i;
               const isHovered = hoveredDivider === i;
-              // 레인 레이블 영역(왼쪽 ~150px)만 인터랙티브 — 노드 영역 간섭 방지
-              // canvasRef가 있으면 캔버스 경계로 클리핑 (팔레트 패널 간섭 방지)
-              const canvasRect = canvasRef?.current?.getBoundingClientRect();
-              const canvasLeft = canvasRect?.left ?? 0;
-              const canvasTop  = canvasRect?.top  ?? 0;
-              const canvasBot  = canvasRect?.bottom ?? window.innerHeight;
-              const left  = Math.max(canvasLeft, frameScreenLeft);
-              const width = 150;
+              // 프레임 가로 중앙에 핸들 배치 — 캔버스 경계로 클리핑
+              const canvasRect  = canvasRef?.current?.getBoundingClientRect();
+              const canvasLeft  = canvasRect?.left   ?? 0;
+              const canvasRight = canvasRect?.right  ?? window.innerWidth;
+              const canvasTop   = canvasRect?.top    ?? 0;
+              const canvasBot   = canvasRect?.bottom ?? window.innerHeight;
+              const width = 160;
+              const frameCenterX = (frameScreenLeft + frameScreenRight) / 2;
+              // 중앙 정렬, 캔버스 안으로 클리핑
+              const left = Math.min(
+                Math.max(canvasLeft, frameCenterX - width / 2),
+                canvasRight - width
+              );
               // 캔버스 수직 범위 밖이면 숨김
               const visible = screenY >= canvasTop && screenY <= canvasBot;
               return (
