@@ -380,27 +380,29 @@ export default function ExportToolbar({
         return swimLanes.length - 1;
       };
 
-      // ── 동적 레인 높이: 빈 레인 최소화, 내용 있는 레인에 비례 배분 ──
+      // ── 동적 레인 높이: 실제 행(row) 수 기반 — 빈 레인 최소화, 많은 행 = 더 큰 높이 ──
       const dynamicLaneH: number[] = swimLanes.map(() => SWIM_BAND_H);
       const dynamicLaneTops: number[] = [];
       if (isSwimLane) {
+        // 레인별 실제 세로 행 수 계산 (Y 50px 이내 = 동일 행)
         const laneRowCounts: number[] = Array(swimLanes.length).fill(0);
-        for (const nd of nodes) {
-          const li = getCanvasLaneIdx(nd.position.y);
-          laneRowCounts[li]++;
+        for (let li = 0; li < swimLanes.length; li++) {
+          const ys = nodes
+            .filter(nd => getCanvasLaneIdx(nd.position.y) === li)
+            .map(nd => nd.position.y)
+            .sort((a, b) => a - b);
+          let rows = 0, lastY = -Infinity;
+          for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
+          laneRowCounts[li] = rows; // 0 = 빈 레인
         }
-        const MIN_EMPTY    = 0.25; // 빈 레인 최소 높이 (")
-        const MIN_OCCUPIED = 0.55; // 내용 있는 레인 최소 높이 (")
+        const MIN_EMPTY  = 0.25; // 빈 레인 고정 높이 (")
+        const emptyCount = laneRowCounts.filter(c => c === 0).length;
+        const totalRows  = laneRowCounts.reduce((s, c) => s + c, 0);
+        const remainH    = Math.max(0, TOTAL_SWIM_H - emptyCount * MIN_EMPTY);
         for (let i = 0; i < swimLanes.length; i++) {
-          dynamicLaneH[i] = laneRowCounts[i] === 0 ? MIN_EMPTY : MIN_OCCUPIED;
-        }
-        const fixedH  = dynamicLaneH.reduce((s, h) => s + h, 0);
-        const remainH = Math.max(0, TOTAL_SWIM_H - fixedH);
-        const totalNodes = laneRowCounts.reduce((s, c) => s + c, 0);
-        if (totalNodes > 0 && remainH > 0) {
-          for (let i = 0; i < swimLanes.length; i++) {
-            if (laneRowCounts[i] > 0) dynamicLaneH[i] += remainH * (laneRowCounts[i] / totalNodes);
-          }
+          dynamicLaneH[i] = laneRowCounts[i] === 0
+            ? MIN_EMPTY
+            : totalRows > 0 ? remainH * (laneRowCounts[i] / totalRows) : remainH / (swimLanes.length - emptyCount);
         }
         // 정규화: 합 = TOTAL_SWIM_H
         const hSum = dynamicLaneH.reduce((s, h) => s + h, 0);
@@ -1524,19 +1526,22 @@ export default function ExportToolbar({
         const dynLT_S: number[] = [];
         if (isSwimLane) {
           const lrc: number[] = Array(swimLanes.length).fill(0);
-          for (const nd of sNodes) { lrc[getSLaneIdx(nd.position.y)]++; }
-          const MN_EMPTY = 0.25, MN_OCC = 0.55;
-          for (let i = 0; i < swimLanes.length; i++) dynLH_S[i] = lrc[i] === 0 ? MN_EMPTY : MN_OCC;
-          const fixedH  = dynLH_S.reduce((s, h) => s + h, 0);
-          const remainH = Math.max(0, TOTAL_SWIM_H_S - fixedH);
-          const totalN  = lrc.reduce((s, c) => s + c, 0);
-          if (totalN > 0 && remainH > 0) {
-            for (let i = 0; i < swimLanes.length; i++) {
-              if (lrc[i] > 0) dynLH_S[i] += remainH * (lrc[i] / totalN);
-            }
+          for (let li = 0; li < swimLanes.length; li++) {
+            const ys = sNodes.filter(nd => getSLaneIdx(nd.position.y) === li)
+              .map(nd => nd.position.y).sort((a, b) => a - b);
+            let rows = 0, lastY = -Infinity;
+            for (const y of ys) { if (y - lastY > 50) { rows++; lastY = y; } }
+            lrc[li] = rows;
           }
-          const hs = dynLH_S.reduce((s, h) => s + h, 0);
-          for (let i = 0; i < dynLH_S.length; i++) dynLH_S[i] *= TOTAL_SWIM_H_S / hs;
+          const MN_EMPTY = 0.25;
+          const emptyCount = lrc.filter(c => c === 0).length;
+          const totalRows = lrc.reduce((s, c) => s + c, 0);
+          const remainH = Math.max(0, TOTAL_SWIM_H_S - emptyCount * MN_EMPTY);
+          for (let i = 0; i < swimLanes.length; i++) {
+            dynLH_S[i] = lrc[i] === 0 ? MN_EMPTY
+              : totalRows > 0 ? remainH * (lrc[i] / totalRows)
+              : remainH / (swimLanes.length - emptyCount);
+          }
         }
         { let ct = SL_TOP_S; for (let i = 0; i < swimLanes.length; i++) { dynLT_S.push(ct); ct += dynLH_S[i]; } }
 
