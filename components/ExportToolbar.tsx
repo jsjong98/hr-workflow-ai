@@ -7,16 +7,7 @@ import JSZip from "jszip";
 import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
 import { buildTemplateCsvString, buildMergedCsvString, buildMergedRows, type MergedRow, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
-
-/* 역할 문자열에서 "그 외:xxx" 또는 "기타:xxx" 부분 추출 (콤마 구분 지원)
- * 저장 시 값은 URI 인코딩되어 있으므로 디코딩 후 반환 (쉼표·공백 복원) */
-function extractCustomRole(role: string): string {
-  const parts = role.split(",").map(r => r.trim());
-  const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
-  if (!custom) return "";
-  const raw = custom.startsWith("그 외:") ? custom.slice(4) : custom.slice(3);
-  try { return decodeURIComponent(raw); } catch { return raw; }
-}
+import { extractCustomRole, displayRole } from "@/lib/roleDisplay";
 
 /** CSV 머지 결과를 색상 강조 Excel(.xlsx) Blob으로 변환
  *  - unchanged: 흰색 / modified: 노란색 / new: 초록색 */
@@ -1243,7 +1234,7 @@ export default function ExportToolbar({
           metaRows.push([
             { text: level, options: { fontSize: 8, color: s.text, fill: { color: s.bg }, align: "center" as const, bold: true as const } },
             { text: getLabel(nd), options: { fontSize: 8, bold: true as const } },
-            { text: m.role, options: { fontSize: 8, color: "374151", align: "center" as const } },
+            { text: displayRole(m.role), options: { fontSize: 8, color: "374151", align: "center" as const } },
             { text: m.inputData, options: { fontSize: 7.5, color: "059669" } },
             { text: m.outputData, options: { fontSize: 7.5, color: "DC2626" } },
             { text: m.system, options: { fontSize: 7.5, color: "7C3AED" } },

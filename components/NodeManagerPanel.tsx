@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Node } from "@xyflow/react";
 import { buildTemplateCsvString } from "@/lib/csvToFlow";
+import { displayRole } from "@/lib/roleDisplay";
 
 /* ═══ 타입 ═══ */
 interface RowData {
@@ -534,7 +535,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                           <td className="py-2 px-2 font-mono text-gray-500">{row.displayId}</td>
                           <td className="py-2 px-2 font-medium text-gray-800" style={{ paddingLeft: `${8 + indentLevel * 16}px` }}>{row.name}</td>
                           <td className="py-2 px-2 text-gray-500 truncate max-w-[200px]" title={row.description}>{row.description || <span className="text-gray-300">—</span>}</td>
-                          <td className="py-2 px-2 text-gray-500">{row.role || <span className="text-gray-300">—</span>}</td>
+                          <td className="py-2 px-2 text-gray-500">{row.role ? displayRole(row.role) : <span className="text-gray-300">—</span>}</td>
                           <td className="py-2 px-2">
                             {extSummary ? (
                               <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded" title={extSummary}>

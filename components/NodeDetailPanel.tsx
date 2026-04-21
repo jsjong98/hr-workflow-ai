@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { Node } from "@xyflow/react";
+import { displayRole } from "@/lib/roleDisplay";
 
 /* ── 수행 주체 선택지 ── */
 const ROLE_OPTIONS = [
@@ -287,17 +288,13 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           {/* 선택된 주체 태그 미리보기 */}
           {meta.role && (
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {(meta.role).split(",").map(r => r.trim()).filter(Boolean).map(r => {
-                let display = r;
-                if (r.startsWith("그 외:")) {
-                  try { display = `그 외:${decodeURIComponent(r.slice(4))}`; } catch { /* keep raw */ }
-                } else if (r.startsWith("기타:")) {
-                  try { display = `기타:${decodeURIComponent(r.slice(3))}`; } catch { /* keep raw */ }
-                }
-                return (
-                  <span key={r} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{display}</span>
-                );
-              })}
+              {displayRole(meta.role)
+                .split(",")
+                .map((r) => r.trim())
+                .filter(Boolean)
+                .map((r) => (
+                  <span key={r} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{r}</span>
+                ))}
             </div>
           )}
         </fieldset>

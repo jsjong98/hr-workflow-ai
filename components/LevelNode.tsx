@@ -2,6 +2,7 @@
 
 import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { memo, useState, useRef, useCallback } from "react";
+import { displayRole, extractCustomRole, hasCustomRole } from "@/lib/roleDisplay";
 
 /* ─────────────────────────────────────────────
  * 레벨별 차별화 디자인 시스템 (진한→연한 그라디언트)
@@ -104,22 +105,7 @@ const SYSTEM_TAGS: { key: keyof NonNullable<NodeData["systems"]>; label: string 
   { key: "etc",       label: "기타툴"   },
 ];
 
-/* helper: 역할 문자열에서 '그 외:xxx' 또는 '기타:xxx' 부분 추출 (콤마 구분 지원)
- * 저장 시 값은 URI 인코딩되어 있으므로 디코딩 후 반환 (쉼표·공백 복원) */
-function extractCustomRole(role?: string): string {
-  if (!role) return "";
-  const parts = role.split(",").map(r => r.trim());
-  const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
-  if (!custom) return "";
-  const raw = custom.startsWith("그 외:") ? custom.slice(4) : custom.slice(3);
-  try { return decodeURIComponent(raw); } catch { return raw; }
-}
-
-/** 역할 문자열이 '그 외' 또는 '기타' 본체(텍스트 없음) 또는 '그 외:xxx'를 포함하는지 */
-function hasCustomRole(role?: string): boolean {
-  if (!role) return false;
-  return role.split(",").map(r => r.trim()).some(r => r === "그 외" || r.startsWith("그 외:") || r === "기타" || r.startsWith("기타:"));
-}
+/* extractCustomRole / hasCustomRole / displayRole 은 @/lib/roleDisplay 참조 */
 
 /* helper: check if any metadata exists */
 function hasMeta(d: NodeData): boolean {
@@ -198,7 +184,7 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
       {(data.memo || data.role || data.inputData || data.outputData || data.system) && (
         <div className="absolute top-1 left-1 flex items-center gap-1">
           {data.memo && <span className="text-[10px]" title="메모">📝</span>}
-          {data.role && !hasCustomRole(data.role) && <span className="text-[10px]" title={`수행: ${data.role}`}>👤</span>}
+          {data.role && !hasCustomRole(data.role) && <span className="text-[10px]" title={`수행: ${displayRole(data.role)}`}>👤</span>}
           {data.inputData && <span className="text-[10px]" title="Input">📥</span>}
           {data.outputData && <span className="text-[10px]" title="Output">📤</span>}
         </div>
@@ -295,7 +281,7 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
         {metaPresent && (
           <div className="flex items-center gap-1.5">
             {data.memo && <span className="text-base" title="메모">📝</span>}
-            {data.role && <span className="text-base" title={`수행: ${data.role}`}>👤</span>}
+            {data.role && <span className="text-base" title={`수행: ${displayRole(data.role)}`}>👤</span>}
             {data.inputData && <span className="text-base" title="Input">📥</span>}
             {data.outputData && <span className="text-base" title="Output">📤</span>}
             {data.system && <span className="text-base" title={`시스템: ${data.system}`}>🖥️</span>}
@@ -324,7 +310,7 @@ function LevelNodeBase({ data, selected }: { data: NodeData; selected?: boolean 
             ? "bg-black/10 text-black/70"
             : "bg-white/20 text-white/90"
         }`}>
-          👤 {data.role}
+          👤 {displayRole(data.role)}
         </div>
       )}
 
