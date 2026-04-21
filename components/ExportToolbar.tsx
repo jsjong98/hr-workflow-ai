@@ -601,8 +601,12 @@ export default function ExportToolbar({
             }
             // 비-L5 노드: L5 커넥터Y에 맞춰서 정렬 (connY = y + h/2 == l5ConnY)
             if (l5Items.length > 0 && otherItems.length > 0) {
+              // role bar 있는 L5는 upper 박스 중앙이 (y + RB + L5_UPPER_H/2) 이므로 반영
+              const l5Node = nodes.find(n => n.id === l5Items[0].id);
+              const l5RoleStr = (l5Node?.data as Record<string, string> | undefined)?.role || "";
+              const l5HasRB = !!extractCustomRole(l5RoleStr);
               const l5Y0 = globalNodeBoxes[l5Items[0].id].y;
-              const l5ConnY = l5Y0 + L5_UPPER_H / 2;
+              const l5ConnY = l5Y0 + (l5HasRB ? L5_ROLE_BAR_H : 0) + L5_UPPER_H / 2;
               for (const { id, h } of otherItems) {
                 globalNodeBoxes[id].y = l5ConnY - h / 2;
               }
@@ -2027,8 +2031,12 @@ export default function ExportToolbar({
                 globalNodeBoxes[id].y = laneTop + (laneH - h) / 2;
               }
               if (l5Items.length > 0 && otherItems.length > 0) {
+                // role bar 있는 L5는 upper 중앙이 (y + RB + L5_UPPER_H/2)
+                const l5Node = sNodes.find(n => n.id === l5Items[0].id);
+                const l5RoleStr = (l5Node?.data as Record<string, string> | undefined)?.role || "";
+                const l5HasRB = !!extractCustomRole(l5RoleStr);
                 const l5Y0 = globalNodeBoxes[l5Items[0].id].y;
-                const l5ConnY = l5Y0 + L5_UPPER_H_ALL / 2;
+                const l5ConnY = l5Y0 + (l5HasRB ? L5_ROLE_BAR_H_ALL : 0) + L5_UPPER_H_ALL / 2;
                 for (const { id, h } of otherItems) {
                   globalNodeBoxes[id].y = l5ConnY - h / 2;
                 }
