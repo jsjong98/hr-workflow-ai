@@ -1485,8 +1485,8 @@ export default function ExportToolbar({
             const offY = Math.round(Math.min(y1, y2) * EMU);
             const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
             const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-            const flipH = x2 < x1 ? ' flipH="1"' : "";
-            const flipV = y2 < y1 ? ' flipV="1"' : "";
+            // flipH/flipV 제거: PowerPoint가 stCxn/endCxn 기반으로 자동 계산하도록 위임
+            //   (flipH/flipV가 고정되면 도형 이동 시 bbox와 어긋나 선이 반대 방향으로 튀는 현상 유발)
             const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
             const lineClr = c.srcIsL5 && c.tgtIsL5 ? "666666" : "333333";
 
@@ -1494,7 +1494,7 @@ export default function ExportToolbar({
               + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
               + `<p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr>`
               + `<p:nvPr/></p:nvCxnSpPr><p:spPr>`
-              + `<a:xfrm${flipH}${flipV}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
+              + `<a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
               + `<a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom>`
               + `<a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>${headArrow}<a:tailEnd type="triangle" w="med" len="med"/></a:ln>`
               + `</p:spPr></p:cxnSp>`;
@@ -2580,11 +2580,11 @@ export default function ExportToolbar({
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
           const extCy2 = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-          const flipH2 = x2 < x1 ? ' flipH="1"' : "", flipV2 = y2 < y1 ? ' flipV="1"' : "";
+          // flipH/flipV 제거 — PowerPoint가 stCxn/endCxn 기반으로 자동 계산 위임 (저장 시 고정 flip 값이 이동 시 충돌 유발 방지)
           const headArr2 = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
           const isL5Edge2 = c.srcIsL5 && c.tgtIsL5;
           const lineClr2 = isL5Edge2 ? "666666" : "333333";
-          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH2}${flipV2}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
           nextId++;
         }
 
