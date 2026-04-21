@@ -1246,13 +1246,8 @@ export default function ExportToolbar({
         let slideXml = await zip.file(slidePath)?.async("string") || "";
         if (!slideXml) continue;
 
-        // ── STEP 1: 도형 그룹화 먼저 — 그룹 bbox는 노드 core 영역으로 고정 ──
-        //   L5: (box.x, box.y, L5_FIXED_W, RB + L5_FIXED_H) — memo 제외
-        //   non-L5 multi-shape (L4 with memo/sys/role tag 등): (box.x, box.y, box.w, box.h)
-        //   → 그룹 idx=0/1/2/3이 본체 경계에 깔끔하게 매핑 (memo/extras는 그룹 안에 있되 bbox 밖)
-        //   커넥터가 이 그룹 cnvId에 바인딩되므로, PowerPoint에서 도형을 움직여도
-        //   그룹의 새 위치 기준으로 idx가 재계산되어 핸들이 반대편으로 튀지 않음.
-        const nodeIdToGroupCnvId: Record<string, number> = {};
+        // ── STEP 1: 도형 그룹화 — 그룹 bbox는 모든 자식 도형의 union (시각적 이동 시 일관성) ──
+        // 커넥터는 그룹이 아닌 개별 서브도형의 cNvPr에 바인딩됨 (PowerPoint가 그룹 stCxn은 신뢰 못해서 끊김 유발).
         if (hasGroups) {
           let grpSlideXml = slideXml;
           let grpMaxId = 0;
@@ -1273,35 +1268,38 @@ export default function ExportToolbar({
             matchedBlocks: string[];
             gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
             id: number;
-            nodeId: string;
           }
           const pendingGroups: GrpPending[] = [];
           const claimedIds = new Set<number>();
 
           for (const [nodeId, cnvIds] of Object.entries(pageMeta.nodeShapeCnvIds)) {
-            const nb = pageMeta.pageNodeBoxes[nodeId];
-            if (!nb) continue;
+            const shapes = pageMeta.nodeGroupShapes[nodeId];
+            if (!shapes) continue;
             const matchedBlocks: string[] = [];
-            for (const cid of cnvIds) {
+            const matchedShapeIdxs: number[] = [];
+            for (let i = 0; i < cnvIds.length; i++) {
+              const cid = cnvIds[i];
               if (claimedIds.has(cid)) continue;
               const blk = idToBlock[cid];
               if (!blk) continue;
               matchedBlocks.push(blk);
+              matchedShapeIdxs.push(i);
               claimedIds.add(cid);
             }
             if (matchedBlocks.length < 2) continue;
 
-            // Core bbox = 노드 본체 영역 (memo/role tag/sys icons 제외)
-            const l5 = pageMeta.l5Anchors[nodeId];
-            const coreW = l5 ? L5_FIXED_W : nb.w;
-            const coreH = l5 ? ((l5.hasRoleBar ? L5_ROLE_BAR_H : 0) + L5_FIXED_H) : nb.h;
-            const gMinX = Math.round(nb.x * EMU);
-            const gMinY = Math.round(nb.y * EMU);
-            const gMaxX = Math.round((nb.x + coreW) * EMU);
-            const gMaxY = Math.round((nb.y + coreH) * EMU);
-            const groupId = grpNextId++;
-            pendingGroups.push({ nodeId, matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: groupId });
-            nodeIdToGroupCnvId[nodeId] = groupId;
+            // Union bbox: 모든 자식(memo/role tag/sys icons 포함) 영역
+            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            for (const si of matchedShapeIdxs) {
+              const sh = shapes[si];
+              if (!sh) continue;
+              const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
+              const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
+              gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
+              gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
+            }
+            if (!isFinite(gMinX)) continue;
+            pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
           for (const pg of pendingGroups) {
@@ -1318,17 +1316,14 @@ export default function ExportToolbar({
         }
 
         if (hasConnectors) {
-          // 그룹 cnvId 우선, 없으면 (단일 도형 노드) 위치 기반 매칭으로 fallback
+          // 모든 노드에 대해 위치 기반 shape 매칭 — 그룹 안이든 밖이든 <p:sp> 위치가 (box.x, box.y)인 것을 찾음
+          // (그룹 cnvId를 stCxn 타겟으로 쓰면 PowerPoint가 재경로를 놓쳐 연결 끊김 유발)
           const shapeIdMap: Record<string, string> = {};
-          for (const [nodeId, gid] of Object.entries(nodeIdToGroupCnvId)) {
-            shapeIdMap[nodeId] = String(gid);
-          }
           let maxShapeId = 0;
           for (const m of slideXml.match(/id="(\d+)"/g) || []) {
             const n = parseInt(m.match(/\d+/)![0], 10);
             if (n > maxShapeId) maxShapeId = n;
           }
-          // Position-based fallback (ungrouped single shapes: DECISION, bare MEMO 등)
           const spBlocks = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
           for (const block of spBlocks) {
             const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
@@ -1356,8 +1351,8 @@ export default function ExportToolbar({
           let cxnXml = "";
           let nextId = maxShapeId + 1;
           for (const c of pageMeta.connectors) {
-            const srcSid = shapeIdMap[c.srcNodeId];
-            const tgtSid = shapeIdMap[c.tgtNodeId];
+            let srcSid = shapeIdMap[c.srcNodeId];
+            let tgtSid = shapeIdMap[c.tgtNodeId];
             if (!srcSid || !tgtSid) continue;
 
             const src = c.srcBox;
@@ -1369,17 +1364,17 @@ export default function ExportToolbar({
             const cdx = tgtCx - srcCx;
             const cdy = tgtCy - srcCy;
 
-            // L5 앵커 정보 (role bar 존재 여부만 사용 — bbox 계산용)
-            const srcL5 = pageMeta.l5Anchors[c.srcNodeId];
-            const tgtL5 = pageMeta.l5Anchors[c.tgtNodeId];
-            const srcRB = srcL5?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-            const tgtRB = tgtL5?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-            // L5 전체 높이 (role bar 포함) = 그룹 bbox 높이
+            // L5 앵커: 서브도형별 cNvPr + role bar 여부 (개별 서브도형에 직접 바인딩)
+            const srcAnchors = c.srcIsL5 ? pageMeta.l5Anchors[c.srcNodeId] : undefined;
+            const tgtAnchors = c.tgtIsL5 ? pageMeta.l5Anchors[c.tgtNodeId] : undefined;
+            const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            // L5 수평 커넥터 Y: upper 박스 중앙 (label 영역 한가운데 — 시각적으로 가장 자연스러움)
+            const srcConnY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : srcCy;
+            const tgtConnY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgtCy;
+            // L5 전체 높이 (role bar 포함) — top/bottom 핸들 Y 계산용
             const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
             const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
-            // 수평 커넥터 Y: 그룹 중점 (커넥터가 그룹 cnvId에 바인딩되므로 idx=1/3도 그룹 중점 기준)
-            const srcConnY = c.srcIsL5 ? src.y + srcFullH / 2 : srcCy;
-            const tgtConnY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgtCy;
 
             // React Flow 핸들 id (top/right/bottom/left, target은 t- 접두사) → OOXML idx/좌표로 해석
             // 사용자가 웹에서 명시적으로 붙여둔 지점을 PPT에서도 동일하게 유지해서
@@ -1452,9 +1447,20 @@ export default function ExportToolbar({
               endIdx = 3; x2 = tgt.x; y2 = tgtConnY;
             }
 
-            // 주의: L5 서브도형 재바인딩은 제거됨 — 이제 커넥터는 그룹 cnvId에 바인딩되고
-            // 그룹 bbox가 core 영역(role bar + upper + lower)으로 고정되어 있으므로
-            // idx=0/1/2/3이 자동으로 올바른 위치에 매핑됨.
+            // L5 서브도형에 직접 바인딩 — PowerPoint가 sub-shape stCxn을 더 안정적으로 해결하므로
+            //   idx=0 (top)   → role bar (있으면) 또는 upper box: 본체 상단
+            //   idx=1/3 (L/R) → upper box: label 영역 중앙 (src.y + RB + L5_UPPER_H/2)
+            //   idx=2 (bottom)→ lower box: 본체 하단
+            if (srcAnchors) {
+              if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
+              else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
+              else srcSid = String(srcAnchors.upperCnv ?? srcSid);
+            }
+            if (tgtAnchors) {
+              if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
+              else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
+              else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
+            }
 
             // 실제 선택된 핸들 축 기준으로 직선 정렬 스냅
             const srcAxisVertical = stIdx === 0 || stIdx === 2;
@@ -1490,14 +1496,25 @@ export default function ExportToolbar({
             const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
             const lineClr = c.srcIsL5 && c.tgtIsL5 ? "666666" : "333333";
 
+            const avLst = prst === "bentConnector3"
+              ? '<a:avLst><a:gd name="adj1" fmla="val 50000"/></a:avLst>'
+              : '<a:avLst/>';
+            // <p:style> 블록: Microsoft 표준 커넥터 XML 템플릿 — 이게 있어야 PowerPoint가
+            // 커넥터를 static geometry가 아닌 "shape-bound connector"로 취급해서 이동 시 재경로가 동작
+            const connStyle = `<p:style>`
+              + `<a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef>`
+              + `<a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef>`
+              + `<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef>`
+              + `<a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef>`
+              + `</p:style>`;
             cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
               + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
               + `<p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr>`
               + `<p:nvPr/></p:nvCxnSpPr><p:spPr>`
               + `<a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
-              + `<a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom>`
+              + `<a:prstGeom prst="${prst}">${avLst}</a:prstGeom>`
               + `<a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>${headArrow}<a:tailEnd type="triangle" w="med" len="med"/></a:ln>`
-              + `</p:spPr></p:cxnSp>`;
+              + `</p:spPr>${connStyle}</p:cxnSp>`;
             nextId++;
           }
 
@@ -1507,10 +1524,9 @@ export default function ExportToolbar({
             const tgt = c.tgtBox;
             const srcRB = pageMeta.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
             const tgtRB = pageMeta.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-            const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
-            const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
-            const srcCY = c.srcIsL5 ? src.y + srcFullH / 2 : src.y + src.h / 2;
-            const tgtCY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgt.y + tgt.h / 2;
+            // L5 upper box 중앙 (label 영역) — connector Y와 일치시켜 라벨이 선 위에 정확히 올라감
+            const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : src.y + src.h / 2;
+            const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
             const midX = (src.x + src.w + tgt.x) / 2;
             const midY = (srcCY + tgtCY) / 2;
             const lblW = 0.35;
@@ -2382,8 +2398,8 @@ export default function ExportToolbar({
         let slideXml = await zip.file(slidePath)?.async("string") || "";
         if (!slideXml) continue;
 
-        // ── STEP 1: 그룹화 먼저 — 그룹 bbox는 노드 core 영역으로 고정 ──
-        const nodeIdToGroupCnvId: Record<string, number> = {};
+        // ── STEP 1: 그룹화 먼저 — 그룹 bbox는 모든 자식 도형의 union ──
+        // 커넥터는 그룹이 아닌 개별 서브도형에 바인딩됨 (그룹 stCxn은 PPT가 재경로 못해 연결 끊김 유발)
         if (hasGroups) {
           let grpSlideXml = slideXml;
           let grpMaxId = 0;
@@ -2404,34 +2420,37 @@ export default function ExportToolbar({
             matchedBlocks: string[];
             gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
             id: number;
-            nodeId: string;
           }
           const pendingGroupsA: GrpPendingA[] = [];
           const claimedIdsA = new Set<number>();
 
           for (const [nodeId, cnvIds] of Object.entries(sc.nodeShapeCnvIds)) {
-            const nb = sc.nodeBoxes[nodeId];
-            if (!nb) continue;
+            const shapes = sc.nodeGroupShapes[nodeId];
+            if (!shapes) continue;
             const matchedBlocks: string[] = [];
-            for (const cid of cnvIds) {
+            const matchedShapeIdxs: number[] = [];
+            for (let i = 0; i < cnvIds.length; i++) {
+              const cid = cnvIds[i];
               if (claimedIdsA.has(cid)) continue;
               const blk = idToBlockA[cid];
               if (!blk) continue;
               matchedBlocks.push(blk);
+              matchedShapeIdxs.push(i);
               claimedIdsA.add(cid);
             }
             if (matchedBlocks.length < 2) continue;
 
-            const l5 = sc.l5Anchors[nodeId];
-            const coreW = l5 ? L5_FIXED_W_ALL : nb.w;
-            const coreH = l5 ? ((l5.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0) + L5_FIXED_H_ALL) : nb.h;
-            const gMinX = Math.round(nb.x * EMU);
-            const gMinY = Math.round(nb.y * EMU);
-            const gMaxX = Math.round((nb.x + coreW) * EMU);
-            const gMaxY = Math.round((nb.y + coreH) * EMU);
-            const groupId = grpNextId++;
-            pendingGroupsA.push({ nodeId, matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: groupId });
-            nodeIdToGroupCnvId[nodeId] = groupId;
+            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            for (const si of matchedShapeIdxs) {
+              const sh = shapes[si];
+              if (!sh) continue;
+              const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
+              const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
+              gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
+              gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
+            }
+            if (!isFinite(gMinX)) continue;
+            pendingGroupsA.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
           for (const pg of pendingGroupsA) {
@@ -2448,11 +2467,8 @@ export default function ExportToolbar({
         }
 
         if (hasConnectors) {
-        // 그룹 cnvId 우선, 없으면 위치 기반 fallback
+        // 위치 기반 shape 매칭 — 그룹 안팎 <p:sp>를 box.x/box.y 위치로 찾음
         const shapeIdMap: Record<string, string> = {};
-        for (const [nodeId, gid] of Object.entries(nodeIdToGroupCnvId)) {
-          shapeIdMap[nodeId] = String(gid);
-        }
         let maxShapeId = 0;
         for (const m of slideXml.match(/id="(\d+)"/g) || []) {
           const n = parseInt(m.match(/\d+/)![0], 10);
@@ -2481,23 +2497,23 @@ export default function ExportToolbar({
         let cxnXml = "";
         let nextId = maxShapeId + 1;
         for (const c of sc.connectors) {
-          const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
+          let srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
           if (!srcSid || !tgtSid) continue;
           const src = c.srcBox, tgt = c.tgtBox;
           const srcCxA = src.x + src.w / 2, srcCyA = src.y + src.h / 2;
           const tgtCxA = tgt.x + tgt.w / 2, tgtCyA = tgt.y + tgt.h / 2;
           const cdxA = tgtCxA - srcCxA, cdyA = tgtCyA - srcCyA;
 
-          // L5 bbox 정보 — 커넥터는 이제 그룹 cnvId에 바인딩되고 그룹 bbox가 core(role bar + upper + lower)이므로
-          //   수평 Y는 그룹 중점(box.y + fullH/2)으로 맞춤 — idx=1/3 그룹 anchor와 일치
-          const srcL5 = c.srcIsL5 ? sc.l5Anchors[c.srcNodeId] : undefined;
-          const tgtL5 = c.tgtIsL5 ? sc.l5Anchors[c.tgtNodeId] : undefined;
-          const srcRB = srcL5?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
-          const tgtRB = tgtL5?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          // L5 앵커: 서브도형별 cNvPr + role bar 여부 (개별 서브도형에 직접 바인딩)
+          const srcAnchors = c.srcIsL5 ? sc.l5Anchors[c.srcNodeId] : undefined;
+          const tgtAnchors = c.tgtIsL5 ? sc.l5Anchors[c.tgtNodeId] : undefined;
+          const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          // L5 수평 커넥터 Y: upper 박스 중앙 (label 영역)
+          const srcConnY2 = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : srcCyA;
+          const tgtConnY2 = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgtCyA;
           const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
           const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
-          const srcConnY2 = c.srcIsL5 ? src.y + srcFullH / 2 : srcCyA;
-          const tgtConnY2 = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgtCyA;
 
           // React Flow 원본 핸들 id 우선 — 사용자가 웹에서 지정한 연결점 유지
           const resolveHandleA = (
@@ -2562,8 +2578,17 @@ export default function ExportToolbar({
             endIdx = 3; x2 = tgt.x; y2 = tgtConnY2;
           }
 
-          // 주의: L5 서브도형 재바인딩 제거됨 — 커넥터는 그룹 cnvId에 바인딩되고
-          // 그룹 bbox가 core(role bar + upper + lower)로 고정되어 idx=0/1/2/3이 자동으로 올바른 위치를 가리킴
+          // L5 서브도형에 직접 바인딩 — PowerPoint가 sub-shape stCxn을 더 안정적으로 해결
+          if (srcAnchors) {
+            if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
+            else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
+            else srcSid = String(srcAnchors.upperCnv ?? srcSid);
+          }
+          if (tgtAnchors) {
+            if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
+            else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
+            else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
+          }
 
           const srcAxisVertical = stIdx === 0 || stIdx === 2;
           const tgtAxisVertical = endIdx === 0 || endIdx === 2;
@@ -2580,11 +2605,15 @@ export default function ExportToolbar({
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
           const extCy2 = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-          // flipH/flipV 제거 — PowerPoint가 stCxn/endCxn 기반으로 자동 계산 위임 (저장 시 고정 flip 값이 이동 시 충돌 유발 방지)
+          // flipH/flipV 제거 — PowerPoint가 stCxn/endCxn 기반으로 자동 계산 위임
           const headArr2 = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
           const isL5Edge2 = c.srcIsL5 && c.tgtIsL5;
           const lineClr2 = isL5Edge2 ? "666666" : "333333";
-          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr></p:cxnSp>`;
+          const avLst2 = prst === "bentConnector3"
+            ? '<a:avLst><a:gd name="adj1" fmla="val 50000"/></a:avLst>'
+            : '<a:avLst/>';
+          const connStyle2 = `<p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style>`;
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}">${avLst2}</a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr>${connStyle2}</p:cxnSp>`;
           nextId++;
         }
 
@@ -2594,10 +2623,9 @@ export default function ExportToolbar({
           const src = c.srcBox, tgt = c.tgtBox;
           const srcRB = sc.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
           const tgtRB = sc.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
-          const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
-          const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
-          const srcCY = c.srcIsL5 ? src.y + srcFullH / 2 : src.y + src.h / 2;
-          const tgtCY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgt.y + tgt.h / 2;
+          // L5 upper 박스 중앙 — connector Y와 일치
+          const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
+          const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
           const x1 = src.x + src.w, x2 = tgt.x;
           const midX = (x1 + x2) / 2;
           const midY = (srcCY + tgtCY) / 2;
