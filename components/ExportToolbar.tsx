@@ -637,6 +637,10 @@ export default function ExportToolbar({
         isHorizontal: boolean;
         bidi: boolean;
         label?: string;
+        // React Flow 원본 핸들 id — 사용자가 웹에서 지정한 연결점 유지용
+        // 값 예: "top"/"right"/"bottom"/"left" (source) 또는 "t-top"/"t-right"/"t-bottom"/"t-left" (target)
+        srcHandle?: string;
+        tgtHandle?: string;
       }
       interface L5AnchorSet {
         rolebarCnv?: number;
@@ -964,6 +968,8 @@ export default function ExportToolbar({
             isHorizontal,
             bidi,
             label: e.label ? String(e.label) : undefined,
+            srcHandle: e.sourceHandle || undefined,
+            tgtHandle: e.targetHandle || undefined,
           });
         }
 
@@ -1299,8 +1305,30 @@ export default function ExportToolbar({
             const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
             const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
 
-            // 세로 라우팅: X 범위 겹침 + Y 범위 안 겹침 → top/bottom 핸들
-            // Y 겹침은 role bar 포함한 전체 높이 기준 (L5의 role bar 영역도 실제 도형에 포함되므로)
+            // React Flow 핸들 id (top/right/bottom/left, target은 t- 접두사) → OOXML idx/좌표로 해석
+            // 사용자가 웹에서 명시적으로 붙여둔 지점을 PPT에서도 동일하게 유지해서
+            // 도형 이동 시 PowerPoint 재경로가 원 의도대로 동작하도록 보장
+            const resolveHandle = (
+              handle: string | undefined,
+              bx: { x: number; y: number; w: number; h: number },
+              isL5: boolean,
+              fullH: number,
+              connY: number,
+            ): { idx: number; x: number; y: number } | null => {
+              if (!handle) return null;
+              const key = handle.startsWith("t-") ? handle.slice(2) : handle;
+              switch (key) {
+                case "top":    return { idx: 0, x: bx.x + bx.w / 2, y: bx.y };
+                case "right":  return { idx: 1, x: bx.x + bx.w,     y: isL5 ? connY : bx.y + bx.h / 2 };
+                case "bottom": return { idx: 2, x: bx.x + bx.w / 2, y: bx.y + fullH };
+                case "left":   return { idx: 3, x: bx.x,            y: isL5 ? connY : bx.y + bx.h / 2 };
+              }
+              return null;
+            };
+            const srcExplicit = resolveHandle(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY);
+            const tgtExplicit = resolveHandle(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY);
+
+            // 세로 라우팅 fallback (명시적 핸들 없을 때): X 범위 겹침 + Y 범위 안 겹침 → top/bottom
             const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
             const sameRowY = src.y < tgt.y + tgtFullH && tgt.y < src.y + srcFullH;
             const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
@@ -1312,7 +1340,9 @@ export default function ExportToolbar({
             let x2: number;
             let y2: number;
 
-            if (c.srcIsDec) {
+            if (srcExplicit) {
+              stIdx = srcExplicit.idx; x1 = srcExplicit.x; y1 = srcExplicit.y;
+            } else if (c.srcIsDec) {
               if (Math.abs(cdx) >= Math.abs(cdy)) {
                 if (cdx >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCy; }
                 else { stIdx = 3; x1 = src.x; y1 = srcCy; }
@@ -1325,11 +1355,12 @@ export default function ExportToolbar({
               if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + srcFullH; }
               else { stIdx = 0; x1 = srcCx; y1 = src.y; }
             } else {
-              // OOXML connection site: rect idx 1=right, 3=left — 좌표와 idx가 일치해야 PPT에서 이동 시 재경로가 깔끔함
               stIdx = 1; x1 = src.x + src.w; y1 = srcConnY;
             }
 
-            if (c.tgtIsDec) {
+            if (tgtExplicit) {
+              endIdx = tgtExplicit.idx; x2 = tgtExplicit.x; y2 = tgtExplicit.y;
+            } else if (c.tgtIsDec) {
               if (Math.abs(cdx) >= Math.abs(cdy)) {
                 if (cdx >= 0) { endIdx = 3; x2 = tgt.x; y2 = tgtCy; }
                 else { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCy; }
@@ -1342,7 +1373,6 @@ export default function ExportToolbar({
               if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y; }
               else { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgtFullH; }
             } else {
-              // OOXML connection site: rect idx 3=left, 1=right — 좌표와 idx가 일치해야 PPT에서 이동 시 재경로가 깔끔함
               endIdx = 3; x2 = tgt.x; y2 = tgtConnY;
             }
 
@@ -1361,14 +1391,17 @@ export default function ExportToolbar({
               else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
             }
 
-            // 같은 행 직선 정렬 (수평 모드에서만 Y 스냅)
-            if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+            // 실제 선택된 핸들 축 기준으로 직선 정렬 스냅
+            const srcAxisVertical = stIdx === 0 || stIdx === 2;
+            const tgtAxisVertical = endIdx === 0 || endIdx === 2;
+            // 양쪽 수평 핸들 + Y 근접 → Y 스냅
+            if (!srcAxisVertical && !tgtAxisVertical && Math.abs(y1 - y2) < 0.08) {
               const avgY = (y1 + y2) / 2;
               y1 = avgY;
               y2 = avgY;
             }
-            // 같은 컬럼 직선 정렬 (수직 모드에서 X 스냅)
-            if (useVertical && Math.abs(x1 - x2) < 0.08) {
+            // 양쪽 수직 핸들 + X 근접 → X 스냅
+            if (srcAxisVertical && tgtAxisVertical && Math.abs(x1 - x2) < 0.08) {
               const avgX = (x1 + x2) / 2;
               x1 = avgX;
               x2 = avgX;
@@ -1379,11 +1412,9 @@ export default function ExportToolbar({
             //   양쪽 수직(0/2) AND x1≈x2 → 수직 직선
             //   양쪽 수평(1/3) AND y1≈y2 → 수평 직선
             //   그 외(방향 혼합/오프셋) → bentConnector3
-            const srcAxisVert = stIdx === 0 || stIdx === 2;
-            const tgtAxisVert = endIdx === 0 || endIdx === 2;
             const isRealStraight =
-              (srcAxisVert && tgtAxisVert && Math.abs(x1 - x2) < 0.08) ||
-              (!srcAxisVert && !tgtAxisVert && Math.abs(y1 - y2) < 0.08);
+              (srcAxisVertical && tgtAxisVertical && Math.abs(x1 - x2) < 0.08) ||
+              (!srcAxisVertical && !tgtAxisVertical && Math.abs(y1 - y2) < 0.08);
             const prst = isRealStraight ? "straightConnector1" : "bentConnector3";
             const offX = Math.round(Math.min(x1, x2) * EMU);
             const offY = Math.round(Math.min(y1, y2) * EMU);
@@ -1644,7 +1675,7 @@ export default function ExportToolbar({
       // 슬라이드별 커넥터 메타 수집
       const allSlideConnectors: {
         slideIndex: number;
-        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string }[];
+        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string; srcHandle?: string; tgtHandle?: string }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
         nodeGroupShapes: Record<string, { x: number; y: number; w: number; h: number }[]>;
         nodeShapeCnvIds: Record<string, number[]>;
@@ -2020,6 +2051,8 @@ export default function ExportToolbar({
           srcIsDec: boolean; tgtIsDec: boolean;
           isStraight: boolean; isHorizontal: boolean; bidi: boolean;
           label?: string;
+          srcHandle?: string;
+          tgtHandle?: string;
         }
 
         const sheetNodeLevelMap: Record<string, string> = {};
@@ -2300,6 +2333,8 @@ export default function ExportToolbar({
               isHorizontal,
               bidi,
               label: e.label ? String(e.label) : undefined,
+              srcHandle: e.sourceHandle || undefined,
+              tgtHandle: e.targetHandle || undefined,
             });
           }
 
@@ -2400,8 +2435,28 @@ export default function ExportToolbar({
           const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
           const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
 
-          // 세로 라우팅: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
-          // Y 겹침은 role bar 포함한 전체 높이 기준
+          // React Flow 원본 핸들 id 우선 — 사용자가 웹에서 지정한 연결점 유지
+          const resolveHandleA = (
+            handle: string | undefined,
+            bx: { x: number; y: number; w: number; h: number },
+            isL5: boolean,
+            fullH: number,
+            connY: number,
+          ): { idx: number; x: number; y: number } | null => {
+            if (!handle) return null;
+            const key = handle.startsWith("t-") ? handle.slice(2) : handle;
+            switch (key) {
+              case "top":    return { idx: 0, x: bx.x + bx.w / 2, y: bx.y };
+              case "right":  return { idx: 1, x: bx.x + bx.w,     y: isL5 ? connY : bx.y + bx.h / 2 };
+              case "bottom": return { idx: 2, x: bx.x + bx.w / 2, y: bx.y + fullH };
+              case "left":   return { idx: 3, x: bx.x,            y: isL5 ? connY : bx.y + bx.h / 2 };
+            }
+            return null;
+          };
+          const srcExplicit = resolveHandleA(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY2);
+          const tgtExplicit = resolveHandleA(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY2);
+
+          // 세로 라우팅 fallback: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
           const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
           const sameRowY = src.y < tgt.y + tgtFullH && tgt.y < src.y + srcFullH;
           const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
@@ -2409,7 +2464,9 @@ export default function ExportToolbar({
           let stIdx: number, x1: number, y1: number;
           let endIdx: number, x2: number, y2: number;
 
-          if (c.srcIsDec) {
+          if (srcExplicit) {
+            stIdx = srcExplicit.idx; x1 = srcExplicit.x; y1 = srcExplicit.y;
+          } else if (c.srcIsDec) {
             if (Math.abs(cdxA) >= Math.abs(cdyA)) {
               if (cdxA >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCyA; }
               else           { stIdx = 3; x1 = src.x;          y1 = srcCyA; }
@@ -2421,11 +2478,12 @@ export default function ExportToolbar({
             if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + srcFullH; }
             else           { stIdx = 0; x1 = srcCxA; y1 = src.y;             }
           } else {
-            // OOXML rect idx 1=right — 좌표/idx 일치시켜야 도형 이동 시 재경로 안정
             stIdx = 1; x1 = src.x + src.w; y1 = srcConnY2;
           }
 
-          if (c.tgtIsDec) {
+          if (tgtExplicit) {
+            endIdx = tgtExplicit.idx; x2 = tgtExplicit.x; y2 = tgtExplicit.y;
+          } else if (c.tgtIsDec) {
             if (Math.abs(cdxA) >= Math.abs(cdyA)) {
               if (cdxA >= 0) { endIdx = 3; x2 = tgt.x;         y2 = tgtCyA; }
               else           { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCyA; }
@@ -2437,7 +2495,6 @@ export default function ExportToolbar({
             if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;            }
             else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgtFullH; }
           } else {
-            // OOXML rect idx 3=left — 좌표/idx 일치시켜야 도형 이동 시 재경로 안정
             endIdx = 3; x2 = tgt.x; y2 = tgtConnY2;
           }
 
@@ -2453,18 +2510,17 @@ export default function ExportToolbar({
             else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
           }
 
-          if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+          const srcAxisVertical = stIdx === 0 || stIdx === 2;
+          const tgtAxisVertical = endIdx === 0 || endIdx === 2;
+          if (!srcAxisVertical && !tgtAxisVertical && Math.abs(y1 - y2) < 0.08) {
             const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
           }
-          if (useVertical && Math.abs(x1 - x2) < 0.08) {
+          if (srcAxisVertical && tgtAxisVertical && Math.abs(x1 - x2) < 0.08) {
             const avgX = (x1 + x2) / 2; x1 = avgX; x2 = avgX;
           }
-          // 실제 핸들 방향 기준으로 직선/꺾임 결정 — 방향이 섞이면 반드시 꺾임
-          const srcAxisVert = stIdx === 0 || stIdx === 2;
-          const tgtAxisVert = endIdx === 0 || endIdx === 2;
           const isRealStraight =
-            (srcAxisVert && tgtAxisVert && Math.abs(x1 - x2) < 0.08) ||
-            (!srcAxisVert && !tgtAxisVert && Math.abs(y1 - y2) < 0.08);
+            (srcAxisVertical && tgtAxisVertical && Math.abs(x1 - x2) < 0.08) ||
+            (!srcAxisVertical && !tgtAxisVertical && Math.abs(y1 - y2) < 0.08);
           const prst = isRealStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
