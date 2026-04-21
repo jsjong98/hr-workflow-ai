@@ -1369,7 +1369,8 @@ export default function ExportToolbar({
               if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + srcFullH; }
               else { stIdx = 0; x1 = srcCx; y1 = src.y; }
             } else {
-              stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
+              // OOXML connection site: rect idx 1=right, 3=left — 좌표와 idx가 일치해야 PPT에서 이동 시 재경로가 깔끔함
+              stIdx = 1; x1 = src.x + src.w; y1 = srcConnY;
             }
 
             if (c.tgtIsDec) {
@@ -1385,7 +1386,8 @@ export default function ExportToolbar({
               if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y; }
               else { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgtFullH; }
             } else {
-              endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
+              // OOXML connection site: rect idx 3=left, 1=right — 좌표와 idx가 일치해야 PPT에서 이동 시 재경로가 깔끔함
+              endIdx = 3; x2 = tgt.x; y2 = tgtConnY;
             }
 
             // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
@@ -2505,7 +2507,8 @@ export default function ExportToolbar({
             if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + srcFullH; }
             else           { stIdx = 0; x1 = srcCxA; y1 = src.y;             }
           } else {
-            stIdx = 3; x1 = src.x + src.w; y1 = srcConnY2;
+            // OOXML rect idx 1=right — 좌표/idx 일치시켜야 도형 이동 시 재경로 안정
+            stIdx = 1; x1 = src.x + src.w; y1 = srcConnY2;
           }
 
           if (c.tgtIsDec) {
@@ -2520,7 +2523,8 @@ export default function ExportToolbar({
             if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;            }
             else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgtFullH; }
           } else {
-            endIdx = 1; x2 = tgt.x; y2 = tgtConnY2;
+            // OOXML rect idx 3=left — 좌표/idx 일치시켜야 도형 이동 시 재경로 안정
+            endIdx = 3; x2 = tgt.x; y2 = tgtConnY2;
           }
 
           // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
