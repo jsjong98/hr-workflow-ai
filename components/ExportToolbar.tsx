@@ -1311,6 +1311,12 @@ export default function ExportToolbar({
             const srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : srcCy;
             const tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgtCy;
 
+            // 세로 라우팅: X 범위 겹침 + Y 범위 안 겹침 → top/bottom 핸들 사용
+            // (같은 컬럼에 상하 배치된 노드가 옆으로 돌아가지 않고 수직 직선으로 연결)
+            const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
+            const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+            const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
+
             let stIdx: number;
             let x1: number;
             let y1: number;
@@ -1327,6 +1333,9 @@ export default function ExportToolbar({
               } else {
                 stIdx = 0; x1 = srcCx; y1 = src.y;
               }
+            } else if (useVertical) {
+              if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + src.h; }
+              else { stIdx = 0; x1 = srcCx; y1 = src.y; }
             } else {
               stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
             }
@@ -1340,14 +1349,24 @@ export default function ExportToolbar({
               } else {
                 endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h;
               }
+            } else if (useVertical) {
+              if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y; }
+              else { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h; }
             } else {
               endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
             }
 
-            if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+            // 같은 행 직선 정렬 (수평 모드에서만 Y 스냅)
+            if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
               const avgY = (y1 + y2) / 2;
               y1 = avgY;
               y2 = avgY;
+            }
+            // 같은 컬럼 직선 정렬 (수직 모드에서 X 스냅)
+            if (useVertical && Math.abs(x1 - x2) < 0.08) {
+              const avgX = (x1 + x2) / 2;
+              x1 = avgX;
+              x2 = avgX;
             }
 
             const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
@@ -2382,6 +2401,11 @@ export default function ExportToolbar({
           const srcConnY2 = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : srcCyA;
           const tgtConnY2 = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgtCyA;
 
+          // 세로 라우팅: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
+          const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
+          const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+          const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
+
           let stIdx: number, x1: number, y1: number;
           let endIdx: number, x2: number, y2: number;
 
@@ -2393,6 +2417,9 @@ export default function ExportToolbar({
               if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + src.h; }
               else           { stIdx = 0; x1 = srcCxA; y1 = src.y;          }
             }
+          } else if (useVertical) {
+            if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + src.h; }
+            else           { stIdx = 0; x1 = srcCxA; y1 = src.y;          }
           } else {
             stIdx = 3; x1 = src.x + src.w; y1 = srcConnY2;
           }
@@ -2405,12 +2432,18 @@ export default function ExportToolbar({
               if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;          }
               else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgt.h;  }
             }
+          } else if (useVertical) {
+            if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;         }
+            else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgt.h; }
           } else {
             endIdx = 1; x2 = tgt.x; y2 = tgtConnY2;
           }
 
-          if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+          if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
             const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
+          }
+          if (useVertical && Math.abs(x1 - x2) < 0.08) {
+            const avgX = (x1 + x2) / 2; x1 = avgX; x2 = avgX;
           }
           const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
