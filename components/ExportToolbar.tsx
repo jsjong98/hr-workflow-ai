@@ -1356,8 +1356,8 @@ export default function ExportToolbar({
           let cxnXml = "";
           let nextId = maxShapeId + 1;
           for (const c of pageMeta.connectors) {
-            let srcSid = shapeIdMap[c.srcNodeId];
-            let tgtSid = shapeIdMap[c.tgtNodeId];
+            const srcSid = shapeIdMap[c.srcNodeId];
+            const tgtSid = shapeIdMap[c.tgtNodeId];
             if (!srcSid || !tgtSid) continue;
 
             const src = c.srcBox;
@@ -2481,7 +2481,7 @@ export default function ExportToolbar({
         let cxnXml = "";
         let nextId = maxShapeId + 1;
         for (const c of sc.connectors) {
-          let srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
+          const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
           if (!srcSid || !tgtSid) continue;
           const src = c.srcBox, tgt = c.tgtBox;
           const srcCxA = src.x + src.w / 2, srcCyA = src.y + src.h / 2;
