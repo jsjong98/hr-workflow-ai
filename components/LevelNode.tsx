@@ -104,13 +104,15 @@ const SYSTEM_TAGS: { key: keyof NonNullable<NodeData["systems"]>; label: string 
   { key: "etc",       label: "기타툴"   },
 ];
 
-/* helper: 역할 문자열에서 '그 외:xxx' 또는 '기타:xxx' 부분 추출 (콤마 구분 지원) */
+/* helper: 역할 문자열에서 '그 외:xxx' 또는 '기타:xxx' 부분 추출 (콤마 구분 지원)
+ * 저장 시 값은 URI 인코딩되어 있으므로 디코딩 후 반환 (쉼표·공백 복원) */
 function extractCustomRole(role?: string): string {
   if (!role) return "";
   const parts = role.split(",").map(r => r.trim());
   const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
   if (!custom) return "";
-  return custom.startsWith("그 외:") ? custom.slice(4).trim() : custom.slice(3).trim();
+  const raw = custom.startsWith("그 외:") ? custom.slice(4) : custom.slice(3);
+  try { return decodeURIComponent(raw); } catch { return raw; }
 }
 
 /** 역할 문자열이 '그 외' 또는 '기타' 본체(텍스트 없음) 또는 '그 외:xxx'를 포함하는지 */

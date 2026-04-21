@@ -269,15 +269,17 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           {(meta.role || "").split(",").map(r => r.trim()).some(r => r === "그 외" || r.startsWith("그 외:")) && (
             <input
               type="text"
-              placeholder="직접 입력... (예: 큐벡스)"
+              placeholder="직접 입력... (예: 큐벡스, 재무/IT)"
               className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               value={(() => {
                 const r = (meta.role || "").split(",").map(x => x.trim()).find(x => x.startsWith("그 외:"));
-                return r ? r.slice(4) : "";
+                if (!r) return "";
+                try { return decodeURIComponent(r.slice(4)); } catch { return r.slice(4); }
               })()}
               onChange={(e) => {
                 const currentRoles = (meta.role || "").split(",").map(r => r.trim()).filter(r => r !== "그 외" && !r.startsWith("그 외:"));
-                const newOther = e.target.value ? `그 외:${e.target.value}` : "그 외";
+                // 쉼표·공백 등이 split/trim 구분자와 충돌하지 않도록 인코딩해서 저장
+                const newOther = e.target.value ? `그 외:${encodeURIComponent(e.target.value)}` : "그 외";
                 setMeta({ ...meta, role: [...currentRoles, newOther].join(", ") });
               }}
             />
@@ -285,9 +287,17 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           {/* 선택된 주체 태그 미리보기 */}
           {meta.role && (
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {(meta.role).split(",").map(r => r.trim()).filter(Boolean).map(r => (
-                <span key={r} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{r}</span>
-              ))}
+              {(meta.role).split(",").map(r => r.trim()).filter(Boolean).map(r => {
+                let display = r;
+                if (r.startsWith("그 외:")) {
+                  try { display = `그 외:${decodeURIComponent(r.slice(4))}`; } catch { /* keep raw */ }
+                } else if (r.startsWith("기타:")) {
+                  try { display = `기타:${decodeURIComponent(r.slice(3))}`; } catch { /* keep raw */ }
+                }
+                return (
+                  <span key={r} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{display}</span>
+                );
+              })}
             </div>
           )}
         </fieldset>
