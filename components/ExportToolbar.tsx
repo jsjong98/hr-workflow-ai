@@ -8,12 +8,14 @@ import type { Node, Edge } from "@xyflow/react";
 import type { Sheet } from "./SheetTabBar";
 import { buildTemplateCsvString, buildMergedCsvString, buildMergedRows, type MergedRow, type CsvRow, extractL2List, extractL3ByL2, extractL4ByL3, extractL5ByL4 } from "@/lib/csvToFlow";
 
-/* 역할 문자열에서 "그 외:xxx" 또는 "기타:xxx" 부분 추출 (콤마 구분 지원) */
+/* 역할 문자열에서 "그 외:xxx" 또는 "기타:xxx" 부분 추출 (콤마 구분 지원)
+ * 저장 시 값은 URI 인코딩되어 있으므로 디코딩 후 반환 (쉼표·공백 복원) */
 function extractCustomRole(role: string): string {
   const parts = role.split(",").map(r => r.trim());
   const custom = parts.find(r => r.startsWith("그 외:") || r.startsWith("기타:"));
   if (!custom) return "";
-  return custom.startsWith("그 외:") ? custom.slice(4).trim() : custom.slice(3).trim();
+  const raw = custom.startsWith("그 외:") ? custom.slice(4) : custom.slice(3);
+  try { return decodeURIComponent(raw); } catch { return raw; }
 }
 
 /** CSV 머지 결과를 색상 강조 Excel(.xlsx) Blob으로 변환
@@ -191,6 +193,7 @@ export default function ExportToolbar({
       pptx.subject = "As-is 프로세스 워크플로우";
       const SLIDE_W = 13.33;
       const SLIDE_H = 7.5;
+      const MAX_COLS_PER_SLIDE = 6;
 
       /* ── Level style config ── */
       /* L3: 해당색 채우기+흰글씨 | L4: light gray 채우기 | L5: 흰바탕+light gray 윤곽 */
@@ -345,21 +348,9 @@ export default function ExportToolbar({
         }
         return currentSheet?.name || "워크플로우 다이어그램";
       })();
-      const s2 = pptx.addSlide();
-      s2.background = { color: "F8FAFC" };
-      s2.addText(slideTitle, {
-        x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
-        fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
-      });
-
       /* ── SwimLane background bands (if active sheet is swimlane) ── */
       const isSwimLane = currentSheet?.type === "swimlane";
       const swimLanes = currentSheet?.lanes || ["현업 임원", "팀장", "HR 담당자", "구성원"];
-      const SWIM_COLORS = swimLanes.map((_, i) => ({
-        fill: i % 2 === 0 ? "F5F5F5" : "FFFFFF",
-        border: "C0C0C0",
-      }));
-      const SWIM_LABEL_W = 0.45; // vertical label column width (레거시: 점선 시작 x)
       const PAD_X = isSwimLane ? 1.25 : 0.4; // 레이블 박스(1.05") 뒤로 밀기
       const PAD_TOP = 1.575; // 4cm 상단 여백
       const PAD_BOTTOM = 0.35;
@@ -411,32 +402,6 @@ export default function ExportToolbar({
       // 레인 상단 좌표 계산
       { let ct = SL_BAND_TOP; for (let i = 0; i < swimLanes.length; i++) { dynamicLaneTops.push(ct); ct += dynamicLaneH[i]; } }
 
-      if (isSwimLane) {
-        // 수평 구분선: 동적 높이 기반 (점선)
-        let ly = SL_BAND_TOP;
-        for (let i = 0; i <= swimLanes.length; i++) {
-          s2.addShape("line", {
-            x: 0, y: ly, w: SLIDE_W, h: 0,
-            line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
-          });
-          if (i < swimLanes.length) ly += dynamicLaneH[i];
-        }
-        // 레이블 박스: 각 레인 상단 좌측 (가로 텍스트, 흰색 배경)
-        const LBL_BOX_W = 1.05;
-        const LBL_BOX_H = 0.26;
-        for (let i = 0; i < swimLanes.length; i++) {
-          const labelY = dynamicLaneTops[i] + 0.06;
-          s2.addText(swimLanes[i], {
-            x: 0.04, y: labelY, w: LBL_BOX_W, h: LBL_BOX_H,
-            shape: pptx.ShapeType.rect,
-            fill: { color: "FFFFFF" },
-            line: { color: "B0B0B0", width: 0.5 },
-            fontSize: 9, fontFace: FONT_FACE, color: "333333",
-            align: "center", valign: "middle",
-          });
-        }
-      }
-
       // ── Coordinate mapping: RF bbox → PPT ──
       // 노드의 실제 bbox(좌상단 x,y + 크기)로 전체 범위 계산
       let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
@@ -454,17 +419,79 @@ export default function ExportToolbar({
       const areaW = SLIDE_W - 2 * PAD_X;
       const areaH = SLIDE_H - PAD_TOP - PAD_BOTTOM;
 
+      // ── 사전 컬럼 그룹 계산: 60px 이내를 같은 X 컬럼으로 간주 (Phase 2 pColGrps와 동일 규칙) ──
+      const prelimColVis = new Set<string>();
+      const prelimColGrps: string[][] = [];
+      const prelimSortedIds = [...nodes]
+        .sort((a, b) => a.position.x - b.position.x)
+        .map((nd) => nd.id);
+      for (const id of prelimSortedIds) {
+        if (prelimColVis.has(id)) continue;
+        const baseNode = nodeMap.get(id);
+        if (!baseNode) continue;
+        const grp: string[] = [id];
+        prelimColVis.add(id);
+        for (const id2 of prelimSortedIds) {
+          const cmpNode = nodeMap.get(id2);
+          if (!cmpNode || prelimColVis.has(id2)) continue;
+          if (Math.abs(cmpNode.position.x - baseNode.position.x) <= 60) {
+            grp.push(id2);
+            prelimColVis.add(id2);
+          }
+        }
+        prelimColGrps.push(grp);
+      }
+      const willPaginate = prelimColGrps.length > MAX_COLS_PER_SLIDE;
+
+      // 페이지 청크: 1쪽은 6컬럼 / 2쪽 이후는 5신규 + 1고스트 = 6컬럼 유지
+      const STRIDE_LATER = MAX_COLS_PER_SLIDE - 1;
+      const makeChunks = (grps: string[][]): string[][][] => {
+        const chunks: string[][][] = [];
+        if (grps.length === 0) return chunks;
+        if (grps.length <= MAX_COLS_PER_SLIDE) {
+          chunks.push(grps.slice());
+          return chunks;
+        }
+        chunks.push(grps.slice(0, MAX_COLS_PER_SLIDE));
+        let cursor = MAX_COLS_PER_SLIDE;
+        while (cursor < grps.length) {
+          chunks.push(grps.slice(cursor, cursor + STRIDE_LATER));
+          cursor += STRIDE_LATER;
+        }
+        return chunks;
+      };
+
+      // 각 페이지(고스트 포함)의 RF 픽셀 X-폭 중 최대값 — sc 계산용
+      const prelimChunks = makeChunks(prelimColGrps);
+      let maxChunkRfExtent = 0;
+      for (let k = 0; k < prelimChunks.length; k++) {
+        const base = prelimChunks[k];
+        const ghost = k > 0 ? prelimChunks[k - 1][prelimChunks[k - 1].length - 1] : null;
+        const effective = ghost ? [ghost, ...base] : base;
+        let minX = Infinity;
+        let maxXEnd = -Infinity;
+        for (const grp of effective) {
+          for (const id of grp) {
+            const nd = nodeMap.get(id);
+            if (!nd) continue;
+            const lv = getLevel(nd);
+            const style = LS[lv] || DEF;
+            const rfX = nd.position.x;
+            minX = Math.min(minX, rfX);
+            maxXEnd = Math.max(maxXEnd, rfX + style.pxW);
+          }
+        }
+        if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
+      }
+
       // 가로/세로 비율 중 작은 쪽으로 단일 스케일 결정
-      const scFit = Math.min(areaW / bRangeX, areaH / bRangeY);
+      // 페이지네이션 시: Y 전체 범위 + 페이지당 X 폭으로 제약 (X 전체를 한 페이지에 구겨 넣지 않지만 각 페이지는 슬라이드 폭 안)
+      const scFit = willPaginate
+        ? Math.min(areaH / bRangeY, areaW / Math.max(maxChunkRfExtent, 1))
+        : Math.min(areaW / bRangeX, areaH / bRangeY);
       // 기준 스케일: L4 노드 세로 2cm(0.787") 기준 (노드 규격 통일)
       const scRef = 0.787 / DEF.pxH;
       const sc = Math.min(scFit, scRef);
-
-      // RF 좌표 → PPT 좌표 (좌상단 시작)
-      const toPpt = (rfX: number, rfY: number) => ({
-        x: PAD_X + (rfX - bMinX) * sc,
-        y: PAD_TOP + (rfY - bMinY) * sc,
-      });
 
       // 노드 폰트 크기 고정 (12pt)
       const NODE_FONT_SIZE = 12;
@@ -497,13 +524,13 @@ export default function ExportToolbar({
         }
         pColGrps.push(grp);
       }
-      const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+      const globalNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
       for (const grp of pColGrps) {
         grp.sort((a, b) => rawPos[a].rfY - rawPos[b].rfY);
         const snapX = PAD_X + (Math.min(...grp.map(id => rawPos[id].rfX)) - bMinX) * sc;
         const y0 = PAD_TOP + (rawPos[grp[0]].rfY - bMinY) * sc;
         if (grp.length === 1) {
-          nodeBoxes[grp[0]] = { x: snapX, y: y0, w: rawPos[grp[0]].w, h: rawPos[grp[0]].h };
+          globalNodeBoxes[grp[0]] = { x: snapX, y: y0, w: rawPos[grp[0]].w, h: rawPos[grp[0]].h };
         } else {
           const lastId = grp[grp.length - 1];
           const yLast = PAD_TOP + (rawPos[lastId].rfY - bMinY) * sc;
@@ -512,7 +539,7 @@ export default function ExportToolbar({
           const gap = Math.max((span - sumH) / (grp.length - 1), 0.06);
           let curY = y0;
           for (const id of grp) {
-            nodeBoxes[id] = { x: snapX, y: curY, w: rawPos[id].w, h: rawPos[id].h };
+            globalNodeBoxes[id] = { x: snapX, y: curY, w: rawPos[id].w, h: rawPos[id].h };
             curY += rawPos[id].h + gap;
           }
         }
@@ -523,13 +550,13 @@ export default function ExportToolbar({
         for (const grp of pColGrps) {
           if (grp.length !== 1) continue;
           const nid = grp[0];
-          const box = nodeBoxes[nid];
+          const box = globalNodeBoxes[nid];
           if (!box) continue;
           const connCenterYs: number[] = [];
           for (const e of edges) {
             const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
             if (!cid) continue;
-            const cb = nodeBoxes[cid];
+            const cb = globalNodeBoxes[cid];
             if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
           }
           if (connCenterYs.length === 0) continue;
@@ -544,7 +571,7 @@ export default function ExportToolbar({
       if (isSwimLane) {
         const laneMap: Record<number, string[]> = {};
         for (const nd of nodes) {
-          const box = nodeBoxes[nd.id];
+          const box = globalNodeBoxes[nd.id];
           if (!box) continue;
           const laneIdx = getCanvasLaneIdx(nd.position.y);
           if (!laneMap[laneIdx]) laneMap[laneIdx] = [];
@@ -558,7 +585,7 @@ export default function ExportToolbar({
           // 캔버스 Y 범위
           const items = ids.map(id => {
             const nd = nodes.find(n => n.id === id)!;
-            return { id, rfY: nd.position.y, h: nodeBoxes[id].h };
+            return { id, rfY: nd.position.y, h: globalNodeBoxes[id].h };
           });
           const rfYMin = Math.min(...items.map(c => c.rfY));
           const rfYMax = Math.max(...items.map(c => c.rfY));
@@ -578,18 +605,18 @@ export default function ExportToolbar({
             });
             // L5 노드: 레인 중앙 정렬 (커넥터Y = y + L5_UPPER_H/2)
             for (const { id, h } of l5Items) {
-              nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+              globalNodeBoxes[id].y = laneTop + (laneH - h) / 2;
             }
             // 비-L5 노드: L5 커넥터Y에 맞춰서 정렬 (connY = y + h/2 == l5ConnY)
             if (l5Items.length > 0 && otherItems.length > 0) {
-              const l5Y0 = nodeBoxes[l5Items[0].id].y;
+              const l5Y0 = globalNodeBoxes[l5Items[0].id].y;
               const l5ConnY = l5Y0 + L5_UPPER_H / 2;
               for (const { id, h } of otherItems) {
-                nodeBoxes[id].y = l5ConnY - h / 2;
+                globalNodeBoxes[id].y = l5ConnY - h / 2;
               }
             } else {
               for (const { id, h } of otherItems) {
-                nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+                globalNodeBoxes[id].y = laneTop + (laneH - h) / 2;
               }
             }
           } else {
@@ -598,223 +625,43 @@ export default function ExportToolbar({
             const availSpan = laneH - 2 * pad - maxH;
             for (const { id, rfY, h } of items) {
               const ratio = (rfY - rfYMin) / rfSpan;
-              nodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
+              globalNodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
             }
           }
         }
       }
 
-      // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────────────
-      // 노드별 그룹화를 위한 EMU 좌표 수집
+      // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
+      const pColChunks = makeChunks(pColGrps);
+
+      // nodeId → 본 페이지 인덱스 (고스트 아닌 primary 페이지). 크로스 페이지 엣지 스텁의 참조 페이지 번호용.
+      const nodeIdToPrimaryPage = new Map<string, number>();
+      for (let k = 0; k < pColChunks.length; k++) {
+        for (const grp of pColChunks[k]) {
+          for (const id of grp) nodeIdToPrimaryPage.set(id, k);
+        }
+      }
+
       interface NodeShapeMeta { x: number; y: number; w: number; h: number }
-      const nodeGroupShapes: Record<string, NodeShapeMeta[]> = {};
-
-      for (const nd of nodes) {
-        const level = getLevel(nd);
-        const s = LS[level] || DEF;
-        const box = nodeBoxes[nd.id];
-        if (!box) continue;
-        const dispLabel = getLabel(nd);
-        const dispId = getDisplayId(nd);
-        const shapeList: NodeShapeMeta[] = [];
-        let l5YOffset = 0;  // L5 role bar 높이 (메모 Y 계산에 사용)
-
-        if (level === "DECISION") {
-          /* ── DECISION 마름모 (2cm × 2cm, 11pt) ── */
-          s2.addText(dispLabel || "판정 조건", {
-            x: box.x, y: box.y, w: DECISION_W, h: DECISION_H,
-            shape: pptx.ShapeType.diamond,
-            fill: { color: "F2A0AF" },
-            line: { color: "D95578", width: 1.5 },
-            fontSize: 7, bold: true, color: "3B0716",
-            fontFace: "Noto Sans KR", valign: "middle", align: "center",
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
-        } else if (level === "MEMO") {
-          /* ── MEMO 노란 네모 (9pt) ── */
-          const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
-          s2.addText(memoText || "", {
-            x: box.x, y: box.y, w: MEMO_W, h: MEMO_H,
-            shape: pptx.ShapeType.rect,
-            fill: { color: "FFF9C4" },
-            line: { color: "FBC02D", width: 0.75 },
-            fontSize: 9, color: "6D4C00",
-            fontFace: FONT_FACE, valign: "top", align: "left",
-            margin: [4, 4, 4, 4],
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
-        } else if (level === "L5") {
-          /* ── L5 전용: 기타 역할 바 (위에 얹기) + 2-box ── */
-          const ROLE_BAR_H = 0.142;  // 0.36cm
-          const roleVal = (nd.data as Record<string, string>).role || "";
-          const roleDisplay = extractCustomRole(roleVal);
-          if (roleDisplay) {
-            s2.addText(roleDisplay, {
-              x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "DBEAFE" },
-              line: { color: "93C5FD", width: 0.5 },
-              fontSize: 7, bold: true, color: "1D4ED8",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H });
-            l5YOffset = ROLE_BAR_H;
-          }
-          // 위쪽 박스: 흰 배경, 0.25pt 테두리, ID + Label
-          s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-            x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H,
-            shape: pptx.ShapeType.rect,
-            fill: { color: "FFFFFF" },
-            line: { color: "DEDEDE", width: 0.25 },
-            fontSize: 9, bold: true, color: "000000",
-            fontFace: FONT_FACE, valign: "middle", align: "center",
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H });
-          // 아래쪽 박스: 연회색(DEDEDE) 채우기, 선 없음, 시스템명
-          const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-          const sysStr = (nd.data as Record<string, string>).system || "";
-          let sysName = "";
-          if (sysStr) {
-            sysName = sysStr;
-          } else if (sysMap) {
-            const parts: string[] = [];
-            if (sysMap.hr?.trim()) parts.push(sysMap.hr.trim());
-            if (sysMap.groupware?.trim()) parts.push(sysMap.groupware.trim());
-            if (sysMap.office?.trim()) parts.push(sysMap.office.trim());
-            if (sysMap.external?.trim()) parts.push(sysMap.external.trim());
-            if (sysMap.manual?.trim()) parts.push(sysMap.manual.trim());
-            if (sysMap.etc?.trim()) parts.push(sysMap.etc.trim());
-            if (parts.length > 0) sysName = parts.join(" / ");
-          }
-          s2.addText(sysName, {
-            x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
-            shape: pptx.ShapeType.rect,
-            fill: { color: "DEDEDE" },
-            line: { width: 0 },
-            fontSize: 7, bold: false, color: "000000",
-            fontFace: FONT_FACE, valign: "middle", align: "center",
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
-        } else {
-          /* ── L2~L4: 기존 단일 박스 ── */
-          s2.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-            x: box.x, y: box.y, w: box.w, h: box.h,
-            shape: pptx.ShapeType.rect,
-            fill: { color: s.bg },
-            line: { color: s.border, width: 0.25 },
-            fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
-            fontFace: FONT_FACE, valign: "middle", align: "center",
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
-          const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-          if (sysMap) {
-            const SYS_KEYS: { key: string }[] = [
-              { key: "hr" }, { key: "groupware" },
-              { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
-            ];
-            const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-            if (activeSys.length > 0) {
-              s2.addText(activeSys.map(k => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
-                x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
-                fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
-                fontFace: FONT_FACE, align: "center", bold: true,
-                objectName: `GRP_${nd.id}_${shapeList.length}`,
-              });
-              shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
-            }
-          }
-        }
-
-        // Custom role tag (그 외:value) — L5는 위에서 이미 바로 처리, 나머지만 오른쪽 위 오버랩
-        if (level !== "L5") {
-          const roleStr = (nd.data as Record<string, string>).role || "";
-          const customName = extractCustomRole(roleStr);
-          if (customName) {
-            const tagW = Math.max(box.w, L5_FIXED_W);
-            const tagH = 0.142;  // 0.36cm
-            s2.addText(customName, {
-              x: box.x, y: box.y - tagH,
-              w: tagW, h: tagH,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "DBEAFE" },
-              line: { color: "93C5FD", width: 0.5 },
-              fontSize: 7, bold: true, color: "1D4ED8",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
-          }
-        }
-
-        // Memo yellow box (노란색 네모 칸, 7pt) — l5YOffset 반영으로 시스템명 박스와 겹치지 않음
-        const memoStr = (nd.data as Record<string, string>).memo || "";
-        if (memoStr) {
-          const memoW = Math.max(box.w, 1.0);
-          const memoH = 0.28;
-          const memoY = box.y + l5YOffset + box.h + 0.04;
-          s2.addText(memoStr, {
-            x: box.x, y: memoY,
-            w: memoW, h: memoH,
-            shape: pptx.ShapeType.rect,
-            fill: { color: "FFF9C4" },
-            line: { color: "FBC02D", width: 0.5 },
-            fontSize: 7, color: "6D4C00",
-            fontFace: FONT_FACE, valign: "middle", align: "left",
-            margin: [0, 4, 0, 4],
-            objectName: `GRP_${nd.id}_${shapeList.length}`,
-          });
-          shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
-        }
-        // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
-        if (shapeList.length > 1) nodeGroupShapes[nd.id] = shapeList;
-      }
-
-      // ── Phase 3.5: pptx.write() 전에 s2._slideObjects 인덱스로 shape ID 캡처 ──
-      // PptxGenJS는 _slideObjects[idx] → XML에서 id="${idx+2}" 로 씀 (id=1은 spTree 기본값)
-      const nodeShapeCnvIds: Record<string, number[]> = {};  // nodeId → [cNvPr id, ...]
-      {
-        const s2Objs = (s2 as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
-        for (const [nodeId] of Object.entries(nodeGroupShapes)) {
-          const prefix = `GRP_${nodeId}_`;
-          const ids: number[] = [];
-          for (let idx = 0; idx < s2Objs.length; idx++) {
-            const objName = s2Objs[idx]?.options?.objectName;
-            if (objName && objName.startsWith(prefix)) {
-              ids.push(idx + 2);  // PptxGenJS: id = idx + 2
-            }
-          }
-          if (ids.length >= 2) nodeShapeCnvIds[nodeId] = ids;
-        }
-      }
-
-      // ── Phase 4: 엣지 메타 수집 (실제 그리기는 PPTX 후처리에서 진짜 커넥터로) ──────
-      // nodeBoxes의 노드 이름을 Phase 3의 addText 순서와 매핑하기 위해 순서 기록
-      const nodeDrawOrder: string[] = [];
-      // Phase 3에서 그린 노드 순서 재현 (위 Phase 3 루프와 동일 순서)
-      for (const nd of nodes) {
-        if (nodeBoxes[nd.id]) nodeDrawOrder.push(nd.id);
-      }
-
       interface ConnectorMeta {
         srcNodeId: string; tgtNodeId: string;
         srcBox: { x: number; y: number; w: number; h: number };
         tgtBox: { x: number; y: number; w: number; h: number };
         srcIsL5: boolean; tgtIsL5: boolean;
         srcIsDec: boolean; tgtIsDec: boolean;
-        isStraight: boolean;  // true=직선, false=꺾인선
-        isHorizontal: boolean; // true=가로 우세, false=세로 우세
+        isStraight: boolean;
+        isHorizontal: boolean;
         bidi: boolean;
         label?: string;
       }
-      const connectors: ConnectorMeta[] = [];
+      interface DiagramPageMeta {
+        slideIdx: number;
+        pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
+        connectors: ConnectorMeta[];
+        nodeGroupShapes: Record<string, NodeShapeMeta[]>;
+        nodeShapeCnvIds: Record<string, number[]>;
+      }
 
-      // 노드 레벨 룩업
       const nodeLevelMap: Record<string, string> = {};
       for (const nd of nodes) nodeLevelMap[nd.id] = getLevel(nd);
 
@@ -822,44 +669,348 @@ export default function ExportToolbar({
         a.y < b.y + b.h && b.y < a.y + a.h;
       const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
         a.x < b.x + b.w && b.x < a.x + a.w;
+      const withGhostLine = (line: Record<string, unknown>, isGhost: boolean, keepNoBorder = false) =>
+        (isGhost && !keepNoBorder ? { ...line, dashType: "dash" } : line);
 
-      for (const e of edges) {
-        const src = nodeBoxes[e.source];
-        const tgt = nodeBoxes[e.target];
-        if (!src || !tgt) continue;
-        const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
-        const srcCx = src.x + src.w / 2, tgtCx = tgt.x + tgt.w / 2;
-        const dx = tgtCx - srcCx, dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
-        const sameRow = yOverlap(src, tgt);
-        const sameCol = xOverlap(src, tgt);
-        const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
-        const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
-        connectors.push({
-          srcNodeId: e.source, tgtNodeId: e.target,
-          srcBox: src, tgtBox: tgt,
-          srcIsL5: nodeLevelMap[e.source] === "L5",
-          tgtIsL5: nodeLevelMap[e.target] === "L5",
-          srcIsDec: nodeLevelMap[e.source] === "DECISION",
-          tgtIsDec: nodeLevelMap[e.target] === "DECISION",
-          isStraight, isHorizontal, bidi,
-          label: e.label ? String(e.label) : undefined,
+      const addDiagramChrome = (slide: PptxGenJS.Slide, titleText: string) => {
+        slide.background = { color: "F8FAFC" };
+        slide.addText(titleText, {
+          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
+        });
+        if (!isSwimLane) return;
+        let ly = SL_BAND_TOP;
+        for (let i = 0; i <= swimLanes.length; i++) {
+          slide.addShape("line", {
+            x: 0, y: ly, w: SLIDE_W, h: 0,
+            line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
+          });
+          if (i < swimLanes.length) ly += dynamicLaneH[i];
+        }
+        const LBL_BOX_W = 1.05;
+        const LBL_BOX_H = 0.26;
+        for (let i = 0; i < swimLanes.length; i++) {
+          const labelY = dynamicLaneTops[i] + 0.06;
+          slide.addText(swimLanes[i], {
+            x: 0.04, y: labelY, w: LBL_BOX_W, h: LBL_BOX_H,
+            shape: pptx.ShapeType.rect,
+            fill: { color: "FFFFFF" },
+            line: { color: "B0B0B0", width: 0.5 },
+            fontSize: 9, fontFace: FONT_FACE, color: "333333",
+            align: "center", valign: "middle",
+          });
+        }
+      };
+
+      const addDiagramLegend = (slide: PptxGenJS.Slide) => {
+        let legendX = 0.4;
+        for (const [lvl, cfg] of Object.entries(LS)) {
+          slide.addText("", {
+            x: legendX, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
+            shape: pptx.ShapeType.rect,
+            fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
+          });
+          slide.addText(lvl, {
+            x: legendX + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22,
+            fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle",
+          });
+          legendX += 0.9;
+        }
+        slide.addText("── 실선  ▶ 화살표: 진행 방향", {
+          x: 4.0, y: SLIDE_H - 0.28, w: 4.0, h: 0.22,
+          fontSize: 7, color: "94A3B8", fontFace: FONT_FACE, valign: "middle",
+        });
+      };
+
+      const diagramPages: DiagramPageMeta[] = [];
+      const totalPages = Math.max(pColChunks.length, 1);
+
+      for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+        const pageNo = pageIdx + 1;
+        const baseColGrps = pColChunks[pageIdx] || [];
+        const ghostColGrp = pageIdx > 0 ? (pColChunks[pageIdx - 1]?.[pColChunks[pageIdx - 1].length - 1] || []) : [];
+        const pageColGrps = pageIdx > 0 && ghostColGrp.length > 0 ? [ghostColGrp, ...baseColGrps] : baseColGrps;
+        if (pageColGrps.length === 0) continue;
+
+        const firstColAnyNode = pageColGrps[0].find((nodeId) => !!globalNodeBoxes[nodeId]) || pageColGrps[0][0];
+        if (!firstColAnyNode || !globalNodeBoxes[firstColAnyNode]) continue;
+
+        const pageDX = PAD_X - globalNodeBoxes[firstColAnyNode].x;
+        const pageNodeSet = new Set<string>();
+        const ghostNodeSet = new Set<string>(ghostColGrp);
+        const pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+
+        for (const grp of pageColGrps) {
+          for (const nodeId of grp) {
+            if (pageNodeSet.has(nodeId)) continue;
+            const gBox = globalNodeBoxes[nodeId];
+            if (!gBox) continue;
+            pageNodeSet.add(nodeId);
+            pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
+          }
+        }
+
+        const pageSlide = pptx.addSlide();
+        addDiagramChrome(
+          pageSlide,
+          totalPages > 1 ? `${slideTitle} (${pageNo}/${totalPages})` : slideTitle,
+        );
+
+        const nodeGroupShapes: Record<string, NodeShapeMeta[]> = {};
+        for (const nd of nodes) {
+          if (!pageNodeSet.has(nd.id)) continue;
+
+          const level = getLevel(nd);
+          const s = LS[level] || DEF;
+          const box = pageNodeBoxes[nd.id];
+          if (!box) continue;
+          const dispLabel = getLabel(nd);
+          const dispId = getDisplayId(nd);
+          const isGhost = ghostNodeSet.has(nd.id);
+          const shapeList: NodeShapeMeta[] = [];
+          let l5YOffset = 0;
+
+          if (level === "DECISION") {
+            pageSlide.addText(dispLabel || "판정 조건", {
+              x: box.x, y: box.y, w: DECISION_W, h: DECISION_H,
+              shape: pptx.ShapeType.diamond,
+              fill: { color: "F2A0AF" },
+              line: withGhostLine({ color: "D95578", width: 1.5 }, isGhost),
+              fontSize: 7, bold: true, color: "3B0716",
+              fontFace: "Noto Sans KR", valign: "middle", align: "center",
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y, w: DECISION_W, h: DECISION_H });
+          } else if (level === "MEMO") {
+            const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
+            pageSlide.addText(memoText || "", {
+              x: box.x, y: box.y, w: MEMO_W, h: MEMO_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFF9C4" },
+              line: withGhostLine({ color: "FBC02D", width: 0.75 }, isGhost),
+              fontSize: 9, color: "6D4C00",
+              fontFace: FONT_FACE, valign: "top", align: "left",
+              margin: [4, 4, 4, 4],
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
+          } else if (level === "L5") {
+            const ROLE_BAR_H = 0.142;
+            const roleVal = (nd.data as Record<string, string>).role || "";
+            const roleDisplay = extractCustomRole(roleVal);
+            if (roleDisplay) {
+              pageSlide.addText(roleDisplay, {
+                x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
+                fontSize: 7, bold: true, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H });
+              l5YOffset = ROLE_BAR_H;
+            }
+
+            pageSlide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+              x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFFFFF" },
+              line: withGhostLine({ color: "DEDEDE", width: 0.25 }, isGhost),
+              fontSize: 9, bold: true, color: "000000",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H });
+
+            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+            const sysStr = (nd.data as Record<string, string>).system || "";
+            let sysName = "";
+            if (sysStr) {
+              sysName = sysStr;
+            } else if (sysMap) {
+              const parts: string[] = [];
+              if (sysMap.hr?.trim()) parts.push(sysMap.hr.trim());
+              if (sysMap.groupware?.trim()) parts.push(sysMap.groupware.trim());
+              if (sysMap.office?.trim()) parts.push(sysMap.office.trim());
+              if (sysMap.external?.trim()) parts.push(sysMap.external.trim());
+              if (sysMap.manual?.trim()) parts.push(sysMap.manual.trim());
+              if (sysMap.etc?.trim()) parts.push(sysMap.etc.trim());
+              if (parts.length > 0) sysName = parts.join(" / ");
+            }
+
+            pageSlide.addText(sysName, {
+              x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "DEDEDE" },
+              line: withGhostLine({ width: 0 }, isGhost, true),
+              fontSize: 7, bold: false, color: "000000",
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
+          } else {
+            pageSlide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+              x: box.x, y: box.y, w: box.w, h: box.h,
+              shape: pptx.ShapeType.rect,
+              fill: { color: s.bg },
+              line: withGhostLine({ color: s.border, width: 0.25 }, isGhost),
+              fontSize: NODE_FONT_SIZE, bold: true, color: s.text,
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
+
+            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+            if (sysMap) {
+              const SYS_KEYS: { key: string }[] = [
+                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
+              ];
+              const activeSys = SYS_KEYS.filter((k) => sysMap[k.key]?.trim());
+              if (activeSys.length > 0) {
+                pageSlide.addText(activeSys.map((k) => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
+                  x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
+                  fontSize: Math.max(NODE_FONT_SIZE - 2, 6), color: s.bg,
+                  fontFace: FONT_FACE, align: "center", bold: true,
+                  objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                });
+                shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
+              }
+            }
+          }
+
+          if (level !== "L5") {
+            const roleStr = (nd.data as Record<string, string>).role || "";
+            const customName = extractCustomRole(roleStr);
+            if (customName) {
+              const tagW = Math.max(box.w, L5_FIXED_W);
+              const tagH = 0.142;
+              pageSlide.addText(customName, {
+                x: box.x, y: box.y - tagH,
+                w: tagW, h: tagH,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DBEAFE" },
+                line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
+                fontSize: 7, bold: true, color: "1D4ED8",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
+            }
+          }
+
+          const memoStr = (nd.data as Record<string, string>).memo || "";
+          if (memoStr) {
+            const memoW = Math.max(box.w, 1.0);
+            const memoH = 0.28;
+            const memoY = box.y + l5YOffset + box.h + 0.04;
+            pageSlide.addText(memoStr, {
+              x: box.x, y: memoY,
+              w: memoW, h: memoH,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFF9C4" },
+              line: withGhostLine({ color: "FBC02D", width: 0.5 }, isGhost),
+              fontSize: 7, color: "6D4C00",
+              fontFace: FONT_FACE, valign: "middle", align: "left",
+              margin: [0, 4, 0, 4],
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+            });
+            shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
+          }
+
+          if (shapeList.length > 1) nodeGroupShapes[nd.id] = shapeList;
+        }
+
+        const pageNodeShapeCnvIds: Record<string, number[]> = {};
+        const pageSlideObjs = (pageSlide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
+        for (const [nodeId] of Object.entries(nodeGroupShapes)) {
+          const prefix = `GRP_p${pageNo}_${nodeId}_`;
+          const ids: number[] = [];
+          for (let idx = 0; idx < pageSlideObjs.length; idx++) {
+            const objName = pageSlideObjs[idx]?.options?.objectName;
+            if (objName && objName.startsWith(prefix)) ids.push(idx + 2);
+          }
+          if (ids.length >= 2) pageNodeShapeCnvIds[nodeId] = ids;
+        }
+
+        const pageConnectors: ConnectorMeta[] = [];
+        for (const e of edges) {
+          if (!pageNodeSet.has(e.source) || !pageNodeSet.has(e.target)) continue;
+          const src = pageNodeBoxes[e.source];
+          const tgt = pageNodeBoxes[e.target];
+          if (!src || !tgt) continue;
+          const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
+          const srcCx = src.x + src.w / 2;
+          const tgtCx = tgt.x + tgt.w / 2;
+          const dx = tgtCx - srcCx;
+          const dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
+          const sameRow = yOverlap(src, tgt);
+          const sameCol = xOverlap(src, tgt);
+          const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
+          const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
+          pageConnectors.push({
+            srcNodeId: e.source,
+            tgtNodeId: e.target,
+            srcBox: src,
+            tgtBox: tgt,
+            srcIsL5: nodeLevelMap[e.source] === "L5",
+            tgtIsL5: nodeLevelMap[e.target] === "L5",
+            srcIsDec: nodeLevelMap[e.source] === "DECISION",
+            tgtIsDec: nodeLevelMap[e.target] === "DECISION",
+            isStraight,
+            isHorizontal,
+            bidi,
+            label: e.label ? String(e.label) : undefined,
+          });
+        }
+
+        // ── Phase 5: 크로스 페이지 엣지 스텁 — 한쪽 끝만 본 페이지에 있는 엣지는 참조 마커로 표시 ──
+        // 고스트 컬럼(1단계)만으로는 2페이지 이상 건너뛰는 엣지가 사라지므로, 여기서 모든 off-page 엣지를 시각적으로 보존
+        if (pColChunks.length > 1) {
+          const STUB_W = 0.95;
+          const STUB_H = 0.22;
+          const stubCount: Record<string, { out: number; in: number }> = {};
+          for (const e of edges) {
+            const srcOn = pageNodeSet.has(e.source);
+            const tgtOn = pageNodeSet.has(e.target);
+            if (srcOn === tgtOn) continue;
+            const isOutgoing = srcOn;
+            const onPageId = isOutgoing ? e.source : e.target;
+            const offPageId = isOutgoing ? e.target : e.source;
+            const onBox = pageNodeBoxes[onPageId];
+            const offNode = nodeMap.get(offPageId);
+            if (!onBox || !offNode) continue;
+            const offPrimary = nodeIdToPrimaryPage.get(offPageId);
+            const offDispId = getDisplayId(offNode);
+            const pageRef = offPrimary !== undefined ? ` (p.${offPrimary + 1})` : "";
+            const stubText = isOutgoing ? `→ ${offDispId}${pageRef}` : `← ${offDispId}${pageRef}`;
+            if (!stubCount[onPageId]) stubCount[onPageId] = { out: 0, in: 0 };
+            const idxOnNode = isOutgoing ? stubCount[onPageId].out++ : stubCount[onPageId].in++;
+            const rawX = isOutgoing
+              ? onBox.x + onBox.w + 0.05
+              : onBox.x - STUB_W - 0.05;
+            const stubX = Math.max(0.05, Math.min(rawX, SLIDE_W - STUB_W - 0.05));
+            const stubY = onBox.y + onBox.h / 2 - STUB_H / 2 + idxOnNode * (STUB_H + 0.04);
+            pageSlide.addText(stubText, {
+              x: stubX, y: stubY, w: STUB_W, h: STUB_H,
+              shape: pptx.ShapeType.rect,
+              fill: { color: "FFFFFF" },
+              line: { color: "999999", width: 0.5, dashType: "dash" },
+              fontSize: 7, color: "666666", bold: true,
+              fontFace: FONT_FACE, valign: "middle", align: "center",
+            });
+          }
+        }
+
+        addDiagramLegend(pageSlide);
+        diagramPages.push({
+          slideIdx: 2 + pageIdx,
+          pageNodeBoxes,
+          connectors: pageConnectors,
+          nodeGroupShapes,
+          nodeShapeCnvIds: pageNodeShapeCnvIds,
         });
       }
-
-      // Slide 2 legend bar
-      let lg2x = 0.4;
-      for (const [lvl, cfg] of Object.entries(LS)) {
-        s2.addText("", {
-          x: lg2x, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
-          shape: pptx.ShapeType.rect,
-          fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
-        });
-        s2.addText(lvl, { x: lg2x + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
-        lg2x += 0.9;
-      }
-      s2.addText("── 실선  ▶ 화살표: 진행 방향", {
-        x: 4.0, y: SLIDE_H - 0.28, w: 4.0, h: 0.22, fontSize: 7, color: "94A3B8", fontFace: FONT_FACE, valign: "middle",
-      });
 
       /* ═══════════════════════════════════════════
        * SLIDE 3 — Process Flow Sequence
@@ -1112,172 +1263,164 @@ export default function ExportToolbar({
       const pptxBlob = await pptx.write({ outputType: "blob" }) as Blob;
       const zip = await JSZip.loadAsync(pptxBlob);
 
-      const slide2Path = "ppt/slides/slide2.xml";
-      let slide2Xml = await zip.file(slide2Path)?.async("string") || "";
-      if (slide2Xml && connectors.length > 0) {
-        // shape ID ↔ nodeId 매핑 (EMU 좌표로 매칭)
-        const shapeIdMap: Record<string, string> = {};   // nodeId → cNvPr id
-        let maxShapeId = 0;
+      for (const pageMeta of diagramPages) {
+        const hasConnectors = pageMeta.connectors.length > 0;
+        const hasGroups = Object.keys(pageMeta.nodeShapeCnvIds).length > 0;
+        if (!hasConnectors && !hasGroups) continue;
 
-        const spBlocks = slide2Xml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-        for (const block of spBlocks) {
-          const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
-          if (!idMatch) continue;
-          const sid = parseInt(idMatch[1]);
-          if (sid > maxShapeId) maxShapeId = sid;
+        const slidePath = `ppt/slides/slide${pageMeta.slideIdx}.xml`;
+        let slideXml = await zip.file(slidePath)?.async("string") || "";
+        if (!slideXml) continue;
 
-          const offBlock = block.match(/<a:off\s([^>]*)\/?>/)
-          if (!offBlock) continue;
-          const xm = offBlock[1].match(/x="(\d+)"/);
-          const ym = offBlock[1].match(/y="(\d+)"/);
-          if (!xm || !ym) continue;
-          const xEmu = parseInt(xm[1]), yEmu = parseInt(ym[1]);
-          const tol = Math.round(EMU * 0.02);
+        if (hasConnectors) {
+          const shapeIdMap: Record<string, string> = {};
+          let maxShapeId = 0;
+          const spBlocks = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+          for (const block of spBlocks) {
+            const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+            if (!idMatch) continue;
+            const sid = parseInt(idMatch[1], 10);
+            if (sid > maxShapeId) maxShapeId = sid;
 
-          for (const [nid, box] of Object.entries(nodeBoxes)) {
-            if (shapeIdMap[nid]) continue;
-            const ex = Math.round(box.x * EMU), ey = Math.round(box.y * EMU);
-            if (Math.abs(xEmu - ex) < tol && Math.abs(yEmu - ey) < tol) {
-              shapeIdMap[nid] = idMatch[1];
-              break;
+            const offBlock = block.match(/<a:off\s([^>]*)\/?>/);
+            if (!offBlock) continue;
+            const xm = offBlock[1].match(/x="(\d+)"/);
+            const ym = offBlock[1].match(/y="(\d+)"/);
+            if (!xm || !ym) continue;
+            const xEmu = parseInt(xm[1], 10);
+            const yEmu = parseInt(ym[1], 10);
+            const tol = Math.round(EMU * 0.02);
+
+            for (const [nid, box] of Object.entries(pageMeta.pageNodeBoxes)) {
+              if (shapeIdMap[nid]) continue;
+              const ex = Math.round(box.x * EMU);
+              const ey = Math.round(box.y * EMU);
+              if (Math.abs(xEmu - ex) < tol && Math.abs(yEmu - ey) < tol) {
+                shapeIdMap[nid] = idMatch[1];
+                break;
+              }
             }
           }
-        }
 
-        // 커넥터 XML 생성
-        let cxnXml = "";
-        let nextId = maxShapeId + 1;
-        for (const c of connectors) {
-          const srcSid = shapeIdMap[c.srcNodeId];
-          const tgtSid = shapeIdMap[c.tgtNodeId];
-          if (!srcSid || !tgtSid) continue;
+          let cxnXml = "";
+          let nextId = maxShapeId + 1;
+          for (const c of pageMeta.connectors) {
+            const srcSid = shapeIdMap[c.srcNodeId];
+            const tgtSid = shapeIdMap[c.tgtNodeId];
+            if (!srcSid || !tgtSid) continue;
 
-          const src = c.srcBox, tgt = c.tgtBox;
-          // 중심점
-          const srcCx = src.x + src.w / 2, srcCy = src.y + src.h / 2;
-          const tgtCx = tgt.x + tgt.w / 2, tgtCy = tgt.y + tgt.h / 2;
-          const cdx = tgtCx - srcCx, cdy = tgtCy - srcCy;
-          // L5: 위쪽 박스 중앙 Y 사용
-          const srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : srcCy;
-          const tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgtCy;
+            const src = c.srcBox;
+            const tgt = c.tgtBox;
+            const srcCx = src.x + src.w / 2;
+            const srcCy = src.y + src.h / 2;
+            const tgtCx = tgt.x + tgt.w / 2;
+            const tgtCy = tgt.y + tgt.h / 2;
+            const cdx = tgtCx - srcCx;
+            const cdy = tgtCy - srcCy;
+            const srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : srcCy;
+            const tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgtCy;
 
-          // diamond: 방향에 따라 0(위)/1(오른)/2(아래)/3(왼) | roundRect: right=3, left=1
-          let stIdx: number, x1: number, y1: number;
-          let endIdx: number, x2: number, y2: number;
+            let stIdx: number;
+            let x1: number;
+            let y1: number;
+            let endIdx: number;
+            let x2: number;
+            let y2: number;
 
-          if (c.srcIsDec) {
-            if (Math.abs(cdx) >= Math.abs(cdy)) {
-              if (cdx >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCy; }
-              else          { stIdx = 3; x1 = src.x;          y1 = srcCy; }
+            if (c.srcIsDec) {
+              if (Math.abs(cdx) >= Math.abs(cdy)) {
+                if (cdx >= 0) { stIdx = 1; x1 = src.x + src.w; y1 = srcCy; }
+                else { stIdx = 3; x1 = src.x; y1 = srcCy; }
+              } else if (cdy >= 0) {
+                stIdx = 2; x1 = srcCx; y1 = src.y + src.h;
+              } else {
+                stIdx = 0; x1 = srcCx; y1 = src.y;
+              }
             } else {
-              if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + src.h; }
-              else          { stIdx = 0; x1 = srcCx; y1 = src.y;          }
+              stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
             }
-          } else {
-            stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
-          }
 
-          if (c.tgtIsDec) {
-            if (Math.abs(cdx) >= Math.abs(cdy)) {
-              if (cdx >= 0) { endIdx = 3; x2 = tgt.x;         y2 = tgtCy; }
-              else          { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCy; }
+            if (c.tgtIsDec) {
+              if (Math.abs(cdx) >= Math.abs(cdy)) {
+                if (cdx >= 0) { endIdx = 3; x2 = tgt.x; y2 = tgtCy; }
+                else { endIdx = 1; x2 = tgt.x + tgt.w; y2 = tgtCy; }
+              } else if (cdy >= 0) {
+                endIdx = 0; x2 = tgtCx; y2 = tgt.y;
+              } else {
+                endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h;
+              }
             } else {
-              if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y;          }
-              else          { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h;  }
+              endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
             }
-          } else {
-            endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
+
+            if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+              const avgY = (y1 + y2) / 2;
+              y1 = avgY;
+              y2 = avgY;
+            }
+
+            const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
+            const offX = Math.round(Math.min(x1, x2) * EMU);
+            const offY = Math.round(Math.min(y1, y2) * EMU);
+            const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
+            const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
+            const flipH = x2 < x1 ? ' flipH="1"' : "";
+            const flipV = y2 < y1 ? ' flipV="1"' : "";
+            const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
+            const lineClr = c.srcIsL5 && c.tgtIsL5 ? "666666" : "333333";
+
+            cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
+              + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
+              + `<p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr>`
+              + `<p:nvPr/></p:nvCxnSpPr><p:spPr>`
+              + `<a:xfrm${flipH}${flipV}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
+              + `<a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom>`
+              + `<a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>${headArrow}<a:tailEnd type="triangle" w="med" len="med"/></a:ln>`
+              + `</p:spPr></p:cxnSp>`;
+            nextId++;
           }
 
-          // Y 스냅: 비-DECISION 수평 연결에서 미세한 Y 차이 방지
-          if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
-            const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
+          for (const c of pageMeta.connectors) {
+            if (!c.label) continue;
+            const src = c.srcBox;
+            const tgt = c.tgtBox;
+            const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
+            const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
+            const midX = (src.x + src.w + tgt.x) / 2;
+            const midY = (srcCY + tgtCY) / 2;
+            const lblW = 0.35;
+            const lblH = 0.18;
+            const lx = Math.round((midX - lblW / 2) * EMU);
+            const ly = Math.round((midY - lblH - 0.04) * EMU);
+            const lcx = Math.round(lblW * EMU);
+            const lcy = Math.round(lblH * EMU);
+            cxnXml += `<p:sp><p:nvSpPr><p:cNvPr id="${nextId}" name="Label ${nextId}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`
+              + `<p:spPr><a:xfrm><a:off x="${lx}" y="${ly}"/><a:ext cx="${lcx}" cy="${lcy}"/></a:xfrm>`
+              + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>`
+              + `<a:ln w="3175"><a:solidFill><a:srgbClr val="999999"/></a:solidFill></a:ln></p:spPr>`
+              + `<p:txBody><a:bodyPr wrap="square" anchor="ctr" anchorCtr="1" lIns="0" tIns="0" rIns="0" bIns="0"/>`
+              + `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="800" b="1" dirty="0"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:rPr>`
+              + `<a:t>${c.label}</a:t></a:r></a:p></p:txBody></p:sp>`;
+            nextId++;
           }
-          // 같은 행 → 직선, 다른 행 → 꺾인선(bentConnector3)
-          const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
 
-          const offX = Math.round(Math.min(x1, x2) * EMU);
-          const offY = Math.round(Math.min(y1, y2) * EMU);
-          const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
-          const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-          const flipH = x2 < x1 ? ' flipH="1"' : "";
-          const flipV = y2 < y1 ? ' flipV="1"' : "";
-          // OOXML: tailEnd = 끝점(target) 화살표, headEnd = 시작점(source) 화살표(양방향)
-          const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
-          // 엣지 색상: L5↔L5 = 회색(DEDEDE), 나머지 = 검정(333333)
-          const isL5Edge = c.srcIsL5 && c.tgtIsL5;
-          const lineClr = isL5Edge ? "666666" : "333333";
-
-          cxnXml += `<p:cxnSp><p:nvCxnSpPr>`
-            + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
-            + `<p:cNvCxnSpPr>`
-            + `<a:stCxn id="${srcSid}" idx="${stIdx}"/>`
-            + `<a:endCxn id="${tgtSid}" idx="${endIdx}"/>`
-            + `</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>`
-            + `<p:spPr>`
-            + `<a:xfrm${flipH}${flipV}>`
-            + `<a:off x="${offX}" y="${offY}"/>`
-            + `<a:ext cx="${extCx}" cy="${extCy}"/>`
-            + `</a:xfrm>`
-            + `<a:prstGeom prst="${prst}"><a:avLst>${prst === "bentConnector3" ? '<a:gd name="adj1" fmla="val 50000"/>' : ""}</a:avLst></a:prstGeom>`
-            + `<a:ln w="6350">`
-            + `<a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>`
-            + headArrow
-            + `<a:tailEnd type="triangle" w="med" len="med"/>`
-            + `</a:ln></p:spPr></p:cxnSp>`;
-          nextId++;
+          if (cxnXml) slideXml = slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>");
         }
 
-        // Yes/No label text boxes near connectors
-        for (const c of connectors) {
-          if (!c.label) continue;
-          const src = c.srcBox, tgt = c.tgtBox;
-          const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
-          const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
-          const x1 = src.x + src.w, x2 = tgt.x;
-          const midX = (x1 + x2) / 2;
-          const midY = (srcCY + tgtCY) / 2;
-          const lblW = 0.35, lblH = 0.18;
-          const lx = Math.round((midX - lblW / 2) * EMU);
-          const ly = Math.round((midY - lblH - 0.04) * EMU);
-          const lcx = Math.round(lblW * EMU);
-          const lcy = Math.round(lblH * EMU);
-          cxnXml += `<p:sp><p:nvSpPr><p:cNvPr id="${nextId}" name="Label ${nextId}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`
-            + `<p:spPr><a:xfrm><a:off x="${lx}" y="${ly}"/><a:ext cx="${lcx}" cy="${lcy}"/></a:xfrm>`
-            + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
-            + `<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>`
-            + `<a:ln w="3175"><a:solidFill><a:srgbClr val="999999"/></a:solidFill></a:ln>`
-            + `</p:spPr><p:txBody>`
-            + `<a:bodyPr wrap="square" anchor="ctr" anchorCtr="1" lIns="0" tIns="0" rIns="0" bIns="0"/>`
-            + `<a:p><a:pPr algn="ctr"/><a:r>`
-            + `<a:rPr lang="en-US" sz="800" b="1" dirty="0"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:rPr>`
-            + `<a:t>${c.label}</a:t></a:r></a:p></p:txBody></p:sp>`;
-          nextId++;
-        }
-
-        if (cxnXml) {
-          slide2Xml = slide2Xml.replace("</p:spTree>", cxnXml + "</p:spTree>");
-        }
-      }
-
-      // ── JSZip 후처리: 도형 그룹화 (cNvPr id 기반 매칭, 일괄 처리) ──────
-      if (Object.keys(nodeShapeCnvIds).length > 0) {
-        let grpSlideXml = slide2Xml;
-        if (grpSlideXml) {
+        if (hasGroups) {
+          let grpSlideXml = slideXml;
           let grpMaxId = 0;
           for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
-            const n = parseInt(m.match(/\d+/)![0]);
+            const n = parseInt(m.match(/\d+/)![0], 10);
             if (n > grpMaxId) grpMaxId = n;
           }
           let grpNextId = grpMaxId + 1;
 
-          // 모든 <p:sp> 블록 추출 (ID로 매칭 → 무관 도형 걱정 없음)
           const allSpBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-          // id → block 맵
           const idToBlock: Record<number, string> = {};
           for (const blk of allSpBlocks) {
             const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
-            if (im) idToBlock[parseInt(im[1])] = blk;
+            if (im) idToBlock[parseInt(im[1], 10)] = blk;
           }
 
           interface GrpPendingData {
@@ -1288,8 +1431,8 @@ export default function ExportToolbar({
           const pendingGroups: GrpPendingData[] = [];
           const claimedIds = new Set<number>();
 
-          for (const [nodeId, cnvIds] of Object.entries(nodeShapeCnvIds)) {
-            const shapes = nodeGroupShapes[nodeId];
+          for (const [nodeId, cnvIds] of Object.entries(pageMeta.nodeShapeCnvIds)) {
+            const shapes = pageMeta.nodeGroupShapes[nodeId];
             if (!shapes || shapes.length < 2) continue;
             const matchedBlocks: string[] = [];
             const matchedShapeIdxs: number[] = [];
@@ -1305,39 +1448,41 @@ export default function ExportToolbar({
             }
             if (matchedBlocks.length < 2) continue;
 
-            // 바운딩 박스: shapeList 메타데이터에서 직접 계산
-            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            let gMinX = Infinity;
+            let gMinY = Infinity;
+            let gMaxX = -Infinity;
+            let gMaxY = -Infinity;
             for (const si of matchedShapeIdxs) {
               const sh = shapes[si];
               if (!sh) continue;
-              const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
-              const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
-              gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
-              gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
+              const bx = Math.round(sh.x * EMU);
+              const by = Math.round(sh.y * EMU);
+              const bcx = Math.round(sh.w * EMU);
+              const bcy = Math.round(sh.h * EMU);
+              gMinX = Math.min(gMinX, bx);
+              gMinY = Math.min(gMinY, by);
+              gMaxX = Math.max(gMaxX, bx + bcx);
+              gMaxY = Math.max(gMaxY, by + bcy);
             }
             if (!isFinite(gMinX)) continue;
             pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
           }
 
-          // 수집 완료 후 일괄 XML 수정
           for (const pg of pendingGroups) {
             for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
             const grpSp = `<p:grpSp>`
               + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
-              + `<p:grpSpPr><a:xfrm>`
-              + `<a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
-              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
-              + `</a:xfrm></p:grpSpPr>`
+              + `<p:grpSpPr><a:xfrm><a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
+              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/></a:xfrm></p:grpSpPr>`
               + pg.matchedBlocks.join("")
               + `</p:grpSp>`;
             grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
           }
-          slide2Xml = grpSlideXml;
+          slideXml = grpSlideXml;
         }
-      }
 
-      // slide2.xml 최종 저장 (커넥터·그룹화 반영)
-      if (slide2Xml) zip.file(slide2Path, slide2Xml);
+        zip.file(slidePath, slideXml);
+      }
 
       // 다운로드
       const finalBlob = await zip.generateAsync({
@@ -1398,6 +1543,7 @@ export default function ExportToolbar({
       pptx.layout = "LAYOUT_WIDE"; // 13.33" x 7.5"
       const SLIDE_W = 13.33;
       const SLIDE_H = 7.5;
+      const MAX_COLS_PER_SLIDE = 6;
 
       const LIGHT_GRAY = "DEDEDE";
       const FONT_FACE = "Noto Sans KR";
@@ -1467,9 +1613,6 @@ export default function ExportToolbar({
         lx += 1.7;
       }
 
-      /* ── 시트별 다이어그램 슬라이드 ── */
-      const SWIM_LABEL_W = 0.45;
-
       // 슬라이드별 커넥터 메타 수집
       const allSlideConnectors: {
         slideIndex: number;
@@ -1481,10 +1624,6 @@ export default function ExportToolbar({
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
 
       for (const { sheet, nodes: sNodes, edges: sEdges } of validSheets) {
-        const slide = pptx.addSlide();
-        slide.background = { color: "F8FAFC" };
-
-        // 수영레인 설정
         const isSwimLane = sheet.type === "swimlane";
         const swimLanes = sheet.lanes || ["현업 임원", "팀장", "HR 담당자", "구성원"];
 
@@ -1547,15 +1686,79 @@ export default function ExportToolbar({
 
         const sAreaW = SLIDE_W - 2 * sPadX;
         const sAreaH = SLIDE_H - sPadTop - sPadBottom;
-        const scFit = Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
+        const prelimColVis = new Set<string>();
+        const prelimColGrps: string[][] = [];
+        const prelimSortedIds = [...sNodes]
+          .sort((a, b) => a.position.x - b.position.x)
+          .map((nd) => nd.id);
+        const sheetNodeMap = new Map<string, Node>();
+        for (const nd of sNodes) sheetNodeMap.set(nd.id, nd);
+        for (const id of prelimSortedIds) {
+          if (prelimColVis.has(id)) continue;
+          const baseNode = sheetNodeMap.get(id);
+          if (!baseNode) continue;
+          const grp: string[] = [id];
+          prelimColVis.add(id);
+          for (const id2 of prelimSortedIds) {
+            const cmpNode = sheetNodeMap.get(id2);
+            if (!cmpNode || prelimColVis.has(id2)) continue;
+            if (Math.abs(cmpNode.position.x - baseNode.position.x) <= 60) {
+              grp.push(id2);
+              prelimColVis.add(id2);
+            }
+          }
+          prelimColGrps.push(grp);
+        }
+        const willPaginate = prelimColGrps.length > MAX_COLS_PER_SLIDE;
+
+        // 페이지 청크: 1쪽 6컬럼 / 2쪽+ 5신규+1고스트 = 항상 최대 6컬럼/슬라이드
+        const STRIDE_LATER = MAX_COLS_PER_SLIDE - 1;
+        const makeChunks = (grps: string[][]): string[][][] => {
+          const chunks: string[][][] = [];
+          if (grps.length === 0) return chunks;
+          if (grps.length <= MAX_COLS_PER_SLIDE) {
+            chunks.push(grps.slice());
+            return chunks;
+          }
+          chunks.push(grps.slice(0, MAX_COLS_PER_SLIDE));
+          let cursor = MAX_COLS_PER_SLIDE;
+          while (cursor < grps.length) {
+            chunks.push(grps.slice(cursor, cursor + STRIDE_LATER));
+            cursor += STRIDE_LATER;
+          }
+          return chunks;
+        };
+
+        // 각 페이지(고스트 포함)의 RF 픽셀 X-폭 중 최대값 — scRatio 계산용
+        const prelimChunks = makeChunks(prelimColGrps);
+        let maxChunkRfExtent = 0;
+        for (let k = 0; k < prelimChunks.length; k++) {
+          const base = prelimChunks[k];
+          const ghost = k > 0 ? prelimChunks[k - 1][prelimChunks[k - 1].length - 1] : null;
+          const effective = ghost ? [ghost, ...base] : base;
+          let minX = Infinity;
+          let maxXEnd = -Infinity;
+          for (const grp of effective) {
+            for (const id of grp) {
+              const nd = sheetNodeMap.get(id);
+              if (!nd) continue;
+              const lv = getLevel(nd);
+              const style = LS[lv] || DEF;
+              const rfX = nd.position.x;
+              minX = Math.min(minX, rfX);
+              maxXEnd = Math.max(maxXEnd, rfX + style.pxW);
+            }
+          }
+          if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
+        }
+
+        // 페이지네이션 시: Y 전체 범위 + 페이지당 X 폭으로 제약
+        const scFit = willPaginate
+          ? Math.min(sAreaH / bRangeY, sAreaW / Math.max(maxChunkRfExtent, 1))
+          : Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
         // 기준 스케일: L4 노드 세로 2cm(0.787") 기준
         const scRef = 0.787 / DEF.pxH;
         const scRatio = Math.min(scFit, scRef);
-
-        const toPpt = (rfX: number, rfY: number) => ({
-          x: sPadX + (rfX - bMinX) * scRatio,
-          y: sPadTop + (rfY - bMinY) * scRatio,
-        });
 
         const NODE_FONT_SIZE_S = 12; // 노드 폰트 12pt 고정
 
@@ -1647,35 +1850,6 @@ export default function ExportToolbar({
             }
           }
         }
-        slide.addText(sheetSlideTitle, {
-          x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
-          fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
-        });
-
-        // 수영레인 배경: 동적 높이 기반
-        if (isSwimLane) {
-          let ly = SL_TOP_S;
-          for (let i = 0; i <= swimLanes.length; i++) {
-            slide.addShape("line", {
-              x: 0, y: ly, w: SLIDE_W, h: 0,
-              line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
-            });
-            if (i < swimLanes.length) ly += dynLH_S[i];
-          }
-          const LBL_BOX_W_S = 1.05;
-          const LBL_BOX_H_S = 0.26;
-          for (let i = 0; i < swimLanes.length; i++) {
-            const labelY = dynLT_S[i] + 0.06;
-            slide.addText(swimLanes[i], {
-              x: 0.04, y: labelY, w: LBL_BOX_W_S, h: LBL_BOX_H_S,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "FFFFFF" },
-              line: { color: "B0B0B0", width: 0.5 },
-              fontSize: 9, fontFace: FONT_FACE, color: "333333",
-              align: "center", valign: "middle",
-            });
-          }
-        }
 
         // ── Phase 1: raw PPT 위치 ──────────────────────────────────────────────
         const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
@@ -1700,18 +1874,18 @@ export default function ExportToolbar({
           const grp = [id]; sColVis.add(id);
           for (const id2 of Object.keys(sRawPos)) {
             if (!sColVis.has(id2) && Math.abs(sRawPos[id2].rfX - sRawPos[id].rfX) <= 60) {
-              grp.push(id2); sColVis.add(id2);
-            }
+            grp.push(id2); sColVis.add(id2);
           }
+        }
           sColGrps.push(grp);
         }
-        const nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        const globalNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
         for (const grp of sColGrps) {
           grp.sort((a, b) => sRawPos[a].rfY - sRawPos[b].rfY);
           const sSnapX = sPadX + (Math.min(...grp.map(id => sRawPos[id].rfX)) - bMinX) * scRatio;
           const sY0 = sPadTop + (sRawPos[grp[0]].rfY - bMinY) * scRatio;
           if (grp.length === 1) {
-            nodeBoxes[grp[0]] = { x: sSnapX, y: sY0, w: sRawPos[grp[0]].w, h: sRawPos[grp[0]].h };
+            globalNodeBoxes[grp[0]] = { x: sSnapX, y: sY0, w: sRawPos[grp[0]].w, h: sRawPos[grp[0]].h };
           } else {
             const lastId = grp[grp.length - 1];
             const yLast = sPadTop + (sRawPos[lastId].rfY - bMinY) * scRatio;
@@ -1720,7 +1894,7 @@ export default function ExportToolbar({
             const gap = Math.max((span - sumH) / (grp.length - 1), 0.06);
             let curY = sY0;
             for (const id of grp) {
-              nodeBoxes[id] = { x: sSnapX, y: curY, w: sRawPos[id].w, h: sRawPos[id].h };
+              globalNodeBoxes[id] = { x: sSnapX, y: curY, w: sRawPos[id].w, h: sRawPos[id].h };
               curY += sRawPos[id].h + gap;
             }
           }
@@ -1728,31 +1902,31 @@ export default function ExportToolbar({
 
         // ── Phase 2.5: Cross-column Y 정렬 (수영레인 모드에서는 스킵) ──
         if (!isSwimLane) {
-        for (const grp of sColGrps) {
-          if (grp.length !== 1) continue;
-          const nid = grp[0];
-          const box = nodeBoxes[nid];
-          if (!box) continue;
-          const connCenterYs: number[] = [];
-          for (const e of sEdges) {
-            const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
-            if (!cid) continue;
-            const cb = nodeBoxes[cid];
-            if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+          for (const grp of sColGrps) {
+            if (grp.length !== 1) continue;
+            const nid = grp[0];
+            const box = globalNodeBoxes[nid];
+            if (!box) continue;
+            const connCenterYs: number[] = [];
+            for (const e of sEdges) {
+              const cid = e.target === nid ? e.source : e.source === nid ? e.target : null;
+              if (!cid) continue;
+              const cb = globalNodeBoxes[cid];
+              if (cb && Math.abs(cb.x - box.x) > 0.3) connCenterYs.push(cb.y + cb.h / 2);
+            }
+            if (connCenterYs.length === 0) continue;
+            connCenterYs.sort((a, b) => a - b);
+            const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
+            const newY = medianCy - box.h / 2;
+            box.y = Math.max(sPadTop, Math.min(newY, SLIDE_H - 0.35 - box.h));
           }
-          if (connCenterYs.length === 0) continue;
-          connCenterYs.sort((a, b) => a - b);
-          const medianCy = connCenterYs[Math.floor(connCenterYs.length / 2)];
-          const newY = medianCy - box.h / 2;
-          box.y = Math.max(sPadTop, Math.min(newY, SLIDE_H - 0.35 - box.h));
-        }
         } // end if(!isSwimLane)
 
         // ── Phase 2.6: 수영레인 Y좌표 — 캔버스 비례 매핑 + 동적 레인 높이 ──
         if (isSwimLane) {
           const laneMap2: Record<number, string[]> = {};
           for (const nd of sNodes) {
-            const box = nodeBoxes[nd.id];
+            const box = globalNodeBoxes[nd.id];
             if (!box) continue;
             const laneIdx = getSLaneIdx(nd.position.y);
             if (!laneMap2[laneIdx]) laneMap2[laneIdx] = [];
@@ -1765,7 +1939,7 @@ export default function ExportToolbar({
             const pad = 0.06;
             const items = ids.map(id => {
               const nd = sNodes.find(n => n.id === id)!;
-              return { id, rfY: nd.position.y, h: nodeBoxes[id].h };
+              return { id, rfY: nd.position.y, h: globalNodeBoxes[id].h };
             });
             const rfYMin = Math.min(...items.map(c => c.rfY));
             const rfYMax = Math.max(...items.map(c => c.rfY));
@@ -1781,17 +1955,17 @@ export default function ExportToolbar({
                 return getLevel(nd) !== "L5";
               });
               for (const { id, h } of l5Items) {
-                nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+                globalNodeBoxes[id].y = laneTop + (laneH - h) / 2;
               }
               if (l5Items.length > 0 && otherItems.length > 0) {
-                const l5Y0 = nodeBoxes[l5Items[0].id].y;
+                const l5Y0 = globalNodeBoxes[l5Items[0].id].y;
                 const l5ConnY = l5Y0 + L5_UPPER_H_ALL / 2;
                 for (const { id, h } of otherItems) {
-                  nodeBoxes[id].y = l5ConnY - h / 2;
+                  globalNodeBoxes[id].y = l5ConnY - h / 2;
                 }
               } else {
                 for (const { id, h } of otherItems) {
-                  nodeBoxes[id].y = laneTop + (laneH - h) / 2;
+                  globalNodeBoxes[id].y = laneTop + (laneH - h) / 2;
                 }
               }
             } else {
@@ -1799,244 +1973,370 @@ export default function ExportToolbar({
               const availSpan = laneH - 2 * pad - maxH;
               for (const { id, rfY, h } of items) {
                 const ratio = (rfY - rfYMin) / rfSpan;
-                nodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
+                globalNodeBoxes[id].y = laneTop + pad + ratio * Math.max(availSpan, 0);
               }
             }
           }
         }
 
-        // ── Phase 3: 노드 그리기 ─────────────────────────────────────────────
+        // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
+        const sColChunks = makeChunks(sColGrps);
+
+        // nodeId → 본 페이지 인덱스 (크로스 페이지 엣지 스텁의 참조 페이지 번호용)
+        const sheetNodeIdToPrimaryPage = new Map<string, number>();
+        for (let k = 0; k < sColChunks.length; k++) {
+          for (const grp of sColChunks[k]) {
+            for (const id of grp) sheetNodeIdToPrimaryPage.set(id, k);
+          }
+        }
+
         interface GrpShapeMeta { x: number; y: number; w: number; h: number }
-        const sheetGroupShapes: Record<string, GrpShapeMeta[]> = {};
+        interface CxnMeta {
+          srcNodeId: string; tgtNodeId: string;
+          srcBox: { x: number; y: number; w: number; h: number };
+          tgtBox: { x: number; y: number; w: number; h: number };
+          srcIsL5: boolean; tgtIsL5: boolean;
+          srcIsDec: boolean; tgtIsDec: boolean;
+          isStraight: boolean; isHorizontal: boolean; bidi: boolean;
+          label?: string;
+        }
 
-        for (const nd of sNodes) {
-          const level = getLevel(nd);
-          const sv = LS[level] || DEF;
-          const box = nodeBoxes[nd.id];
-          if (!box) continue;
-          const dispLabel = getLabel(nd);
-          const dispId = getDisplayId(nd);
-          const shapeList: GrpShapeMeta[] = [];
-          let l5YOff = 0;  // L5 role bar 높이 (메모 Y 계산에 사용)
+        const sheetNodeLevelMap: Record<string, string> = {};
+        for (const nd of sNodes) sheetNodeLevelMap[nd.id] = getLevel(nd);
 
-          if (level === "DECISION") {
-            /* ── DECISION 마름모 (3.15cm × 1.1cm, 7pt) ── */
-            slide.addText(dispLabel || "판정 조건", {
-              x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL,
-              shape: pptx.ShapeType.diamond,
-              fill: { color: "F2A0AF" },
-              line: { color: "D95578", width: 1.5 },
-              fontSize: 7, bold: true, color: "3B0716",
-              fontFace: "Noto Sans KR", valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
+        const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
+          a.y < b.y + b.h && b.y < a.y + a.h;
+        const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
+          a.x < b.x + b.w && b.x < a.x + a.w;
+        const withGhostLine = (line: Record<string, unknown>, isGhost: boolean, keepNoBorder = false) =>
+          (isGhost && !keepNoBorder ? { ...line, dashType: "dash" } : line);
+
+        const addSheetChrome = (slide: PptxGenJS.Slide, titleText: string) => {
+          slide.background = { color: "F8FAFC" };
+          slide.addText(titleText, {
+            x: 0.3, y: 0.12, w: SLIDE_W - 0.6, h: 0.4,
+            fontSize: 14, fontFace: FONT_FACE, bold: true, color: "1E293B",
+          });
+          if (!isSwimLane) return;
+          let ly = SL_TOP_S;
+          for (let i = 0; i <= swimLanes.length; i++) {
+            slide.addShape("line", {
+              x: 0, y: ly, w: SLIDE_W, h: 0,
+              line: { color: "B0B0B0", width: 0.75, dashType: "dash" },
             });
-            shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
-          } else if (level === "MEMO") {
-            const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
-            slide.addText(memoText || "", {
-              x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "FFF9C4" },
-              line: { color: "FBC02D", width: 0.75 },
-              fontSize: 9, color: "6D4C00",
-              fontFace: FONT_FACE, valign: "top", align: "left",
-              margin: [4, 4, 4, 4],
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
-          } else if (level === "L5") {
-            /* ── L5: 기타 역할 바 (위에 얹기) + 2-box ── */
-            const ROLE_BAR_H_S = 0.142;  // 0.36cm
-            const roleVal = (nd.data as Record<string, string>).role || "";
-            const roleBatchDisplay = extractCustomRole(roleVal);
-            if (roleBatchDisplay) {
-              slide.addText(roleBatchDisplay, {
-                x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
-                shape: pptx.ShapeType.rect,
-                fill: { color: "DBEAFE" },
-                line: { color: "93C5FD", width: 0.5 },
-                fontSize: 7, bold: true, color: "1D4ED8",
-                fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_${nd.id}_${shapeList.length}`,
-              });
-              shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S });
-              l5YOff = ROLE_BAR_H_S;
-            }
-            slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-              x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
+            if (i < swimLanes.length) ly += dynLH_S[i];
+          }
+          const LBL_BOX_W_S = 1.05;
+          const LBL_BOX_H_S = 0.26;
+          for (let i = 0; i < swimLanes.length; i++) {
+            const labelY = dynLT_S[i] + 0.06;
+            slide.addText(swimLanes[i], {
+              x: 0.04, y: labelY, w: LBL_BOX_W_S, h: LBL_BOX_H_S,
               shape: pptx.ShapeType.rect,
               fill: { color: "FFFFFF" },
-              line: { color: "DEDEDE", width: 0.25 },
-              fontSize: 9, bold: true, color: "000000",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
+              line: { color: "B0B0B0", width: 0.5 },
+              fontSize: 9, fontFace: FONT_FACE, color: "333333",
+              align: "center", valign: "middle",
             });
-            shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
-            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-            const sysStr = (nd.data as Record<string, string>).system || "";
-            let sysName = "";
-            if (sysStr) {
-              sysName = sysStr;
-            } else if (sysMap) {
-              const SYS_KEYS = [
-                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
-              ];
-              const active = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-              if (active.length > 0) sysName = active.map(k => sysMap[k.key]!.trim()).join(", ");
+          }
+        };
+
+        const addSheetLegend = (slide: PptxGenJS.Slide) => {
+          let lgx = 0.4;
+          for (const [lvl, cfg] of Object.entries(LS)) {
+            slide.addText("", {
+              x: lgx, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
+              shape: pptx.ShapeType.rect,
+              fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
+            });
+            slide.addText(lvl, {
+              x: lgx + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22,
+              fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle",
+            });
+            lgx += 0.9;
+          }
+        };
+
+        const totalPages = Math.max(sColChunks.length, 1);
+        for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+          const pageNo = pageIdx + 1;
+          const baseColGrps = sColChunks[pageIdx] || [];
+          const ghostColGrp = pageIdx > 0 ? (sColChunks[pageIdx - 1]?.[sColChunks[pageIdx - 1].length - 1] || []) : [];
+          const pageColGrps = pageIdx > 0 && ghostColGrp.length > 0 ? [ghostColGrp, ...baseColGrps] : baseColGrps;
+          if (pageColGrps.length === 0) continue;
+
+          const firstColAnyNode = pageColGrps[0].find((nodeId) => !!globalNodeBoxes[nodeId]) || pageColGrps[0][0];
+          if (!firstColAnyNode || !globalNodeBoxes[firstColAnyNode]) continue;
+
+          const pageDX = sPadX - globalNodeBoxes[firstColAnyNode].x;
+          const pageNodeSet = new Set<string>();
+          const ghostNodeSet = new Set<string>(ghostColGrp);
+          const pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+
+          for (const grp of pageColGrps) {
+            for (const nodeId of grp) {
+              if (pageNodeSet.has(nodeId)) continue;
+              const gBox = globalNodeBoxes[nodeId];
+              if (!gBox) continue;
+              pageNodeSet.add(nodeId);
+              pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
             }
-            // 아래쪽 박스: DEDEDE 채우기, 선 없음
-            slide.addText(sysName, {
-              x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "DEDEDE" },
-              line: { width: 0 },
-              fontSize: 7, bold: false, color: "000000",
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
-          } else {
-            /* ── L2~L4: 기존 단일 박스 ── */
-            slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-              x: box.x, y: box.y, w: box.w, h: box.h,
-              shape: pptx.ShapeType.rect,
-              fill: { color: sv.bg },
-              line: { color: sv.border, width: 0.25 },
-              fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
-            const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
-            if (sysMap) {
-              const SYS_KEYS: { key: string }[] = [
-                { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
-              ];
-              const activeSys = SYS_KEYS.filter(k => sysMap[k.key]?.trim());
-              if (activeSys.length > 0) {
-                slide.addText(activeSys.map(k => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
-                  x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
-                  fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
-                  fontFace: FONT_FACE, align: "center", bold: true,
-                  objectName: `GRP_${nd.id}_${shapeList.length}`,
+          }
+
+          const slide = pptx.addSlide();
+          addSheetChrome(
+            slide,
+            totalPages > 1 ? `${sheetSlideTitle} (${pageNo}/${totalPages})` : sheetSlideTitle,
+          );
+
+          const sheetGroupShapes: Record<string, GrpShapeMeta[]> = {};
+          for (const nd of sNodes) {
+            if (!pageNodeSet.has(nd.id)) continue;
+
+            const level = getLevel(nd);
+            const sv = LS[level] || DEF;
+            const box = pageNodeBoxes[nd.id];
+            if (!box) continue;
+            const dispLabel = getLabel(nd);
+            const dispId = getDisplayId(nd);
+            const isGhost = ghostNodeSet.has(nd.id);
+            const shapeList: GrpShapeMeta[] = [];
+            let l5YOff = 0;
+
+            if (level === "DECISION") {
+              slide.addText(dispLabel || "판정 조건", {
+                x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL,
+                shape: pptx.ShapeType.diamond,
+                fill: { color: "F2A0AF" },
+                line: withGhostLine({ color: "D95578", width: 1.5 }, isGhost),
+                fontSize: 7, bold: true, color: "3B0716",
+                fontFace: "Noto Sans KR", valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y, w: DECISION_W_ALL, h: DECISION_H_ALL });
+            } else if (level === "MEMO") {
+              const memoText = (nd.data as Record<string, string>).text || dispLabel || "";
+              slide.addText(memoText || "", {
+                x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "FFF9C4" },
+                line: withGhostLine({ color: "FBC02D", width: 0.75 }, isGhost),
+                fontSize: 9, color: "6D4C00",
+                fontFace: FONT_FACE, valign: "top", align: "left",
+                margin: [4, 4, 4, 4],
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
+            } else if (level === "L5") {
+              const ROLE_BAR_H_S = 0.142;
+              const roleVal = (nd.data as Record<string, string>).role || "";
+              const roleBatchDisplay = extractCustomRole(roleVal);
+              if (roleBatchDisplay) {
+                slide.addText(roleBatchDisplay, {
+                  x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
+                  shape: pptx.ShapeType.rect,
+                  fill: { color: "DBEAFE" },
+                  line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
+                  fontSize: 7, bold: true, color: "1D4ED8",
+                  fontFace: FONT_FACE, valign: "middle", align: "center",
+                  objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
                 });
-                shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
+                shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S });
+                l5YOff = ROLE_BAR_H_S;
+              }
+              slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+                x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "FFFFFF" },
+                line: withGhostLine({ color: "DEDEDE", width: 0.25 }, isGhost),
+                fontSize: 9, bold: true, color: "000000",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
+
+              const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+              const sysStr = (nd.data as Record<string, string>).system || "";
+              let sysName = "";
+              if (sysStr) {
+                sysName = sysStr;
+              } else if (sysMap) {
+                const SYS_KEYS = [
+                  { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
+                ];
+                const active = SYS_KEYS.filter((k) => sysMap[k.key]?.trim());
+                if (active.length > 0) sysName = active.map((k) => sysMap[k.key]!.trim()).join(", ");
+              }
+              slide.addText(sysName, {
+                x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "DEDEDE" },
+                line: withGhostLine({ width: 0 }, isGhost, true),
+                fontSize: 7, bold: false, color: "000000",
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
+            } else {
+              slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+                x: box.x, y: box.y, w: box.w, h: box.h,
+                shape: pptx.ShapeType.rect,
+                fill: { color: sv.bg },
+                line: withGhostLine({ color: sv.border, width: 0.25 }, isGhost),
+                fontSize: NODE_FONT_SIZE_S, bold: true, color: sv.text,
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: box.y, w: box.w, h: box.h });
+              const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
+              if (sysMap) {
+                const SYS_KEYS: { key: string }[] = [
+                  { key: "hr" }, { key: "groupware" }, { key: "office" }, { key: "external" }, { key: "manual" }, { key: "etc" },
+                ];
+                const activeSys = SYS_KEYS.filter((k) => sysMap[k.key]?.trim());
+                if (activeSys.length > 0) {
+                  slide.addText(activeSys.map((k) => `🖥 ${sysMap[k.key]!.trim()}`).join("  "), {
+                    x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2,
+                    fontSize: Math.max(NODE_FONT_SIZE_S - 2, 6), color: sv.bg,
+                    fontFace: FONT_FACE, align: "center", bold: true,
+                    objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                  });
+                  shapeList.push({ x: box.x, y: box.y + box.h + 0.03, w: box.w, h: 0.2 });
+                }
               }
             }
-          }
 
-          // Custom role tag (그 외:value) — L5는 위에서 이미 바로 처리
-          if (level !== "L5") {
-            const roleStr = (nd.data as Record<string, string>).role || "";
-            const customName = extractCustomRole(roleStr);
-            if (customName) {
-              const tagW = Math.max(box.w, L5_FIXED_W_ALL);
-              const tagH = 0.142;
-              slide.addText(customName, {
-                x: box.x, y: box.y - tagH,
-                w: tagW, h: tagH,
-                shape: pptx.ShapeType.rect,
-                fill: { color: "DBEAFE" },
-                line: { color: "93C5FD", width: 0.5 },
-                fontSize: 7, bold: true, color: "1D4ED8",
-                fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_${nd.id}_${shapeList.length}`,
-              });
-              shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
+            if (level !== "L5") {
+              const roleStr = (nd.data as Record<string, string>).role || "";
+              const customName = extractCustomRole(roleStr);
+              if (customName) {
+                const tagW = Math.max(box.w, L5_FIXED_W_ALL);
+                const tagH = 0.142;
+                slide.addText(customName, {
+                  x: box.x, y: box.y - tagH,
+                  w: tagW, h: tagH,
+                  shape: pptx.ShapeType.rect,
+                  fill: { color: "DBEAFE" },
+                  line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
+                  fontSize: 7, bold: true, color: "1D4ED8",
+                  fontFace: FONT_FACE, valign: "middle", align: "center",
+                  objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                });
+                shapeList.push({ x: box.x, y: box.y - tagH, w: tagW, h: tagH });
+              }
             }
+
+            const memoStr = (nd.data as Record<string, string>).memo || "";
+            if (memoStr) {
+              const memoW = Math.max(box.w, 1.0);
+              const memoH = 0.28;
+              const memoY = box.y + l5YOff + box.h + 0.04;
+              slide.addText(memoStr, {
+                x: box.x, y: memoY,
+                w: memoW, h: memoH,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "FFF9C4" },
+                line: withGhostLine({ color: "FBC02D", width: 0.5 }, isGhost),
+                fontSize: 7, color: "6D4C00",
+                fontFace: FONT_FACE, valign: "middle", align: "left",
+                margin: [0, 4, 0, 4],
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              });
+              shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
+            }
+
+            if (shapeList.length > 1) sheetGroupShapes[nd.id] = shapeList;
           }
 
-          // Memo yellow box (노란색 네모 칸, 7pt) — l5YOff 반영으로 시스템명 박스와 겹치지 않음
-          const memoStr = (nd.data as Record<string, string>).memo || "";
-          if (memoStr) {
-            const memoW = Math.max(box.w, 1.0);
-            const memoH = 0.28;
-            const memoY = box.y + l5YOff + box.h + 0.04;
-            slide.addText(memoStr, {
-              x: box.x, y: memoY,
-              w: memoW, h: memoH,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "FFF9C4" },
-              line: { color: "FBC02D", width: 0.5 },
-              fontSize: 7, color: "6D4C00",
-              fontFace: FONT_FACE, valign: "middle", align: "left",
-              margin: [0, 4, 0, 4],
-              objectName: `GRP_${nd.id}_${shapeList.length}`,
-            });
-            shapeList.push({ x: box.x, y: memoY, w: memoW, h: memoH });
-          }
-          // 노드별 그룹 등록 (2개 이상 도형이 있을 때만)
-          if (shapeList.length > 1) sheetGroupShapes[nd.id] = shapeList;
-        }
-
-        // ── Phase 4: 엣지 메타 수집 (JSZip 후처리에서 진짜 커넥터로) ─────
-        {
-          interface CxnMeta {
-            srcNodeId: string; tgtNodeId: string;
-            srcBox: { x: number; y: number; w: number; h: number };
-            tgtBox: { x: number; y: number; w: number; h: number };
-            srcIsL5: boolean; tgtIsL5: boolean;
-            srcIsDec: boolean; tgtIsDec: boolean;
-            isStraight: boolean; isHorizontal: boolean; bidi: boolean;
-            label?: string;
-          }
-          const yOverlap = (a: { y: number; h: number }, b: { y: number; h: number }) =>
-            a.y < b.y + b.h && b.y < a.y + a.h;
-          const xOverlap = (a: { x: number; w: number }, b: { x: number; w: number }) =>
-            a.x < b.x + b.w && b.x < a.x + a.w;
-
-          const sheetConnectors: CxnMeta[] = [];
+          const pageConnectors: CxnMeta[] = [];
           for (const e of sEdges) {
-            const src = nodeBoxes[e.source];
-            const tgt = nodeBoxes[e.target];
+            if (!pageNodeSet.has(e.source) || !pageNodeSet.has(e.target)) continue;
+            const src = pageNodeBoxes[e.source];
+            const tgt = pageNodeBoxes[e.target];
             if (!src || !tgt) continue;
             const bidi = !!(e.markerStart || (e.data as Record<string, unknown>)?.bidirectional);
-            const srcCx = src.x + src.w / 2, tgtCx = tgt.x + tgt.w / 2;
-            const dx = tgtCx - srcCx, dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
+            const srcCx = src.x + src.w / 2;
+            const tgtCx = tgt.x + tgt.w / 2;
+            const dx = tgtCx - srcCx;
+            const dy = (tgt.y + tgt.h / 2) - (src.y + src.h / 2);
             const sameRow = yOverlap(src, tgt);
             const sameCol = xOverlap(src, tgt);
             const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
             const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
-            const srcNd = sNodes.find(n => n.id === e.source);
-            const tgtNd = sNodes.find(n => n.id === e.target);
-            sheetConnectors.push({
-              srcNodeId: e.source, tgtNodeId: e.target, srcBox: src, tgtBox: tgt,
-              srcIsL5: srcNd ? getLevel(srcNd) === "L5" : false,
-              tgtIsL5: tgtNd ? getLevel(tgtNd) === "L5" : false,
-              srcIsDec: srcNd ? getLevel(srcNd) === "DECISION" : false,
-              tgtIsDec: tgtNd ? getLevel(tgtNd) === "DECISION" : false,
-              isStraight, isHorizontal, bidi,
+            pageConnectors.push({
+              srcNodeId: e.source,
+              tgtNodeId: e.target,
+              srcBox: src,
+              tgtBox: tgt,
+              srcIsL5: sheetNodeLevelMap[e.source] === "L5",
+              tgtIsL5: sheetNodeLevelMap[e.target] === "L5",
+              srcIsDec: sheetNodeLevelMap[e.source] === "DECISION",
+              tgtIsDec: sheetNodeLevelMap[e.target] === "DECISION",
+              isStraight,
+              isHorizontal,
+              bidi,
               label: e.label ? String(e.label) : undefined,
             });
           }
-          // pptx.write() 전 slide._slideObjects 인덱스로 cNvPr id 캡처
-          const slideShapeCnvIds: Record<string, number[]> = {};
-          {
-            const slideObjs = (slide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
-            for (const [nodeId] of Object.entries(sheetGroupShapes)) {
-              const prefix = `GRP_${nodeId}_`;
-              const ids: number[] = [];
-              for (let idx = 0; idx < slideObjs.length; idx++) {
-                const on = slideObjs[idx]?.options?.objectName;
-                if (on && on.startsWith(prefix)) ids.push(idx + 2);
-              }
-              if (ids.length >= 2) slideShapeCnvIds[nodeId] = ids;
+
+          // ── Phase 5: 크로스 페이지 엣지 스텁 — off-page 엣지는 참조 마커로 표시 ──
+          if (sColChunks.length > 1) {
+            const STUB_W = 0.95;
+            const STUB_H = 0.22;
+            const stubCount: Record<string, { out: number; in: number }> = {};
+            for (const e of sEdges) {
+              const srcOn = pageNodeSet.has(e.source);
+              const tgtOn = pageNodeSet.has(e.target);
+              if (srcOn === tgtOn) continue;
+              const isOutgoing = srcOn;
+              const onPageId = isOutgoing ? e.source : e.target;
+              const offPageId = isOutgoing ? e.target : e.source;
+              const onBox = pageNodeBoxes[onPageId];
+              const offNode = sheetNodeMap.get(offPageId);
+              if (!onBox || !offNode) continue;
+              const offPrimary = sheetNodeIdToPrimaryPage.get(offPageId);
+              const offDispId = getDisplayId(offNode);
+              const pageRef = offPrimary !== undefined ? ` (p.${offPrimary + 1})` : "";
+              const stubText = isOutgoing ? `→ ${offDispId}${pageRef}` : `← ${offDispId}${pageRef}`;
+              if (!stubCount[onPageId]) stubCount[onPageId] = { out: 0, in: 0 };
+              const idxOnNode = isOutgoing ? stubCount[onPageId].out++ : stubCount[onPageId].in++;
+              const rawX = isOutgoing
+                ? onBox.x + onBox.w + 0.05
+                : onBox.x - STUB_W - 0.05;
+              const stubX = Math.max(0.05, Math.min(rawX, SLIDE_W - STUB_W - 0.05));
+              const stubY = onBox.y + onBox.h / 2 - STUB_H / 2 + idxOnNode * (STUB_H + 0.04);
+              slide.addText(stubText, {
+                x: stubX, y: stubY, w: STUB_W, h: STUB_H,
+                shape: pptx.ShapeType.rect,
+                fill: { color: "FFFFFF" },
+                line: { color: "999999", width: 0.5, dashType: "dash" },
+                fontSize: 7, color: "666666", bold: true,
+                fontFace: FONT_FACE, valign: "middle", align: "center",
+              });
             }
           }
-          allSlideConnectors.push({ slideIndex: slideIdx, connectors: sheetConnectors, nodeBoxes: { ...nodeBoxes }, nodeGroupShapes: { ...sheetGroupShapes }, nodeShapeCnvIds: slideShapeCnvIds });
-          slideIdx++;
-        }
 
-        // 레벨 범례 바
-        let lgx = 0.4;
-        for (const [lvl, cfg] of Object.entries(LS)) {
-          slide.addText("", {
-            x: lgx, y: SLIDE_H - 0.28, w: 0.22, h: 0.22,
-            shape: pptx.ShapeType.rect,
-            fill: { color: cfg.bg }, line: { color: cfg.border, width: 0.5 },
+          const slideShapeCnvIds: Record<string, number[]> = {};
+          const slideObjs = (slide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
+          for (const [nodeId] of Object.entries(sheetGroupShapes)) {
+            const prefix = `GRP_p${pageNo}_${nodeId}_`;
+            const ids: number[] = [];
+            for (let idx = 0; idx < slideObjs.length; idx++) {
+              const on = slideObjs[idx]?.options?.objectName;
+              if (on && on.startsWith(prefix)) ids.push(idx + 2);
+            }
+            if (ids.length >= 2) slideShapeCnvIds[nodeId] = ids;
+          }
+
+          addSheetLegend(slide);
+          allSlideConnectors.push({
+            slideIndex: slideIdx,
+            connectors: pageConnectors,
+            nodeBoxes: { ...pageNodeBoxes },
+            nodeGroupShapes: { ...sheetGroupShapes },
+            nodeShapeCnvIds: slideShapeCnvIds,
           });
-          slide.addText(lvl, { x: lgx + 0.28, y: SLIDE_H - 0.28, w: 0.5, h: 0.22, fontSize: 8, color: "64748B", fontFace: FONT_FACE, valign: "middle" });
-          lgx += 0.9;
+          slideIdx++;
         }
       }
 
