@@ -626,14 +626,6 @@ export default function ExportToolbar({
       // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
       const pColChunks = makeChunks(pColGrps);
 
-      // nodeId → 본 페이지 인덱스 (고스트 아닌 primary 페이지). 크로스 페이지 엣지 스텁의 참조 페이지 번호용.
-      const nodeIdToPrimaryPage = new Map<string, number>();
-      for (let k = 0; k < pColChunks.length; k++) {
-        for (const grp of pColChunks[k]) {
-          for (const id of grp) nodeIdToPrimaryPage.set(id, k);
-        }
-      }
-
       interface NodeShapeMeta { x: number; y: number; w: number; h: number }
       interface ConnectorMeta {
         srcNodeId: string; tgtNodeId: string;
@@ -975,44 +967,8 @@ export default function ExportToolbar({
           });
         }
 
-        // ── Phase 5: 크로스 페이지 엣지 스텁 — 한쪽 끝만 본 페이지에 있는 엣지는 참조 마커로 표시 ──
-        // 고스트 컬럼(1단계)만으로는 2페이지 이상 건너뛰는 엣지가 사라지므로, 여기서 모든 off-page 엣지를 시각적으로 보존
-        if (pColChunks.length > 1) {
-          const STUB_W = 0.95;
-          const STUB_H = 0.22;
-          const stubCount: Record<string, { out: number; in: number }> = {};
-          for (const e of edges) {
-            const srcOn = pageNodeSet.has(e.source);
-            const tgtOn = pageNodeSet.has(e.target);
-            if (srcOn === tgtOn) continue;
-            const isOutgoing = srcOn;
-            const onPageId = isOutgoing ? e.source : e.target;
-            const offPageId = isOutgoing ? e.target : e.source;
-            const onBox = pageNodeBoxes[onPageId];
-            const offNode = nodeMap.get(offPageId);
-            if (!onBox || !offNode) continue;
-            const offPrimary = nodeIdToPrimaryPage.get(offPageId);
-            const offDispId = getDisplayId(offNode);
-            const pageRef = offPrimary !== undefined ? ` (p.${offPrimary + 1})` : "";
-            const stubText = isOutgoing ? `→ ${offDispId}${pageRef}` : `← ${offDispId}${pageRef}`;
-            if (!stubCount[onPageId]) stubCount[onPageId] = { out: 0, in: 0 };
-            const idxOnNode = isOutgoing ? stubCount[onPageId].out++ : stubCount[onPageId].in++;
-            const rawX = isOutgoing
-              ? onBox.x + onBox.w + 0.05
-              : onBox.x - STUB_W - 0.05;
-            const stubX = Math.max(0.05, Math.min(rawX, SLIDE_W - STUB_W - 0.05));
-            const stubY = onBox.y + onBox.h / 2 - STUB_H / 2 + idxOnNode * (STUB_H + 0.04);
-            pageSlide.addText(stubText, {
-              x: stubX, y: stubY, w: STUB_W, h: STUB_H,
-              shape: pptx.ShapeType.rect,
-              fill: { color: "FFFFFF" },
-              line: { color: "999999", width: 0.5, dashType: "dash" },
-              fontSize: 7, color: "666666", bold: true,
-              fontFace: FONT_FACE, valign: "middle", align: "center",
-            });
-          }
-        }
-
+        // 크로스 페이지 엣지는 고스트 컬럼이 커버 (페이지 경계 1단계). 2페이지 이상 건너뛰는 엣지는
+        // 시각적으로 드물고, 참조 스텁이 DECISION Yes/No 라벨 공간을 침범해서 혼잡해지므로 표시하지 않음.
         addDiagramLegend(pageSlide);
         diagramPages.push({
           slideIdx: 2 + pageIdx,
@@ -2055,14 +2011,6 @@ export default function ExportToolbar({
         // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
         const sColChunks = makeChunks(sColGrps);
 
-        // nodeId → 본 페이지 인덱스 (크로스 페이지 엣지 스텁의 참조 페이지 번호용)
-        const sheetNodeIdToPrimaryPage = new Map<string, number>();
-        for (let k = 0; k < sColChunks.length; k++) {
-          for (const grp of sColChunks[k]) {
-            for (const id of grp) sheetNodeIdToPrimaryPage.set(id, k);
-          }
-        }
-
         interface GrpShapeMeta { x: number; y: number; w: number; h: number }
         interface CxnMeta {
           srcNodeId: string; tgtNodeId: string;
@@ -2355,42 +2303,8 @@ export default function ExportToolbar({
             });
           }
 
-          // ── Phase 5: 크로스 페이지 엣지 스텁 — off-page 엣지는 참조 마커로 표시 ──
-          if (sColChunks.length > 1) {
-            const STUB_W = 0.95;
-            const STUB_H = 0.22;
-            const stubCount: Record<string, { out: number; in: number }> = {};
-            for (const e of sEdges) {
-              const srcOn = pageNodeSet.has(e.source);
-              const tgtOn = pageNodeSet.has(e.target);
-              if (srcOn === tgtOn) continue;
-              const isOutgoing = srcOn;
-              const onPageId = isOutgoing ? e.source : e.target;
-              const offPageId = isOutgoing ? e.target : e.source;
-              const onBox = pageNodeBoxes[onPageId];
-              const offNode = sheetNodeMap.get(offPageId);
-              if (!onBox || !offNode) continue;
-              const offPrimary = sheetNodeIdToPrimaryPage.get(offPageId);
-              const offDispId = getDisplayId(offNode);
-              const pageRef = offPrimary !== undefined ? ` (p.${offPrimary + 1})` : "";
-              const stubText = isOutgoing ? `→ ${offDispId}${pageRef}` : `← ${offDispId}${pageRef}`;
-              if (!stubCount[onPageId]) stubCount[onPageId] = { out: 0, in: 0 };
-              const idxOnNode = isOutgoing ? stubCount[onPageId].out++ : stubCount[onPageId].in++;
-              const rawX = isOutgoing
-                ? onBox.x + onBox.w + 0.05
-                : onBox.x - STUB_W - 0.05;
-              const stubX = Math.max(0.05, Math.min(rawX, SLIDE_W - STUB_W - 0.05));
-              const stubY = onBox.y + onBox.h / 2 - STUB_H / 2 + idxOnNode * (STUB_H + 0.04);
-              slide.addText(stubText, {
-                x: stubX, y: stubY, w: STUB_W, h: STUB_H,
-                shape: pptx.ShapeType.rect,
-                fill: { color: "FFFFFF" },
-                line: { color: "999999", width: 0.5, dashType: "dash" },
-                fontSize: 7, color: "666666", bold: true,
-                fontFace: FONT_FACE, valign: "middle", align: "center",
-              });
-            }
-          }
+          // 크로스 페이지 엣지는 고스트 컬럼으로 커버. 2페이지 이상 건너뛰는 엣지는 매우 드물고
+          // 스텁이 DECISION Yes/No 라벨 공간을 침범해 혼잡해지므로 표시하지 않음.
 
           const slideShapeCnvIds: Record<string, number[]> = {};
           const slideL5Anchors: Record<string, { rolebarCnv?: number; upperCnv?: number; lowerCnv?: number; hasRoleBar: boolean }> = {};
