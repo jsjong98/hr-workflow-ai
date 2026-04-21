@@ -1246,16 +1246,93 @@ export default function ExportToolbar({
         let slideXml = await zip.file(slidePath)?.async("string") || "";
         if (!slideXml) continue;
 
+        // ── STEP 1: 도형 그룹화 먼저 — 그룹 bbox는 노드 core 영역으로 고정 ──
+        //   L5: (box.x, box.y, L5_FIXED_W, RB + L5_FIXED_H) — memo 제외
+        //   non-L5 multi-shape (L4 with memo/sys/role tag 등): (box.x, box.y, box.w, box.h)
+        //   → 그룹 idx=0/1/2/3이 본체 경계에 깔끔하게 매핑 (memo/extras는 그룹 안에 있되 bbox 밖)
+        //   커넥터가 이 그룹 cnvId에 바인딩되므로, PowerPoint에서 도형을 움직여도
+        //   그룹의 새 위치 기준으로 idx가 재계산되어 핸들이 반대편으로 튀지 않음.
+        const nodeIdToGroupCnvId: Record<string, number> = {};
+        if (hasGroups) {
+          let grpSlideXml = slideXml;
+          let grpMaxId = 0;
+          for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
+            const n = parseInt(m.match(/\d+/)![0], 10);
+            if (n > grpMaxId) grpMaxId = n;
+          }
+          let grpNextId = grpMaxId + 1;
+
+          const allSpBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+          const idToBlock: Record<number, string> = {};
+          for (const blk of allSpBlocks) {
+            const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+            if (im) idToBlock[parseInt(im[1], 10)] = blk;
+          }
+
+          interface GrpPending {
+            matchedBlocks: string[];
+            gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
+            id: number;
+            nodeId: string;
+          }
+          const pendingGroups: GrpPending[] = [];
+          const claimedIds = new Set<number>();
+
+          for (const [nodeId, cnvIds] of Object.entries(pageMeta.nodeShapeCnvIds)) {
+            const nb = pageMeta.pageNodeBoxes[nodeId];
+            if (!nb) continue;
+            const matchedBlocks: string[] = [];
+            for (const cid of cnvIds) {
+              if (claimedIds.has(cid)) continue;
+              const blk = idToBlock[cid];
+              if (!blk) continue;
+              matchedBlocks.push(blk);
+              claimedIds.add(cid);
+            }
+            if (matchedBlocks.length < 2) continue;
+
+            // Core bbox = 노드 본체 영역 (memo/role tag/sys icons 제외)
+            const l5 = pageMeta.l5Anchors[nodeId];
+            const coreW = l5 ? L5_FIXED_W : nb.w;
+            const coreH = l5 ? ((l5.hasRoleBar ? L5_ROLE_BAR_H : 0) + L5_FIXED_H) : nb.h;
+            const gMinX = Math.round(nb.x * EMU);
+            const gMinY = Math.round(nb.y * EMU);
+            const gMaxX = Math.round((nb.x + coreW) * EMU);
+            const gMaxY = Math.round((nb.y + coreH) * EMU);
+            const groupId = grpNextId++;
+            pendingGroups.push({ nodeId, matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: groupId });
+            nodeIdToGroupCnvId[nodeId] = groupId;
+          }
+
+          for (const pg of pendingGroups) {
+            for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
+            const grpSp = `<p:grpSp>`
+              + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+              + `<p:grpSpPr><a:xfrm><a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
+              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/></a:xfrm></p:grpSpPr>`
+              + pg.matchedBlocks.join("")
+              + `</p:grpSp>`;
+            grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
+          }
+          slideXml = grpSlideXml;
+        }
+
         if (hasConnectors) {
+          // 그룹 cnvId 우선, 없으면 (단일 도형 노드) 위치 기반 매칭으로 fallback
           const shapeIdMap: Record<string, string> = {};
+          for (const [nodeId, gid] of Object.entries(nodeIdToGroupCnvId)) {
+            shapeIdMap[nodeId] = String(gid);
+          }
           let maxShapeId = 0;
+          for (const m of slideXml.match(/id="(\d+)"/g) || []) {
+            const n = parseInt(m.match(/\d+/)![0], 10);
+            if (n > maxShapeId) maxShapeId = n;
+          }
+          // Position-based fallback (ungrouped single shapes: DECISION, bare MEMO 등)
           const spBlocks = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
           for (const block of spBlocks) {
             const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
             if (!idMatch) continue;
-            const sid = parseInt(idMatch[1], 10);
-            if (sid > maxShapeId) maxShapeId = sid;
-
             const offBlock = block.match(/<a:off\s([^>]*)\/?>/);
             if (!offBlock) continue;
             const xm = offBlock[1].match(/x="(\d+)"/);
@@ -1292,18 +1369,17 @@ export default function ExportToolbar({
             const cdx = tgtCx - srcCx;
             const cdy = tgtCy - srcCy;
 
-            // L5 앵커 정보: role bar/upper/lower 서브도형별 cNvPr + role bar 존재 여부
-            const srcAnchors = c.srcIsL5 ? pageMeta.l5Anchors[c.srcNodeId] : undefined;
-            const tgtAnchors = c.tgtIsL5 ? pageMeta.l5Anchors[c.tgtNodeId] : undefined;
-            const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-            const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-
-            // L5 수평 커넥터 Y: role bar 오프셋 반영한 upper 박스 중앙
-            const srcConnY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : srcCy;
-            const tgtConnY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgtCy;
-            // L5 전체 높이 (role bar 포함) — top/bottom 핸들 계산용
+            // L5 앵커 정보 (role bar 존재 여부만 사용 — bbox 계산용)
+            const srcL5 = pageMeta.l5Anchors[c.srcNodeId];
+            const tgtL5 = pageMeta.l5Anchors[c.tgtNodeId];
+            const srcRB = srcL5?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            const tgtRB = tgtL5?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            // L5 전체 높이 (role bar 포함) = 그룹 bbox 높이
             const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
             const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
+            // 수평 커넥터 Y: 그룹 중점 (커넥터가 그룹 cnvId에 바인딩되므로 idx=1/3도 그룹 중점 기준)
+            const srcConnY = c.srcIsL5 ? src.y + srcFullH / 2 : srcCy;
+            const tgtConnY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgtCy;
 
             // React Flow 핸들 id (top/right/bottom/left, target은 t- 접두사) → OOXML idx/좌표로 해석
             // 사용자가 웹에서 명시적으로 붙여둔 지점을 PPT에서도 동일하게 유지해서
@@ -1376,20 +1452,9 @@ export default function ExportToolbar({
               endIdx = 3; x2 = tgt.x; y2 = tgtConnY;
             }
 
-            // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
-            //   idx=0 (top)   → role bar (있으면) 또는 upper: 본체 상단 y = src.y
-            //   idx=1/3 (L/R) → upper: 본체 중앙 y = src.y + RB + L5_UPPER_H/2
-            //   idx=2 (bottom)→ lower: 본체 하단 y = src.y + RB + L5_FIXED_H
-            if (srcAnchors) {
-              if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
-              else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
-              else srcSid = String(srcAnchors.upperCnv ?? srcSid);
-            }
-            if (tgtAnchors) {
-              if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
-              else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
-              else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
-            }
+            // 주의: L5 서브도형 재바인딩은 제거됨 — 이제 커넥터는 그룹 cnvId에 바인딩되고
+            // 그룹 bbox가 core 영역(role bar + upper + lower)으로 고정되어 있으므로
+            // idx=0/1/2/3이 자동으로 올바른 위치에 매핑됨.
 
             // 실제 선택된 핸들 축 기준으로 직선 정렬 스냅
             const srcAxisVertical = stIdx === 0 || stIdx === 2;
@@ -1442,8 +1507,10 @@ export default function ExportToolbar({
             const tgt = c.tgtBox;
             const srcRB = pageMeta.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
             const tgtRB = pageMeta.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
-            const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : src.y + src.h / 2;
-            const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
+            const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
+            const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
+            const srcCY = c.srcIsL5 ? src.y + srcFullH / 2 : src.y + src.h / 2;
+            const tgtCY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgt.y + tgt.h / 2;
             const midX = (src.x + src.w + tgt.x) / 2;
             const midY = (srcCY + tgtCY) / 2;
             const lblW = 0.35;
@@ -1463,80 +1530,6 @@ export default function ExportToolbar({
           }
 
           if (cxnXml) slideXml = slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>");
-        }
-
-        if (hasGroups) {
-          let grpSlideXml = slideXml;
-          let grpMaxId = 0;
-          for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
-            const n = parseInt(m.match(/\d+/)![0], 10);
-            if (n > grpMaxId) grpMaxId = n;
-          }
-          let grpNextId = grpMaxId + 1;
-
-          const allSpBlocks = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-          const idToBlock: Record<number, string> = {};
-          for (const blk of allSpBlocks) {
-            const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
-            if (im) idToBlock[parseInt(im[1], 10)] = blk;
-          }
-
-          interface GrpPendingData {
-            matchedBlocks: string[];
-            gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
-            id: number;
-          }
-          const pendingGroups: GrpPendingData[] = [];
-          const claimedIds = new Set<number>();
-
-          for (const [nodeId, cnvIds] of Object.entries(pageMeta.nodeShapeCnvIds)) {
-            const shapes = pageMeta.nodeGroupShapes[nodeId];
-            if (!shapes || shapes.length < 2) continue;
-            const matchedBlocks: string[] = [];
-            const matchedShapeIdxs: number[] = [];
-
-            for (let i = 0; i < cnvIds.length; i++) {
-              const cid = cnvIds[i];
-              if (claimedIds.has(cid)) continue;
-              const blk = idToBlock[cid];
-              if (!blk) continue;
-              matchedBlocks.push(blk);
-              matchedShapeIdxs.push(i);
-              claimedIds.add(cid);
-            }
-            if (matchedBlocks.length < 2) continue;
-
-            let gMinX = Infinity;
-            let gMinY = Infinity;
-            let gMaxX = -Infinity;
-            let gMaxY = -Infinity;
-            for (const si of matchedShapeIdxs) {
-              const sh = shapes[si];
-              if (!sh) continue;
-              const bx = Math.round(sh.x * EMU);
-              const by = Math.round(sh.y * EMU);
-              const bcx = Math.round(sh.w * EMU);
-              const bcy = Math.round(sh.h * EMU);
-              gMinX = Math.min(gMinX, bx);
-              gMinY = Math.min(gMinY, by);
-              gMaxX = Math.max(gMaxX, bx + bcx);
-              gMaxY = Math.max(gMaxY, by + bcy);
-            }
-            if (!isFinite(gMinX)) continue;
-            pendingGroups.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
-          }
-
-          for (const pg of pendingGroups) {
-            for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
-            const grpSp = `<p:grpSp>`
-              + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
-              + `<p:grpSpPr><a:xfrm><a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
-              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/></a:xfrm></p:grpSpPr>`
-              + pg.matchedBlocks.join("")
-              + `</p:grpSp>`;
-            grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
-          }
-          slideXml = grpSlideXml;
         }
 
         zip.file(slidePath, slideXml);
@@ -2389,16 +2382,86 @@ export default function ExportToolbar({
         let slideXml = await zip.file(slidePath)?.async("string") || "";
         if (!slideXml) continue;
 
+        // ── STEP 1: 그룹화 먼저 — 그룹 bbox는 노드 core 영역으로 고정 ──
+        const nodeIdToGroupCnvId: Record<string, number> = {};
+        if (hasGroups) {
+          let grpSlideXml = slideXml;
+          let grpMaxId = 0;
+          for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
+            const n = parseInt(m.match(/\d+/)![0], 10);
+            if (n > grpMaxId) grpMaxId = n;
+          }
+          let grpNextId = grpMaxId + 1;
+
+          const allSpBlocksA = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+          const idToBlockA: Record<number, string> = {};
+          for (const blk of allSpBlocksA) {
+            const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
+            if (im) idToBlockA[parseInt(im[1], 10)] = blk;
+          }
+
+          interface GrpPendingA {
+            matchedBlocks: string[];
+            gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
+            id: number;
+            nodeId: string;
+          }
+          const pendingGroupsA: GrpPendingA[] = [];
+          const claimedIdsA = new Set<number>();
+
+          for (const [nodeId, cnvIds] of Object.entries(sc.nodeShapeCnvIds)) {
+            const nb = sc.nodeBoxes[nodeId];
+            if (!nb) continue;
+            const matchedBlocks: string[] = [];
+            for (const cid of cnvIds) {
+              if (claimedIdsA.has(cid)) continue;
+              const blk = idToBlockA[cid];
+              if (!blk) continue;
+              matchedBlocks.push(blk);
+              claimedIdsA.add(cid);
+            }
+            if (matchedBlocks.length < 2) continue;
+
+            const l5 = sc.l5Anchors[nodeId];
+            const coreW = l5 ? L5_FIXED_W_ALL : nb.w;
+            const coreH = l5 ? ((l5.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0) + L5_FIXED_H_ALL) : nb.h;
+            const gMinX = Math.round(nb.x * EMU);
+            const gMinY = Math.round(nb.y * EMU);
+            const gMaxX = Math.round((nb.x + coreW) * EMU);
+            const gMaxY = Math.round((nb.y + coreH) * EMU);
+            const groupId = grpNextId++;
+            pendingGroupsA.push({ nodeId, matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: groupId });
+            nodeIdToGroupCnvId[nodeId] = groupId;
+          }
+
+          for (const pg of pendingGroupsA) {
+            for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
+            const grpSp = `<p:grpSp>`
+              + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+              + `<p:grpSpPr><a:xfrm><a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
+              + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/></a:xfrm></p:grpSpPr>`
+              + pg.matchedBlocks.join("")
+              + `</p:grpSp>`;
+            grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
+          }
+          slideXml = grpSlideXml;
+        }
+
         if (hasConnectors) {
-        // shape ID ↔ nodeId 매핑 (EMU 좌표 매칭)
+        // 그룹 cnvId 우선, 없으면 위치 기반 fallback
         const shapeIdMap: Record<string, string> = {};
+        for (const [nodeId, gid] of Object.entries(nodeIdToGroupCnvId)) {
+          shapeIdMap[nodeId] = String(gid);
+        }
         let maxShapeId = 0;
+        for (const m of slideXml.match(/id="(\d+)"/g) || []) {
+          const n = parseInt(m.match(/\d+/)![0], 10);
+          if (n > maxShapeId) maxShapeId = n;
+        }
         const spBlocks = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
         for (const block of spBlocks) {
           const idMatch = block.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
           if (!idMatch) continue;
-          const sid = parseInt(idMatch[1]);
-          if (sid > maxShapeId) maxShapeId = sid;
           const offBlock = block.match(/<a:off\s([^>]*)\/?>/)
           if (!offBlock) continue;
           const xm = offBlock[1].match(/x="(\d+)"/);
@@ -2425,15 +2488,16 @@ export default function ExportToolbar({
           const tgtCxA = tgt.x + tgt.w / 2, tgtCyA = tgt.y + tgt.h / 2;
           const cdxA = tgtCxA - srcCxA, cdyA = tgtCyA - srcCyA;
 
-          // L5 앵커 — role bar 포함 여부에 따라 올바른 서브도형 바인딩 + Y 좌표 보정
-          const srcAnchors = c.srcIsL5 ? sc.l5Anchors[c.srcNodeId] : undefined;
-          const tgtAnchors = c.tgtIsL5 ? sc.l5Anchors[c.tgtNodeId] : undefined;
-          const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
-          const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
-          const srcConnY2 = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : srcCyA;
-          const tgtConnY2 = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgtCyA;
+          // L5 bbox 정보 — 커넥터는 이제 그룹 cnvId에 바인딩되고 그룹 bbox가 core(role bar + upper + lower)이므로
+          //   수평 Y는 그룹 중점(box.y + fullH/2)으로 맞춤 — idx=1/3 그룹 anchor와 일치
+          const srcL5 = c.srcIsL5 ? sc.l5Anchors[c.srcNodeId] : undefined;
+          const tgtL5 = c.tgtIsL5 ? sc.l5Anchors[c.tgtNodeId] : undefined;
+          const srcRB = srcL5?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const tgtRB = tgtL5?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
           const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
           const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
+          const srcConnY2 = c.srcIsL5 ? src.y + srcFullH / 2 : srcCyA;
+          const tgtConnY2 = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgtCyA;
 
           // React Flow 원본 핸들 id 우선 — 사용자가 웹에서 지정한 연결점 유지
           const resolveHandleA = (
@@ -2498,17 +2562,8 @@ export default function ExportToolbar({
             endIdx = 3; x2 = tgt.x; y2 = tgtConnY2;
           }
 
-          // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
-          if (srcAnchors) {
-            if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
-            else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
-            else srcSid = String(srcAnchors.upperCnv ?? srcSid);
-          }
-          if (tgtAnchors) {
-            if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
-            else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
-            else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
-          }
+          // 주의: L5 서브도형 재바인딩 제거됨 — 커넥터는 그룹 cnvId에 바인딩되고
+          // 그룹 bbox가 core(role bar + upper + lower)로 고정되어 idx=0/1/2/3이 자동으로 올바른 위치를 가리킴
 
           const srcAxisVertical = stIdx === 0 || stIdx === 2;
           const tgtAxisVertical = endIdx === 0 || endIdx === 2;
@@ -2539,8 +2594,10 @@ export default function ExportToolbar({
           const src = c.srcBox, tgt = c.tgtBox;
           const srcRB = sc.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
           const tgtRB = sc.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
-          const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
-          const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
+          const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
+          const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
+          const srcCY = c.srcIsL5 ? src.y + srcFullH / 2 : src.y + src.h / 2;
+          const tgtCY = c.tgtIsL5 ? tgt.y + tgtFullH / 2 : tgt.y + tgt.h / 2;
           const x1 = src.x + src.w, x2 = tgt.x;
           const midX = (x1 + x2) / 2;
           const midY = (srcCY + tgtCY) / 2;
@@ -2565,80 +2622,6 @@ export default function ExportToolbar({
         if (cxnXml) slideXml = slideXml.replace("</p:spTree>", cxnXml + "</p:spTree>");
         } // end if (hasConnectors)
 
-        // ── 도형 그룹화: cNvPr id 기반 매칭, 일괄 처리 ──────
-        if (hasGroups) {
-          let grpSlideXml = slideXml;
-          if (grpSlideXml) {
-            let grpMaxId = 0;
-            for (const m of grpSlideXml.match(/id="(\d+)"/g) || []) {
-              const n = parseInt(m.match(/\d+/)![0]);
-              if (n > grpMaxId) grpMaxId = n;
-            }
-            let grpNextId = grpMaxId + 1;
-
-            // id → block 맵
-            const allSpBlocksA = grpSlideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
-            const idToBlockA: Record<number, string> = {};
-            for (const blk of allSpBlocksA) {
-              const im = blk.match(/<p:cNvPr\s[^>]*?id="(\d+)"/);
-              if (im) idToBlockA[parseInt(im[1])] = blk;
-            }
-
-            interface GrpPendingDataA {
-              matchedBlocks: string[];
-              gMinX: number; gMinY: number; gMaxX: number; gMaxY: number;
-              id: number;
-            }
-            const pendingGroupsA: GrpPendingDataA[] = [];
-            const claimedIdsA = new Set<number>();
-
-            for (const [nodeId, cnvIds] of Object.entries(sc.nodeShapeCnvIds)) {
-              const shapes = sc.nodeGroupShapes[nodeId];
-              if (!shapes || shapes.length < 2) continue;
-              const matchedBlocks: string[] = [];
-              const matchedShapeIdxs: number[] = [];
-
-              for (let i = 0; i < cnvIds.length; i++) {
-                const cid = cnvIds[i];
-                if (claimedIdsA.has(cid)) continue;
-                const blk = idToBlockA[cid];
-                if (!blk) continue;
-                matchedBlocks.push(blk);
-                matchedShapeIdxs.push(i);
-                claimedIdsA.add(cid);
-              }
-              if (matchedBlocks.length < 2) continue;
-
-              let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
-              for (const si of matchedShapeIdxs) {
-                const sh = shapes[si];
-                if (!sh) continue;
-                const bx = Math.round(sh.x * EMU), by = Math.round(sh.y * EMU);
-                const bcx = Math.round(sh.w * EMU), bcy = Math.round(sh.h * EMU);
-                gMinX = Math.min(gMinX, bx); gMinY = Math.min(gMinY, by);
-                gMaxX = Math.max(gMaxX, bx + bcx); gMaxY = Math.max(gMaxY, by + bcy);
-              }
-              if (!isFinite(gMinX)) continue;
-              pendingGroupsA.push({ matchedBlocks, gMinX, gMinY, gMaxX, gMaxY, id: grpNextId++ });
-            }
-
-            for (const pg of pendingGroupsA) {
-              for (const blk of pg.matchedBlocks) grpSlideXml = grpSlideXml.replace(blk, "");
-              const grpSp = `<p:grpSp>`
-                + `<p:nvGrpSpPr><p:cNvPr id="${pg.id}" name="Group ${pg.id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
-                + `<p:grpSpPr><a:xfrm>`
-                + `<a:off x="${pg.gMinX}" y="${pg.gMinY}"/><a:ext cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
-                + `<a:chOff x="${pg.gMinX}" y="${pg.gMinY}"/><a:chExt cx="${pg.gMaxX - pg.gMinX}" cy="${pg.gMaxY - pg.gMinY}"/>`
-                + `</a:xfrm></p:grpSpPr>`
-                + pg.matchedBlocks.join("")
-                + `</p:grpSp>`;
-              grpSlideXml = grpSlideXml.replace("</p:spTree>", grpSp + "</p:spTree>");
-            }
-            slideXml = grpSlideXml;
-          }
-        } // end if (hasGroups)
-
-        // 슬라이드 XML 최종 저장 (커넥터·그룹화 반영)
         zip.file(slidePath, slideXml);
       }
 
