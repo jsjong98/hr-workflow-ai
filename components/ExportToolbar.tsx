@@ -203,6 +203,7 @@ export default function ExportToolbar({
       const L5_LOWER_H  = 0.213;  // 0.54cm
       const L5_GAP      = 0.020;  // 0.05cm
       const L5_FIXED_H  = L5_UPPER_H + L5_GAP + L5_LOWER_H; // 0.918" = 2.33cm
+      const L5_ROLE_BAR_H = 0.142;  // 0.36cm — 커넥터 post-processing에서 role bar 보정에 사용
       const DECISION_W = 1.240;  // 3.15cm
       const DECISION_H = 0.433;  // 1.1cm
       const MEMO_W = 1.5;   // ~3.8cm
@@ -645,12 +646,19 @@ export default function ExportToolbar({
         bidi: boolean;
         label?: string;
       }
+      interface L5AnchorSet {
+        rolebarCnv?: number;
+        upperCnv?: number;
+        lowerCnv?: number;
+        hasRoleBar: boolean;
+      }
       interface DiagramPageMeta {
         slideIdx: number;
         pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
         connectors: ConnectorMeta[];
         nodeGroupShapes: Record<string, NodeShapeMeta[]>;
         nodeShapeCnvIds: Record<string, number[]>;
+        l5Anchors: Record<string, L5AnchorSet>;
       }
 
       const nodeLevelMap: Record<string, string> = {};
@@ -748,6 +756,8 @@ export default function ExportToolbar({
         );
 
         const nodeGroupShapes: Record<string, NodeShapeMeta[]> = {};
+        // L5 사용자 정의 역할 바 유무 — 커넥터 post-processing에서 서브도형 바인딩 및 <a:off> Y 계산에 필요
+        const pageNodeHasRoleBar: Record<string, boolean> = {};
         for (const nd of nodes) {
           if (!pageNodeSet.has(nd.id)) continue;
 
@@ -789,6 +799,8 @@ export default function ExportToolbar({
             const ROLE_BAR_H = 0.142;
             const roleVal = (nd.data as Record<string, string>).role || "";
             const roleDisplay = extractCustomRole(roleVal);
+            const hasRB = !!roleDisplay;
+            pageNodeHasRoleBar[nd.id] = hasRB;
             if (roleDisplay) {
               pageSlide.addText(roleDisplay, {
                 x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
@@ -797,7 +809,7 @@ export default function ExportToolbar({
                 line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
                 fontSize: 7, bold: true, color: "1D4ED8",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_rolebar`,
               });
               shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H });
               l5YOffset = ROLE_BAR_H;
@@ -810,7 +822,7 @@ export default function ExportToolbar({
               line: withGhostLine({ color: "DEDEDE", width: 0.25 }, isGhost),
               fontSize: 9, bold: true, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_upper`,
             });
             shapeList.push({ x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H });
 
@@ -837,7 +849,7 @@ export default function ExportToolbar({
               line: withGhostLine({ width: 0 }, isGhost, true),
               fontSize: 7, bold: false, color: "000000",
               fontFace: FONT_FACE, valign: "middle", align: "center",
-              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+              objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_lower`,
             });
             shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
           } else {
@@ -913,15 +925,23 @@ export default function ExportToolbar({
         }
 
         const pageNodeShapeCnvIds: Record<string, number[]> = {};
+        const pageL5Anchors: Record<string, L5AnchorSet> = {};
         const pageSlideObjs = (pageSlide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
         for (const [nodeId] of Object.entries(nodeGroupShapes)) {
           const prefix = `GRP_p${pageNo}_${nodeId}_`;
           const ids: number[] = [];
+          const anchors: L5AnchorSet = { hasRoleBar: pageNodeHasRoleBar[nodeId] === true };
           for (let idx = 0; idx < pageSlideObjs.length; idx++) {
             const objName = pageSlideObjs[idx]?.options?.objectName;
-            if (objName && objName.startsWith(prefix)) ids.push(idx + 2);
+            if (!objName || !objName.startsWith(prefix)) continue;
+            const cnvId = idx + 2;
+            ids.push(cnvId);
+            if (objName.endsWith("_rolebar")) anchors.rolebarCnv = cnvId;
+            else if (objName.endsWith("_upper")) anchors.upperCnv = cnvId;
+            else if (objName.endsWith("_lower")) anchors.lowerCnv = cnvId;
           }
           if (ids.length >= 2) pageNodeShapeCnvIds[nodeId] = ids;
+          if (anchors.upperCnv && anchors.lowerCnv) pageL5Anchors[nodeId] = anchors;
         }
 
         const pageConnectors: ConnectorMeta[] = [];
@@ -1000,6 +1020,7 @@ export default function ExportToolbar({
           connectors: pageConnectors,
           nodeGroupShapes,
           nodeShapeCnvIds: pageNodeShapeCnvIds,
+          l5Anchors: pageL5Anchors,
         });
       }
 
@@ -1296,8 +1317,8 @@ export default function ExportToolbar({
           let cxnXml = "";
           let nextId = maxShapeId + 1;
           for (const c of pageMeta.connectors) {
-            const srcSid = shapeIdMap[c.srcNodeId];
-            const tgtSid = shapeIdMap[c.tgtNodeId];
+            let srcSid = shapeIdMap[c.srcNodeId];
+            let tgtSid = shapeIdMap[c.tgtNodeId];
             if (!srcSid || !tgtSid) continue;
 
             const src = c.srcBox;
@@ -1308,8 +1329,24 @@ export default function ExportToolbar({
             const tgtCy = tgt.y + tgt.h / 2;
             const cdx = tgtCx - srcCx;
             const cdy = tgtCy - srcCy;
-            const srcConnY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : srcCy;
-            const tgtConnY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgtCy;
+
+            // L5 앵커 정보: role bar/upper/lower 서브도형별 cNvPr + role bar 존재 여부
+            const srcAnchors = c.srcIsL5 ? pageMeta.l5Anchors[c.srcNodeId] : undefined;
+            const tgtAnchors = c.tgtIsL5 ? pageMeta.l5Anchors[c.tgtNodeId] : undefined;
+            const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+
+            // L5 수평 커넥터 Y: role bar 오프셋 반영한 upper 박스 중앙
+            const srcConnY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : srcCy;
+            const tgtConnY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgtCy;
+            // L5 전체 높이 (role bar 포함) — top/bottom 핸들 계산용
+            const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H : src.h;
+            const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
+
+            // 세로 라우팅: X 범위 겹침 + Y 범위 안 겹침 → top/bottom 핸들
+            const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
+            const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+            const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
 
             let stIdx: number;
             let x1: number;
@@ -1327,6 +1364,9 @@ export default function ExportToolbar({
               } else {
                 stIdx = 0; x1 = srcCx; y1 = src.y;
               }
+            } else if (useVertical) {
+              if (cdy >= 0) { stIdx = 2; x1 = srcCx; y1 = src.y + srcFullH; }
+              else { stIdx = 0; x1 = srcCx; y1 = src.y; }
             } else {
               stIdx = 3; x1 = src.x + src.w; y1 = srcConnY;
             }
@@ -1340,14 +1380,39 @@ export default function ExportToolbar({
               } else {
                 endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgt.h;
               }
+            } else if (useVertical) {
+              if (cdy >= 0) { endIdx = 0; x2 = tgtCx; y2 = tgt.y; }
+              else { endIdx = 2; x2 = tgtCx; y2 = tgt.y + tgtFullH; }
             } else {
               endIdx = 1; x2 = tgt.x; y2 = tgtConnY;
             }
 
-            if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+            // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
+            //   idx=0 (top)   → role bar (있으면) 또는 upper: 본체 상단 y = src.y
+            //   idx=1/3 (L/R) → upper: 본체 중앙 y = src.y + RB + L5_UPPER_H/2
+            //   idx=2 (bottom)→ lower: 본체 하단 y = src.y + RB + L5_FIXED_H
+            if (srcAnchors) {
+              if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
+              else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
+              else srcSid = String(srcAnchors.upperCnv ?? srcSid);
+            }
+            if (tgtAnchors) {
+              if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
+              else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
+              else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
+            }
+
+            // 같은 행 직선 정렬 (수평 모드에서만 Y 스냅)
+            if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
               const avgY = (y1 + y2) / 2;
               y1 = avgY;
               y2 = avgY;
+            }
+            // 같은 컬럼 직선 정렬 (수직 모드에서 X 스냅)
+            if (useVertical && Math.abs(x1 - x2) < 0.08) {
+              const avgX = (x1 + x2) / 2;
+              x1 = avgX;
+              x2 = avgX;
             }
 
             const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
@@ -1375,8 +1440,10 @@ export default function ExportToolbar({
             if (!c.label) continue;
             const src = c.srcBox;
             const tgt = c.tgtBox;
-            const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H / 2 : src.y + src.h / 2;
-            const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
+            const srcRB = pageMeta.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            const tgtRB = pageMeta.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H : 0;
+            const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H / 2 : src.y + src.h / 2;
+            const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H / 2 : tgt.y + tgt.h / 2;
             const midX = (src.x + src.w + tgt.x) / 2;
             const midY = (srcCY + tgtCY) / 2;
             const lblW = 0.35;
@@ -1555,6 +1622,7 @@ export default function ExportToolbar({
       const L5_LOWER_H_ALL  = 0.213;  // 0.54cm
       const L5_GAP_ALL      = 0.020;  // 0.05cm
       const L5_FIXED_H_ALL  = L5_UPPER_H_ALL + L5_GAP_ALL + L5_LOWER_H_ALL; // 0.918"
+      const L5_ROLE_BAR_H_ALL = 0.142;  // 0.36cm — 커넥터 post-processing에서 role bar 보정에 사용
       const DECISION_W_ALL = 1.240;  // 3.15cm
       const DECISION_H_ALL = 0.433;  // 1.1cm
       const MEMO_W_ALL = 1.5;
@@ -1611,6 +1679,7 @@ export default function ExportToolbar({
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
         nodeGroupShapes: Record<string, { x: number; y: number; w: number; h: number }[]>;
         nodeShapeCnvIds: Record<string, number[]>;
+        l5Anchors: Record<string, { rolebarCnv?: number; upperCnv?: number; lowerCnv?: number; hasRoleBar: boolean }>;
       }[] = [];
       let slideIdx = 2; // slide1=타이틀, slide2부터 시트
 
@@ -2081,6 +2150,7 @@ export default function ExportToolbar({
           );
 
           const sheetGroupShapes: Record<string, GrpShapeMeta[]> = {};
+          const pageNodeHasRoleBar: Record<string, boolean> = {};
           for (const nd of sNodes) {
             if (!pageNodeSet.has(nd.id)) continue;
 
@@ -2122,6 +2192,8 @@ export default function ExportToolbar({
               const ROLE_BAR_H_S = 0.142;
               const roleVal = (nd.data as Record<string, string>).role || "";
               const roleBatchDisplay = extractCustomRole(roleVal);
+              const hasRB = !!roleBatchDisplay;
+              pageNodeHasRoleBar[nd.id] = hasRB;
               if (roleBatchDisplay) {
                 slide.addText(roleBatchDisplay, {
                   x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
@@ -2130,7 +2202,7 @@ export default function ExportToolbar({
                   line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
                   fontSize: 7, bold: true, color: "1D4ED8",
                   fontFace: FONT_FACE, valign: "middle", align: "center",
-                  objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                  objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_rolebar`,
                 });
                 shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S });
                 l5YOff = ROLE_BAR_H_S;
@@ -2142,7 +2214,7 @@ export default function ExportToolbar({
                 line: withGhostLine({ color: "DEDEDE", width: 0.25 }, isGhost),
                 fontSize: 9, bold: true, color: "000000",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_upper`,
               });
               shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
 
@@ -2165,7 +2237,7 @@ export default function ExportToolbar({
                 line: withGhostLine({ width: 0 }, isGhost, true),
                 fontSize: 7, bold: false, color: "000000",
                 fontFace: FONT_FACE, valign: "middle", align: "center",
-                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}`,
+                objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_lower`,
               });
               shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
             } else {
@@ -2308,15 +2380,25 @@ export default function ExportToolbar({
           }
 
           const slideShapeCnvIds: Record<string, number[]> = {};
+          const slideL5Anchors: Record<string, { rolebarCnv?: number; upperCnv?: number; lowerCnv?: number; hasRoleBar: boolean }> = {};
           const slideObjs = (slide as unknown as { _slideObjects: Array<{ options?: { objectName?: string } }> })._slideObjects;
           for (const [nodeId] of Object.entries(sheetGroupShapes)) {
             const prefix = `GRP_p${pageNo}_${nodeId}_`;
             const ids: number[] = [];
+            const anchors: { rolebarCnv?: number; upperCnv?: number; lowerCnv?: number; hasRoleBar: boolean } = {
+              hasRoleBar: pageNodeHasRoleBar[nodeId] === true,
+            };
             for (let idx = 0; idx < slideObjs.length; idx++) {
               const on = slideObjs[idx]?.options?.objectName;
-              if (on && on.startsWith(prefix)) ids.push(idx + 2);
+              if (!on || !on.startsWith(prefix)) continue;
+              const cnvId = idx + 2;
+              ids.push(cnvId);
+              if (on.endsWith("_rolebar")) anchors.rolebarCnv = cnvId;
+              else if (on.endsWith("_upper")) anchors.upperCnv = cnvId;
+              else if (on.endsWith("_lower")) anchors.lowerCnv = cnvId;
             }
             if (ids.length >= 2) slideShapeCnvIds[nodeId] = ids;
+            if (anchors.upperCnv && anchors.lowerCnv) slideL5Anchors[nodeId] = anchors;
           }
 
           addSheetLegend(slide);
@@ -2326,6 +2408,7 @@ export default function ExportToolbar({
             nodeBoxes: { ...pageNodeBoxes },
             nodeGroupShapes: { ...sheetGroupShapes },
             nodeShapeCnvIds: slideShapeCnvIds,
+            l5Anchors: slideL5Anchors,
           });
           slideIdx++;
         }
@@ -2373,14 +2456,27 @@ export default function ExportToolbar({
         let cxnXml = "";
         let nextId = maxShapeId + 1;
         for (const c of sc.connectors) {
-          const srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
+          let srcSid = shapeIdMap[c.srcNodeId], tgtSid = shapeIdMap[c.tgtNodeId];
           if (!srcSid || !tgtSid) continue;
           const src = c.srcBox, tgt = c.tgtBox;
           const srcCxA = src.x + src.w / 2, srcCyA = src.y + src.h / 2;
           const tgtCxA = tgt.x + tgt.w / 2, tgtCyA = tgt.y + tgt.h / 2;
           const cdxA = tgtCxA - srcCxA, cdyA = tgtCyA - srcCyA;
-          const srcConnY2 = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : srcCyA;
-          const tgtConnY2 = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgtCyA;
+
+          // L5 앵커 — role bar 포함 여부에 따라 올바른 서브도형 바인딩 + Y 좌표 보정
+          const srcAnchors = c.srcIsL5 ? sc.l5Anchors[c.srcNodeId] : undefined;
+          const tgtAnchors = c.tgtIsL5 ? sc.l5Anchors[c.tgtNodeId] : undefined;
+          const srcRB = srcAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const tgtRB = tgtAnchors?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const srcConnY2 = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : srcCyA;
+          const tgtConnY2 = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgtCyA;
+          const srcFullH = c.srcIsL5 ? srcRB + L5_FIXED_H_ALL : src.h;
+          const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
+
+          // 세로 라우팅: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
+          const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
+          const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+          const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
 
           let stIdx: number, x1: number, y1: number;
           let endIdx: number, x2: number, y2: number;
@@ -2393,6 +2489,9 @@ export default function ExportToolbar({
               if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + src.h; }
               else           { stIdx = 0; x1 = srcCxA; y1 = src.y;          }
             }
+          } else if (useVertical) {
+            if (cdyA >= 0) { stIdx = 2; x1 = srcCxA; y1 = src.y + srcFullH; }
+            else           { stIdx = 0; x1 = srcCxA; y1 = src.y;             }
           } else {
             stIdx = 3; x1 = src.x + src.w; y1 = srcConnY2;
           }
@@ -2405,12 +2504,30 @@ export default function ExportToolbar({
               if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;          }
               else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgt.h;  }
             }
+          } else if (useVertical) {
+            if (cdyA >= 0) { endIdx = 0; x2 = tgtCxA; y2 = tgt.y;            }
+            else           { endIdx = 2; x2 = tgtCxA; y2 = tgt.y + tgtFullH; }
           } else {
             endIdx = 1; x2 = tgt.x; y2 = tgtConnY2;
           }
 
-          if (!c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
+          // L5 서브도형 바인딩 재지정 — idx 의미가 서브도형 기준이 되도록
+          if (srcAnchors) {
+            if (stIdx === 0) srcSid = String(srcAnchors.rolebarCnv ?? srcAnchors.upperCnv ?? srcSid);
+            else if (stIdx === 2) srcSid = String(srcAnchors.lowerCnv ?? srcSid);
+            else srcSid = String(srcAnchors.upperCnv ?? srcSid);
+          }
+          if (tgtAnchors) {
+            if (endIdx === 0) tgtSid = String(tgtAnchors.rolebarCnv ?? tgtAnchors.upperCnv ?? tgtSid);
+            else if (endIdx === 2) tgtSid = String(tgtAnchors.lowerCnv ?? tgtSid);
+            else tgtSid = String(tgtAnchors.upperCnv ?? tgtSid);
+          }
+
+          if (!useVertical && !c.srcIsDec && !c.tgtIsDec && Math.abs(y1 - y2) < 0.08) {
             const avgY = (y1 + y2) / 2; y1 = avgY; y2 = avgY;
+          }
+          if (useVertical && Math.abs(x1 - x2) < 0.08) {
+            const avgX = (x1 + x2) / 2; x1 = avgX; x2 = avgX;
           }
           const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
@@ -2428,8 +2545,10 @@ export default function ExportToolbar({
         for (const c of sc.connectors) {
           if (!c.label) continue;
           const src = c.srcBox, tgt = c.tgtBox;
-          const srcCY = c.srcIsL5 ? src.y + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
-          const tgtCY = c.tgtIsL5 ? tgt.y + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
+          const srcRB = sc.l5Anchors[c.srcNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const tgtRB = sc.l5Anchors[c.tgtNodeId]?.hasRoleBar ? L5_ROLE_BAR_H_ALL : 0;
+          const srcCY = c.srcIsL5 ? src.y + srcRB + L5_UPPER_H_ALL / 2 : src.y + src.h / 2;
+          const tgtCY = c.tgtIsL5 ? tgt.y + tgtRB + L5_UPPER_H_ALL / 2 : tgt.y + tgt.h / 2;
           const x1 = src.x + src.w, x2 = tgt.x;
           const midX = (x1 + x2) / 2;
           const midY = (srcCY + tgtCY) / 2;
