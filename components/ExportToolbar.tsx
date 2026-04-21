@@ -1495,8 +1495,11 @@ export default function ExportToolbar({
             const offY = Math.round(Math.min(y1, y2) * EMU);
             const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
             const extCy = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-            // flipH/flipV 제거: PowerPoint가 stCxn/endCxn 기반으로 자동 계산하도록 위임
-            //   (flipH/flipV가 고정되면 도형 이동 시 bbox와 어긋나 선이 반대 방향으로 튀는 현상 유발)
+            // flipH/flipV 필수: preset 경로는 bbox 좌상단 → 우하단 방향으로 고정이므로
+            // source가 target의 아래/오른쪽에 있는 경우엔 mirror 해야 화살표 방향이 올바름
+            //   (flipH/flipV 없이 저장하면 PowerPoint가 preset 그대로 렌더 → 방향 완전 반대)
+            const flipH = x2 < x1 ? ' flipH="1"' : "";
+            const flipV = y2 < y1 ? ' flipV="1"' : "";
             const headArrow = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
             const lineClr = c.srcIsL5 && c.tgtIsL5 ? "666666" : "333333";
 
@@ -1515,7 +1518,7 @@ export default function ExportToolbar({
               + `<p:cNvPr id="${nextId}" name="Connector ${nextId}"/>`
               + `<p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr>`
               + `<p:nvPr/></p:nvCxnSpPr><p:spPr>`
-              + `<a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
+              + `<a:xfrm${flipH}${flipV}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx}" cy="${extCy}"/></a:xfrm>`
               + `<a:prstGeom prst="${prst}">${avLst}</a:prstGeom>`
               + `<a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr}"/></a:solidFill>${headArrow}<a:tailEnd type="triangle" w="med" len="med"/></a:ln>`
               + `</p:spPr>${connStyle}</p:cxnSp>`;
@@ -2613,7 +2616,9 @@ export default function ExportToolbar({
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
           const extCy2 = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
-          // flipH/flipV 제거 — PowerPoint가 stCxn/endCxn 기반으로 자동 계산 위임
+          // flipH/flipV 필수 — preset 경로 bbox 좌상→우하이므로 source가 target 아래/오른쪽이면 mirror
+          const flipH2 = x2 < x1 ? ' flipH="1"' : "";
+          const flipV2 = y2 < y1 ? ' flipV="1"' : "";
           const headArr2 = c.bidi ? '<a:headEnd type="triangle" w="med" len="med"/>' : "";
           const isL5Edge2 = c.srcIsL5 && c.tgtIsL5;
           const lineClr2 = isL5Edge2 ? "666666" : "333333";
@@ -2621,7 +2626,7 @@ export default function ExportToolbar({
             ? '<a:avLst><a:gd name="adj1" fmla="val 50000"/></a:avLst>'
             : '<a:avLst/>';
           const connStyle2 = `<p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style>`;
-          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}">${avLst2}</a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr>${connStyle2}</p:cxnSp>`;
+          cxnXml += `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${nextId}" name="Connector ${nextId}"/><p:cNvCxnSpPr><a:stCxn id="${srcSid}" idx="${stIdx}"/><a:endCxn id="${tgtSid}" idx="${endIdx}"/></p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm${flipH2}${flipV2}><a:off x="${offX}" y="${offY}"/><a:ext cx="${extCx2}" cy="${extCy2}"/></a:xfrm><a:prstGeom prst="${prst}">${avLst2}</a:prstGeom><a:ln w="6350"><a:solidFill><a:srgbClr val="${lineClr2}"/></a:solidFill>${headArr2}<a:tailEnd type="triangle" w="med" len="med"/></a:ln></p:spPr>${connStyle2}</p:cxnSp>`;
           nextId++;
         }
 
