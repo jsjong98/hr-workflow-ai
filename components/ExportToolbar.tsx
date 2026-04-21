@@ -1344,8 +1344,9 @@ export default function ExportToolbar({
             const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H : tgt.h;
 
             // 세로 라우팅: X 범위 겹침 + Y 범위 안 겹침 → top/bottom 핸들
+            // Y 겹침은 role bar 포함한 전체 높이 기준 (L5의 role bar 영역도 실제 도형에 포함되므로)
             const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
-            const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+            const sameRowY = src.y < tgt.y + tgtFullH && tgt.y < src.y + srcFullH;
             const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
 
             let stIdx: number;
@@ -1415,7 +1416,17 @@ export default function ExportToolbar({
               x2 = avgX;
             }
 
-            const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
+            // 실제 핸들 방향 기준으로 직선/꺾임 결정 — 방향이 섞이면 반드시 꺾임
+            //   stIdx/endIdx: 0=top, 1=right, 2=bottom, 3=left
+            //   양쪽 수직(0/2) AND x1≈x2 → 수직 직선
+            //   양쪽 수평(1/3) AND y1≈y2 → 수평 직선
+            //   그 외(방향 혼합/오프셋) → bentConnector3
+            const srcAxisVert = stIdx === 0 || stIdx === 2;
+            const tgtAxisVert = endIdx === 0 || endIdx === 2;
+            const isRealStraight =
+              (srcAxisVert && tgtAxisVert && Math.abs(x1 - x2) < 0.08) ||
+              (!srcAxisVert && !tgtAxisVert && Math.abs(y1 - y2) < 0.08);
+            const prst = isRealStraight ? "straightConnector1" : "bentConnector3";
             const offX = Math.round(Math.min(x1, x2) * EMU);
             const offY = Math.round(Math.min(y1, y2) * EMU);
             const extCx = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
@@ -2474,8 +2485,9 @@ export default function ExportToolbar({
           const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
 
           // 세로 라우팅: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
+          // Y 겹침은 role bar 포함한 전체 높이 기준
           const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
-          const sameRowY = src.y < tgt.y + tgt.h && tgt.y < src.y + src.h;
+          const sameRowY = src.y < tgt.y + tgtFullH && tgt.y < src.y + srcFullH;
           const useVertical = !c.srcIsDec && !c.tgtIsDec && sameColX && !sameRowY;
 
           let stIdx: number, x1: number, y1: number;
@@ -2529,7 +2541,13 @@ export default function ExportToolbar({
           if (useVertical && Math.abs(x1 - x2) < 0.08) {
             const avgX = (x1 + x2) / 2; x1 = avgX; x2 = avgX;
           }
-          const prst = c.isStraight ? "straightConnector1" : "bentConnector3";
+          // 실제 핸들 방향 기준으로 직선/꺾임 결정 — 방향이 섞이면 반드시 꺾임
+          const srcAxisVert = stIdx === 0 || stIdx === 2;
+          const tgtAxisVert = endIdx === 0 || endIdx === 2;
+          const isRealStraight =
+            (srcAxisVert && tgtAxisVert && Math.abs(x1 - x2) < 0.08) ||
+            (!srcAxisVert && !tgtAxisVert && Math.abs(y1 - y2) < 0.08);
+          const prst = isRealStraight ? "straightConnector1" : "bentConnector3";
           const offX = Math.round(Math.min(x1, x2) * EMU), offY = Math.round(Math.min(y1, y2) * EMU);
           const extCx2 = Math.max(Math.round(Math.abs(x2 - x1) * EMU), 1);
           const extCy2 = Math.max(Math.round(Math.abs(y2 - y1) * EMU), 1);
