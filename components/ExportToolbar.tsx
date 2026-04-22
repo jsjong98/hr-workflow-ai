@@ -1833,9 +1833,13 @@ export default function ExportToolbar({
         }
 
         // 페이지네이션 시: Y 전체 범위 + 페이지당 X 폭으로 제약
-        const scFit = willPaginate
-          ? Math.min(sAreaH / bRangeY, sAreaW / Math.max(maxChunkRfExtent, 1))
-          : Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
+        // SwimLane 모드: Y 는 Phase 2.6 에서 dynamicLaneH 로 재매핑되므로 bRangeY 제약 불필요
+        // (481줄 블록과 동일한 "짜부" 방지 — 전체 PPT export 경로에도 같이 적용)
+        const scFit = isSwimLane
+          ? (willPaginate ? sAreaW / Math.max(maxChunkRfExtent, 1) : sAreaW / bRangeX)
+          : willPaginate
+            ? Math.min(sAreaH / bRangeY, sAreaW / Math.max(maxChunkRfExtent, 1))
+            : Math.min(sAreaW / bRangeX, sAreaH / bRangeY);
         // 기준 스케일: L4 노드 세로 2cm(0.787") 기준
         const scRef = 0.787 / DEF.pxH;
         const scRatio = Math.min(scFit, scRef);
