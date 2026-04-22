@@ -478,9 +478,13 @@ export default function ExportToolbar({
 
       // 가로/세로 비율 중 작은 쪽으로 단일 스케일 결정
       // 페이지네이션 시: Y 전체 범위 + 페이지당 X 폭으로 제약 (X 전체를 한 페이지에 구겨 넣지 않지만 각 페이지는 슬라이드 폭 안)
-      const scFit = willPaginate
-        ? Math.min(areaH / bRangeY, areaW / Math.max(maxChunkRfExtent, 1))
-        : Math.min(areaW / bRangeX, areaH / bRangeY);
+      // SwimLane 모드: Y 는 lane 으로 재매핑되므로 bRangeY 제약 불필요 — X 제약만 사용해야
+      // 가로로 공간이 넓은데 Y 때문에 스케일이 작아져 "짜부" 되는 현상 방지
+      const scFit = isSwimLane
+        ? (willPaginate ? areaW / Math.max(maxChunkRfExtent, 1) : areaW / bRangeX)
+        : willPaginate
+          ? Math.min(areaH / bRangeY, areaW / Math.max(maxChunkRfExtent, 1))
+          : Math.min(areaW / bRangeX, areaH / bRangeY);
       // 기준 스케일: L4 노드 세로 2cm(0.787") 기준 (노드 규격 통일)
       const scRef = 0.787 / DEF.pxH;
       const sc = Math.min(scFit, scRef);
