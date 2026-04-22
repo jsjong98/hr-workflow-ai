@@ -117,14 +117,6 @@ function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateActio
   );
 }
 
-/* ═══ CSV 이스케이프 ═══ */
-function csvEscape(v: string) {
-  if (v.includes(",") || v.includes('"') || v.includes("\n")) {
-    return `"${v.replace(/"/g, '""')}"`;
-  }
-  return v;
-}
-
 /* ═══ 확장 메타 요약 ═══ */
 function getExtMetaSummary(n: Node): string {
   const d = getNodeData(n);

@@ -48,16 +48,6 @@ interface NodeDetailPanelProps {
   onUpdate: (nodeId: string, meta: NodeMeta) => void;
 }
 
-/* ── 시스템 라벨 매핑 (CSV systems → 사용자 표시) ── */
-const SYSTEM_LABEL_MAP: { key: string; label: string }[] = [
-  { key: "hr",        label: "HR시스템" },
-  { key: "groupware", label: "그룹웨어" },
-  { key: "office",    label: "오피스" },
-  { key: "external",  label: "외부연동" },
-  { key: "manual",    label: "수작업" },
-  { key: "etc",       label: "기타" },
-];
-
 const INPUT_LABEL_MAP: { key: string; label: string }[] = [
   { key: "system",   label: "시스템" },
   { key: "doc",      label: "문서" },

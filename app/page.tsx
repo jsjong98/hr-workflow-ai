@@ -42,9 +42,6 @@ import {
   extractL4ByL3,
   extractL5ByL4,
   createNodeFromItem,
-  summarizeL3ForAI,
-  buildFlowFromL3,
-  buildSwimLaneFlowFromL3,
   type CsvRow,
   type L2Item,
   type L3Item,
@@ -286,11 +283,6 @@ export default function Home() {
   const sheetDataRef = useRef<Record<string, SheetData>>({});
   const sheetCountRef = useRef(1);
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
-
-  /* Save current nodes/edges into sheetDataRef for the current sheet */
-  const saveCurrentSheet = useCallback(() => {
-    sheetDataRef.current[activeSheetId] = { nodes: [...nodes], edges: [...edges] };
-  }, [activeSheetId, nodes, edges]);
 
   /* Switch to a different sheet */
   const handleSelectSheet = useCallback(
@@ -1156,23 +1148,6 @@ export default function Home() {
     [setNodes]
   );
 
-  /* ═══ Full tree view ═══ */
-  const handleViewFullTree = useCallback(() => {
-    if (!selectedL3) return;
-    // swimlane 시트면 수행주체 기반 자동 배치
-    const sheet = sheets.find((s) => s.id === activeSheetId);
-    const { nodes: n, edges: e } = sheet?.type === "swimlane"
-      ? buildSwimLaneFlowFromL3(csvRows, selectedL3, sheet?.lanes)
-      : buildFlowFromL3(csvRows, selectedL3);
-    setNodes(n);
-    setEdges(e);
-    nodeCountRef.current = n.length;
-    // fitView 후 뷰 조정
-    setTimeout(() => {
-      rfInstanceRef.current?.fitView({ padding: 0.05, maxZoom: 1.5, duration: 300 });
-    }, 100);
-  }, [csvRows, selectedL3, sheets, activeSheetId, setNodes, setEdges]);
-
   /* ═══ Clear canvas ═══ */
   const handleClearCanvas = useCallback(() => {
     setNodes([]);
@@ -1523,7 +1498,6 @@ export default function Home() {
                 <ExportToolbar
                   nodes={nodes}
                   edges={edges}
-                  reactFlowWrapper={reactFlowWrapper}
                   sheets={sheets}
                   getSheetData={getSheetData}
                   activeSheetId={activeSheetId}
@@ -1844,7 +1818,6 @@ export default function Home() {
                   <ExportToolbar
                     nodes={nodes}
                     edges={edges}
-                    reactFlowWrapper={reactFlowWrapper}
                     sheets={sheets}
                     getSheetData={getSheetData}
                     activeSheetId={activeSheetId}

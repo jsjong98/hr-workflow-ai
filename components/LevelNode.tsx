@@ -3,6 +3,7 @@
 import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { memo, useState, useRef, useCallback } from "react";
 import { displayRole, extractCustomRole, hasCustomRole } from "@/lib/roleDisplay";
+import { getLaneAccent, getLaneAccentFromActors } from "@/lib/laneColors";
 
 /* ─────────────────────────────────────────────
  * 레벨별 차별화 디자인 시스템 (진한→연한 그라디언트)
@@ -95,16 +96,6 @@ interface NodeData {
   };
 }
 
-/* 시스템 라벨 매핑 */
-const SYSTEM_TAGS: { key: keyof NonNullable<NodeData["systems"]>; label: string }[] = [
-  { key: "hr",        label: "HR시스템" },
-  { key: "groupware", label: "그룹웨어" },
-  { key: "office",    label: "오피스"   },
-  { key: "external",  label: "외부연동" },
-  { key: "manual",    label: "수작업"   },
-  { key: "etc",       label: "기타툴"   },
-];
-
 /* extractCustomRole / hasCustomRole / displayRole 은 @/lib/roleDisplay 참조 */
 
 /* helper: check if any metadata exists */
@@ -132,10 +123,25 @@ function getL5SystemName(data: NodeData): string {
 function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) {
   const s = LEVEL_STYLES.L5;
   const sysName = getL5SystemName(data);
+  // lane accent — role 우선, 비어있으면 CSV-파생 actors 사용 (캔버스엔 sheet 컨텍스트 없어서 y 기반은 불가)
+  const accent = getLaneAccent(data.role)
+    ?? getLaneAccentFromActors((data as unknown as { actors?: { exec?: string; hr?: string; teamlead?: string; member?: string } }).actors);
+  const upperStyle: React.CSSProperties = accent
+    ? { backgroundColor: `#${accent.bodyBg}`, border: `0.25pt solid #${accent.border}` }
+    : { border: '0.25pt solid #DEDEDE' };
+  // 컨테이너 테두리: selected > lane accent > 기본값
+  const containerClass = selected
+    ? 'border-[3px] border-blue-500 shadow-blue-300/60 shadow-lg'
+    : accent
+    ? 'border'
+    : 'border border-[#BFBFBF]';
+  const containerInlineStyle: React.CSSProperties =
+    !selected && accent ? { borderColor: `#${accent.border}` } : {};
 
   return (
     <div
-      className={`min-w-[300px] max-w-[380px] select-none relative shadow-md transition-all hover:shadow-lg rounded-sm ${selected ? 'border-[3px] border-blue-500 shadow-blue-300/60 shadow-lg' : 'border border-[#BFBFBF]'}`}
+      className={`min-w-[300px] max-w-[380px] select-none relative shadow-md transition-all hover:shadow-lg rounded-sm ${containerClass}`}
+      style={containerInlineStyle}
     >
       {selected && <div className="absolute inset-0 bg-blue-400/10 pointer-events-none z-20 rounded-sm" />}
       {/* ── Target handles ── */}
@@ -160,8 +166,8 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
         </div>
       )}
 
-      {/* ── 위쪽 박스: ID + 레이블 (흰 배경, 0.25pt 테두리) ── */}
-      <div className="bg-white px-4 py-3 flex flex-col items-center justify-center" style={{ minHeight: 110, border: '0.25pt solid #DEDEDE' }}>
+      {/* ── 위쪽 박스: ID + 레이블 (lane accent 배경, 0.25pt 테두리) ── */}
+      <div className="px-4 py-3 flex flex-col items-center justify-center" style={{ minHeight: 110, ...upperStyle }}>
         <div className="text-[13px] font-bold text-black text-center leading-snug">
           {data.id || ""}
         </div>
