@@ -395,11 +395,19 @@ export default function ExportToolbar({
 
       // ── Coordinate mapping: RF bbox → PPT ──
       // 노드의 실제 bbox(좌상단 x,y + 크기)로 전체 범위 계산
+      // colSpan>1 wide L5 는 아래 Junior colSpan 개 덮을 만큼 canvas 에서 넓음 — bbox 에 반영
+      const CANVAS_COL_PITCH = 440;  // Junior AI 간 x 간격 (user JSON 기준)
+      const CANVAS_L5_W = 380;       // LevelNode L5 렌더 최대 폭
+      const canvasWidthOf = (nd: Node): number => {
+        if (getLevel(nd) !== "L5") return (LS[getLevel(nd)] || DEF).pxW;
+        const cs = (((nd.data as Record<string, unknown>)?.colSpan as number) || 1);
+        return CANVAS_L5_W + Math.max(0, Math.round(cs) - 1) * CANVAS_COL_PITCH;
+      };
       let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
       for (const nd of nodes) {
         const s = LS[getLevel(nd)] || DEF;
         const x0 = nd.position.x, y0 = nd.position.y;
-        const x1 = x0 + s.pxW, y1 = y0 + s.pxH;
+        const x1 = x0 + canvasWidthOf(nd), y1 = y0 + s.pxH;
         bMinX = Math.min(bMinX, x0); bMinY = Math.min(bMinY, y0);
         bMaxX = Math.max(bMaxX, x1); bMaxY = Math.max(bMaxY, y1);
       }
@@ -465,11 +473,10 @@ export default function ExportToolbar({
           for (const id of grp) {
             const nd = nodeMap.get(id);
             if (!nd) continue;
-            const lv = getLevel(nd);
-            const style = LS[lv] || DEF;
             const rfX = nd.position.x;
             minX = Math.min(minX, rfX);
-            maxXEnd = Math.max(maxXEnd, rfX + style.pxW);
+            // wide L5 (colSpan>1) 는 canvasWidthOf 가 확장 폭 반환
+            maxXEnd = Math.max(maxXEnd, rfX + canvasWidthOf(nd));
           }
         }
         if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
@@ -503,10 +510,14 @@ export default function ExportToolbar({
         const isDec = getLevel(nd) === "DECISION";
         const isMemo = getLevel(nd) === "MEMO";
         const cs = isL5 ? getColSpan(nd) : 1;
+        // wide L5 PPT 폭: Junior 열 간격(canvas 440px × sc) × (colSpan-1) + L5_FIXED_W
+        // 이렇게 계산해야 wide shape 의 right 가 colSpan 번째 Junior 의 right 와 정렬됨
+        const l5W = isL5
+          ? L5_FIXED_W + Math.max(0, cs - 1) * CANVAS_COL_PITCH * sc
+          : 0;
         rawPos[nd.id] = {
           rfX: nd.position.x, rfY: nd.position.y,
-          // L5 가변 폭: colSpan>1 이면 shape 폭 = L5_FIXED_W * colSpan (Junior N개 덮기)
-          w: isMemo ? MEMO_W : isDec ? DECISION_W : isL5 ? L5_FIXED_W * cs : s.pxW * sc,
+          w: isMemo ? MEMO_W : isDec ? DECISION_W : isL5 ? l5W : s.pxW * sc,
           h: isMemo ? MEMO_H : isDec ? DECISION_H : isL5 ? L5_FIXED_H : s.pxH * sc,
           colSpan: cs,
         };
@@ -1738,6 +1749,15 @@ export default function ExportToolbar({
         const isSwimLane = sheet.type === "swimlane";
         const swimLanes = sheet.lanes || ["현업 임원", "팀장", "HR 담당자", "구성원"];
 
+        // wide L5 (colSpan>1) canvas 폭 계산: Junior colSpan 개 덮는 크기
+        const CANVAS_COL_PITCH_S = 440;
+        const CANVAS_L5_W_S = 380;
+        const canvasWidthOfS = (nd: Node): number => {
+          if (getLevel(nd) !== "L5") return (LS[getLevel(nd)] || DEF).pxW;
+          const cs = ((nd.data as Record<string, unknown>)?.colSpan as number) || 1;
+          return CANVAS_L5_W_S + Math.max(0, Math.round(cs) - 1) * CANVAS_COL_PITCH_S;
+        };
+
         // bbox 기반 좌표 변환
         let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
         for (const nd of sNodes) {
@@ -1745,7 +1765,7 @@ export default function ExportToolbar({
           const s = LS[getLevel(nd)] || DEF;
           bMinX = Math.min(bMinX, nd.position.x);
           bMinY = Math.min(bMinY, nd.position.y);
-          bMaxX = Math.max(bMaxX, nd.position.x + s.pxW);
+          bMaxX = Math.max(bMaxX, nd.position.x + canvasWidthOfS(nd));
           bMaxY = Math.max(bMaxY, nd.position.y + s.pxH);
         }
         const bRangeX = (bMaxX - bMinX) || 1;
@@ -1853,11 +1873,10 @@ export default function ExportToolbar({
             for (const id of grp) {
               const nd = sheetNodeMap.get(id);
               if (!nd) continue;
-              const lv = getLevel(nd);
-              const style = LS[lv] || DEF;
               const rfX = nd.position.x;
               minX = Math.min(minX, rfX);
-              maxXEnd = Math.max(maxXEnd, rfX + style.pxW);
+              // wide L5 (colSpan>1) 는 canvasWidthOfS 가 확장 폭 반환
+              maxXEnd = Math.max(maxXEnd, rfX + canvasWidthOfS(nd));
             }
           }
           if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
@@ -1979,9 +1998,13 @@ export default function ExportToolbar({
           const isDec = getLevel(nd) === "DECISION";
           const isMemo = getLevel(nd) === "MEMO";
           const cs = isL5 ? getColSpanS(nd) : 1;
+          // wide L5: Junior 열 간격(CANVAS_COL_PITCH_S × scRatio) × (cs-1) + L5_FIXED_W_ALL 로 정렬
+          const l5W = isL5
+            ? L5_FIXED_W_ALL + Math.max(0, cs - 1) * CANVAS_COL_PITCH_S * scRatio
+            : 0;
           sRawPos[nd.id] = {
             rfX: nd.position.x, rfY: nd.position.y,
-            w: isMemo ? MEMO_W_ALL : isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL * cs : sv.pxW * scRatio,
+            w: isMemo ? MEMO_W_ALL : isDec ? DECISION_W_ALL : isL5 ? l5W : sv.pxW * scRatio,
             h: isMemo ? MEMO_H_ALL : isDec ? DECISION_H_ALL : isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
             colSpan: cs,
           };
