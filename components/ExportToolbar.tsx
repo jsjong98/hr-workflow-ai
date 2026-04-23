@@ -651,6 +651,23 @@ export default function ExportToolbar({
       // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
       const pColChunks = makeChunks(pColGrps);
 
+      // 컬럼 그룹 인덱스 맵: 각 노드 id → pColGrps 내 인덱스
+      const colGrpIdxMap = new Map<string, number>();
+      for (let i = 0; i < pColGrps.length; i++) {
+        for (const id of pColGrps[i]) colGrpIdxMap.set(id, i);
+      }
+
+      // wide L5 (colSpan>1) 수집: continuation 페이지 렌더용
+      const wideNodes: { id: string; originGrpIdx: number; colSpan: number; node: Node }[] = [];
+      for (const nd of nodes) {
+        if (getLevel(nd) !== "L5") continue;
+        const cs = getColSpan(nd);
+        if (cs <= 1) continue;
+        const idx = colGrpIdxMap.get(nd.id);
+        if (idx === undefined) continue;
+        wideNodes.push({ id: nd.id, originGrpIdx: idx, colSpan: cs, node: nd });
+      }
+
       interface NodeShapeMeta { x: number; y: number; w: number; h: number }
       interface ConnectorMeta {
         srcNodeId: string; tgtNodeId: string;
@@ -759,6 +776,8 @@ export default function ExportToolbar({
         const pageNodeSet = new Set<string>();
         const ghostNodeSet = new Set<string>(ghostColGrp);
         const pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        // continuation: wide L5 가 이 페이지에서 origin 이 아닌 연장 표시로 렌더되는 경우
+        const continuationSet = new Set<string>();
 
         for (const grp of pageColGrps) {
           for (const nodeId of grp) {
@@ -768,6 +787,49 @@ export default function ExportToolbar({
             pageNodeSet.add(nodeId);
             pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
           }
+        }
+
+        // wide L5 continuation: origin 페이지가 아니어도 span 이 이 페이지 걸치면 clipped 렌더
+        // page 의 컬럼 그룹 인덱스 집합
+        const pageColIndices: number[] = [];
+        for (const grp of pageColGrps) {
+          const firstId = grp[0];
+          const idx = firstId ? colGrpIdxMap.get(firstId) : undefined;
+          if (idx !== undefined) pageColIndices.push(idx);
+        }
+
+        for (const w of wideNodes) {
+          if (pageNodeSet.has(w.id)) continue; // origin 페이지 — 이미 렌더됨
+          const spanStart = w.originGrpIdx;
+          const spanEnd = w.originGrpIdx + w.colSpan - 1;
+          // 이 페이지 컬럼 중 span 내 것들
+          const visibleInSpan = pageColIndices.filter((i) => i >= spanStart && i <= spanEnd).sort((a, b) => a - b);
+          if (visibleInSpan.length === 0) continue;
+
+          const leftColIdx = visibleInSpan[0];
+          const rightColIdx = visibleInSpan[visibleInSpan.length - 1];
+
+          // 해당 컬럼의 대표 노드 → PPT x 추출
+          const leftGrp = pColGrps[leftColIdx];
+          const leftAnchorId = leftGrp.find((id) => !!globalNodeBoxes[id]);
+          if (!leftAnchorId) continue;
+          const leftBox = globalNodeBoxes[leftAnchorId];
+          const leftX = leftBox.x + pageDX;
+
+          // 너비: (rightColIdx - leftColIdx) * col_pitch_ppt + L5_FIXED_W
+          // col_pitch_ppt = canvas 440 × sc (Phase 1 과 동일 공식)
+          const contW = L5_FIXED_W + (rightColIdx - leftColIdx) * CANVAS_COL_PITCH * sc;
+          const originBox = globalNodeBoxes[w.id];
+          if (!originBox) continue;
+
+          pageNodeBoxes[w.id] = {
+            x: leftX,
+            y: originBox.y,
+            w: contW,
+            h: originBox.h,
+          };
+          pageNodeSet.add(w.id);
+          continuationSet.add(w.id);
         }
 
         const pageSlide = pptx.addSlide();
@@ -818,13 +880,14 @@ export default function ExportToolbar({
             shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
           } else if (level === "L5") {
             const ROLE_BAR_H = 0.142;
-            // box.w 는 Phase 1 rawPos 에서 L5_FIXED_W * colSpan 으로 설정됨 — wide 노드 반영
+            // box.w 는 Phase 1 rawPos 에서 wide 폭 반영, continuation 에선 clipped 폭
             const l5W = box.w;
+            const isContinuation = continuationSet.has(nd.id);
             const roleVal = (nd.data as Record<string, string>).role || "";
             const roleDisplay = extractCustomRole(roleVal);
             const hasRB = !!roleDisplay;
             pageNodeHasRoleBar[nd.id] = hasRB;
-            if (roleDisplay) {
+            if (roleDisplay && !isContinuation) {
               pageSlide.addText(roleDisplay, {
                 x: box.x, y: box.y, w: l5W, h: ROLE_BAR_H,
                 shape: pptx.ShapeType.rect,
@@ -835,6 +898,9 @@ export default function ExportToolbar({
                 objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_rolebar`,
               });
               shapeList.push({ x: box.x, y: box.y, w: l5W, h: ROLE_BAR_H });
+              l5YOffset = ROLE_BAR_H;
+            } else if (roleDisplay && isContinuation) {
+              // continuation 에선 role bar 높이만 유지 (위 L5 레이아웃과 일관)
               l5YOffset = ROLE_BAR_H;
             }
 
@@ -849,7 +915,8 @@ export default function ExportToolbar({
             const upperFill = laneAccent ? laneAccent.bodyBg : "FFFFFF";
             const upperBorder = laneAccent ? laneAccent.border : "DEDEDE";
             const upperText = laneAccent ? laneAccent.text : "000000";
-            pageSlide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+            // continuation: 텍스트 없이 색상 shape 만 (텍스트는 원본 페이지에 이미 있음)
+            pageSlide.addText(isContinuation ? "" : (dispLabel ? `${dispId}\n${dispLabel}` : dispId), {
               x: box.x, y: box.y + l5YOffset, w: l5W, h: L5_UPPER_H,
               shape: pptx.ShapeType.rect,
               fill: { color: upperFill },
@@ -876,7 +943,7 @@ export default function ExportToolbar({
               if (parts.length > 0) sysName = parts.join(" / ");
             }
 
-            pageSlide.addText(sysName, {
+            pageSlide.addText(isContinuation ? "" : sysName, {
               x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: l5W, h: L5_LOWER_H,
               shape: pptx.ShapeType.rect,
               fill: { color: "DEDEDE" },
@@ -2130,6 +2197,21 @@ export default function ExportToolbar({
         // 페이지 청크 — 1쪽: 6컬럼 / 2쪽+: 5신규 + 1고스트 = 항상 최대 6컬럼/슬라이드
         const sColChunks = makeChunks(sColGrps);
 
+        // 컬럼 그룹 인덱스 맵 + wide L5 수집 (continuation 용)
+        const sColGrpIdxMap = new Map<string, number>();
+        for (let i = 0; i < sColGrps.length; i++) {
+          for (const id of sColGrps[i]) sColGrpIdxMap.set(id, i);
+        }
+        const sWideNodes: { id: string; originGrpIdx: number; colSpan: number; node: Node }[] = [];
+        for (const nd of sNodes) {
+          if (getLevel(nd) !== "L5") continue;
+          const cs = getColSpanS(nd);
+          if (cs <= 1) continue;
+          const idx = sColGrpIdxMap.get(nd.id);
+          if (idx === undefined) continue;
+          sWideNodes.push({ id: nd.id, originGrpIdx: idx, colSpan: cs, node: nd });
+        }
+
         interface GrpShapeMeta { x: number; y: number; w: number; h: number }
         interface CxnMeta {
           srcNodeId: string; tgtNodeId: string;
@@ -2216,6 +2298,7 @@ export default function ExportToolbar({
           const pageNodeSet = new Set<string>();
           const ghostNodeSet = new Set<string>(ghostColGrp);
           const pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+          const continuationSet = new Set<string>();
 
           for (const grp of pageColGrps) {
             for (const nodeId of grp) {
@@ -2225,6 +2308,36 @@ export default function ExportToolbar({
               pageNodeSet.add(nodeId);
               pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
             }
+          }
+
+          // wide L5 continuation: span 이 이 페이지 걸치지만 origin 은 다른 페이지인 경우
+          const pageColIndices: number[] = [];
+          for (const grp of pageColGrps) {
+            const firstId = grp[0];
+            const idx = firstId ? sColGrpIdxMap.get(firstId) : undefined;
+            if (idx !== undefined) pageColIndices.push(idx);
+          }
+          for (const w of sWideNodes) {
+            if (pageNodeSet.has(w.id)) continue;
+            const spanStart = w.originGrpIdx;
+            const spanEnd = w.originGrpIdx + w.colSpan - 1;
+            const visibleInSpan = pageColIndices
+              .filter((i) => i >= spanStart && i <= spanEnd)
+              .sort((a, b) => a - b);
+            if (visibleInSpan.length === 0) continue;
+            const leftColIdx = visibleInSpan[0];
+            const rightColIdx = visibleInSpan[visibleInSpan.length - 1];
+            const leftGrp = sColGrps[leftColIdx];
+            const leftAnchorId = leftGrp.find((id) => !!globalNodeBoxes[id]);
+            if (!leftAnchorId) continue;
+            const leftBox = globalNodeBoxes[leftAnchorId];
+            const leftX = leftBox.x + pageDX;
+            const contW = L5_FIXED_W_ALL + (rightColIdx - leftColIdx) * CANVAS_COL_PITCH_S * scRatio;
+            const originBox = globalNodeBoxes[w.id];
+            if (!originBox) continue;
+            pageNodeBoxes[w.id] = { x: leftX, y: originBox.y, w: contW, h: originBox.h };
+            pageNodeSet.add(w.id);
+            continuationSet.add(w.id);
           }
 
           const slide = pptx.addSlide();
@@ -2274,13 +2387,14 @@ export default function ExportToolbar({
               shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
             } else if (level === "L5") {
               const ROLE_BAR_H_S = 0.142;
-              // box.w 는 Phase 1 sRawPos 에서 L5_FIXED_W_ALL * colSpan 으로 설정됨
+              // box.w 는 Phase 1 sRawPos 에서 wide 반영, continuation 에선 clipped
               const l5WS = box.w;
+              const isContinuationS = continuationSet.has(nd.id);
               const roleVal = (nd.data as Record<string, string>).role || "";
               const roleBatchDisplay = extractCustomRole(roleVal);
               const hasRB = !!roleBatchDisplay;
               pageNodeHasRoleBar[nd.id] = hasRB;
-              if (roleBatchDisplay) {
+              if (roleBatchDisplay && !isContinuationS) {
                 slide.addText(roleBatchDisplay, {
                   x: box.x, y: box.y, w: l5WS, h: ROLE_BAR_H_S,
                   shape: pptx.ShapeType.rect,
@@ -2292,6 +2406,8 @@ export default function ExportToolbar({
                 });
                 shapeList.push({ x: box.x, y: box.y, w: l5WS, h: ROLE_BAR_H_S });
                 l5YOff = ROLE_BAR_H_S;
+              } else if (roleBatchDisplay && isContinuationS) {
+                l5YOff = ROLE_BAR_H_S;
               }
               // lane accent: swimlane 에선 노드 y 위치 기반 우선, 그 외엔 role → actors fallback
               const ndActorsS = (nd.data as Record<string, unknown>).actors as
@@ -2302,7 +2418,7 @@ export default function ExportToolbar({
               const upperFillS = laneAccentS ? laneAccentS.bodyBg : "FFFFFF";
               const upperBorderS = laneAccentS ? laneAccentS.border : "DEDEDE";
               const upperTextS = laneAccentS ? laneAccentS.text : "000000";
-              slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
+              slide.addText(isContinuationS ? "" : (dispLabel ? `${dispId}\n${dispLabel}` : dispId), {
                 x: box.x, y: box.y + l5YOff, w: l5WS, h: L5_UPPER_H_ALL,
                 shape: pptx.ShapeType.rect,
                 fill: { color: upperFillS },
@@ -2325,7 +2441,7 @@ export default function ExportToolbar({
                 const active = SYS_KEYS.filter((k) => sysMap[k.key]?.trim());
                 if (active.length > 0) sysName = active.map((k) => sysMap[k.key]!.trim()).join(", ");
               }
-              slide.addText(sysName, {
+              slide.addText(isContinuationS ? "" : sysName, {
                 x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: l5WS, h: L5_LOWER_H_ALL,
                 shape: pptx.ShapeType.rect,
                 fill: { color: "DEDEDE" },

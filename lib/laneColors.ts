@@ -18,10 +18,10 @@ export interface LaneAccent {
   accent: string;
 }
 
-/** AI 오케스트레이션용 진한 핑크 */
-const SENIOR_AI: LaneAccent = { bodyBg: "F2A0AF", border: "D95578", text: "000000", accent: "A62121" };
-/** AI 실행용 연한 핑크 */
-const JUNIOR_AI: LaneAccent = { bodyBg: "FCE4EC", border: "F2A0AF", text: "000000", accent: "D95578" };
+/** AI 오케스트레이션용 진한 블루 */
+const SENIOR_AI: LaneAccent = { bodyBg: "649EE2", border: "3A7BC8", text: "FFFFFF", accent: "1E5A9E" };
+/** AI 실행용 연한 블루 */
+const JUNIOR_AI: LaneAccent = { bodyBg: "98BEEC", border: "649EE2", text: "000000", accent: "3A7BC8" };
 /** 사람 역할 — 옅은 회색 계열 (상위/하위 2단계) */
 const HUMAN_UPPER: LaneAccent = { bodyBg: "FFFFFF", border: "94A3B8", text: "000000", accent: "64748B" };
 const HUMAN_LOWER: LaneAccent = { bodyBg: "F8FAFC", border: "CBD5E1", text: "000000", accent: "475569" };
