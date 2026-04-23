@@ -492,16 +492,23 @@ export default function ExportToolbar({
       const NODE_FONT_SIZE = 12;
 
       // ── Phase 1: RF 좌표 기반 raw 위치 계산 ─────────────────────────────────────
-      const rawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
+      const rawPos: Record<string, { rfX: number; rfY: number; w: number; h: number; colSpan: number }> = {};
+      const getColSpan = (nd: Node): number => {
+        const v = (nd.data as Record<string, unknown>)?.colSpan;
+        return typeof v === "number" && v >= 1 ? Math.round(v) : 1;
+      };
       for (const nd of nodes) {
         const s = LS[getLevel(nd)] || DEF;
         const isL5 = getLevel(nd) === "L5";
         const isDec = getLevel(nd) === "DECISION";
         const isMemo = getLevel(nd) === "MEMO";
+        const cs = isL5 ? getColSpan(nd) : 1;
         rawPos[nd.id] = {
           rfX: nd.position.x, rfY: nd.position.y,
-          w: isMemo ? MEMO_W : isDec ? DECISION_W : isL5 ? L5_FIXED_W : s.pxW * sc,
+          // L5 가변 폭: colSpan>1 이면 shape 폭 = L5_FIXED_W * colSpan (Junior N개 덮기)
+          w: isMemo ? MEMO_W : isDec ? DECISION_W : isL5 ? L5_FIXED_W * cs : s.pxW * sc,
           h: isMemo ? MEMO_H : isDec ? DECISION_H : isL5 ? L5_FIXED_H : s.pxH * sc,
+          colSpan: cs,
         };
       }
 
@@ -800,13 +807,15 @@ export default function ExportToolbar({
             shapeList.push({ x: box.x, y: box.y, w: MEMO_W, h: MEMO_H });
           } else if (level === "L5") {
             const ROLE_BAR_H = 0.142;
+            // box.w 는 Phase 1 rawPos 에서 L5_FIXED_W * colSpan 으로 설정됨 — wide 노드 반영
+            const l5W = box.w;
             const roleVal = (nd.data as Record<string, string>).role || "";
             const roleDisplay = extractCustomRole(roleVal);
             const hasRB = !!roleDisplay;
             pageNodeHasRoleBar[nd.id] = hasRB;
             if (roleDisplay) {
               pageSlide.addText(roleDisplay, {
-                x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H,
+                x: box.x, y: box.y, w: l5W, h: ROLE_BAR_H,
                 shape: pptx.ShapeType.rect,
                 fill: { color: "DBEAFE" },
                 line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
@@ -814,7 +823,7 @@ export default function ExportToolbar({
                 fontFace: FONT_FACE, valign: "middle", align: "center",
                 objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_rolebar`,
               });
-              shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W, h: ROLE_BAR_H });
+              shapeList.push({ x: box.x, y: box.y, w: l5W, h: ROLE_BAR_H });
               l5YOffset = ROLE_BAR_H;
             }
 
@@ -830,7 +839,7 @@ export default function ExportToolbar({
             const upperBorder = laneAccent ? laneAccent.border : "DEDEDE";
             const upperText = laneAccent ? laneAccent.text : "000000";
             pageSlide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-              x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H,
+              x: box.x, y: box.y + l5YOffset, w: l5W, h: L5_UPPER_H,
               shape: pptx.ShapeType.rect,
               fill: { color: upperFill },
               line: withGhostLine({ color: upperBorder, width: 0.25 }, isGhost),
@@ -838,7 +847,7 @@ export default function ExportToolbar({
               fontFace: FONT_FACE, valign: "middle", align: "center",
               objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_upper`,
             });
-            shapeList.push({ x: box.x, y: box.y + l5YOffset, w: L5_FIXED_W, h: L5_UPPER_H });
+            shapeList.push({ x: box.x, y: box.y + l5YOffset, w: l5W, h: L5_UPPER_H });
 
             const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
             const sysStr = (nd.data as Record<string, string>).system || "";
@@ -857,7 +866,7 @@ export default function ExportToolbar({
             }
 
             pageSlide.addText(sysName, {
-              x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H,
+              x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: l5W, h: L5_LOWER_H,
               shape: pptx.ShapeType.rect,
               fill: { color: "DEDEDE" },
               line: withGhostLine({ width: 0 }, isGhost, true),
@@ -865,7 +874,7 @@ export default function ExportToolbar({
               fontFace: FONT_FACE, valign: "middle", align: "center",
               objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_lower`,
             });
-            shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: L5_FIXED_W, h: L5_LOWER_H });
+            shapeList.push({ x: box.x, y: box.y + l5YOffset + L5_UPPER_H + L5_GAP, w: l5W, h: L5_LOWER_H });
           } else {
             pageSlide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
               x: box.x, y: box.y, w: box.w, h: box.h,
@@ -1397,15 +1406,25 @@ export default function ExportToolbar({
             // React Flow 핸들 id (top/right/bottom/left, target은 t- 접두사) → OOXML idx/좌표로 해석
             // 사용자가 웹에서 명시적으로 붙여둔 지점을 PPT에서도 동일하게 유지해서
             // 도형 이동 시 PowerPoint 재경로가 원 의도대로 동작하도록 보장
+            // colSpan>1 wide 노드용 column handle: "top-c{N}" / "bottom-c{N}" → column 중앙 x 반환
             const resolveHandle = (
               handle: string | undefined,
               bx: { x: number; y: number; w: number; h: number },
               isL5: boolean,
               fullH: number,
               connY: number,
+              colSpan: number = 1,
             ): { idx: number; x: number; y: number } | null => {
               if (!handle) return null;
               const key = handle.startsWith("t-") ? handle.slice(2) : handle;
+              const colMatch = key.match(/^(top|bottom)-c(\d+)$/);
+              if (colMatch) {
+                const side = colMatch[1];
+                const i = Math.min(parseInt(colMatch[2], 10), Math.max(colSpan - 1, 0));
+                const colX = bx.x + ((i + 0.5) / Math.max(colSpan, 1)) * bx.w;
+                if (side === "top")    return { idx: 0, x: colX, y: bx.y };
+                if (side === "bottom") return { idx: 2, x: colX, y: bx.y + fullH };
+              }
               switch (key) {
                 case "top":    return { idx: 0, x: bx.x + bx.w / 2, y: bx.y };
                 case "right":  return { idx: 1, x: bx.x + bx.w,     y: isL5 ? connY : bx.y + bx.h / 2 };
@@ -1414,8 +1433,10 @@ export default function ExportToolbar({
               }
               return null;
             };
-            const srcExplicit = resolveHandle(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY);
-            const tgtExplicit = resolveHandle(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY);
+            const srcColSpan = getColSpan(c.srcNodeId ? (nodeMap.get(c.srcNodeId) as Node) : nodes[0]);
+            const tgtColSpan = getColSpan(c.tgtNodeId ? (nodeMap.get(c.tgtNodeId) as Node) : nodes[0]);
+            const srcExplicit = resolveHandle(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY, srcColSpan);
+            const tgtExplicit = resolveHandle(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY, tgtColSpan);
 
             // 세로 라우팅 fallback (명시적 핸들 없을 때): X 범위 겹침 + Y 범위 안 겹침 → top/bottom
             const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;
@@ -1705,7 +1726,7 @@ export default function ExportToolbar({
       // 슬라이드별 커넥터 메타 수집
       const allSlideConnectors: {
         slideIndex: number;
-        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string; srcHandle?: string; tgtHandle?: string }[];
+        connectors: { srcNodeId: string; tgtNodeId: string; srcBox: { x: number; y: number; w: number; h: number }; tgtBox: { x: number; y: number; w: number; h: number }; srcIsL5: boolean; tgtIsL5: boolean; srcIsDec: boolean; tgtIsDec: boolean; isStraight: boolean; isHorizontal: boolean; bidi: boolean; label?: string; srcHandle?: string; tgtHandle?: string; srcColSpan: number; tgtColSpan: number }[];
         nodeBoxes: Record<string, { x: number; y: number; w: number; h: number }>;
         nodeGroupShapes: Record<string, { x: number; y: number; w: number; h: number }[]>;
         nodeShapeCnvIds: Record<string, number[]>;
@@ -1946,17 +1967,23 @@ export default function ExportToolbar({
         }
 
         // ── Phase 1: raw PPT 위치 ──────────────────────────────────────────────
-        const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number }> = {};
+        const sRawPos: Record<string, { rfX: number; rfY: number; w: number; h: number; colSpan: number }> = {};
+        const getColSpanS = (nd: Node): number => {
+          const v = (nd.data as Record<string, unknown>)?.colSpan;
+          return typeof v === "number" && v >= 1 ? Math.round(v) : 1;
+        };
         for (const nd of sNodes) {
           if (!nd.position) continue;
           const sv = LS[getLevel(nd)] || DEF;
           const isL5 = getLevel(nd) === "L5";
           const isDec = getLevel(nd) === "DECISION";
           const isMemo = getLevel(nd) === "MEMO";
+          const cs = isL5 ? getColSpanS(nd) : 1;
           sRawPos[nd.id] = {
             rfX: nd.position.x, rfY: nd.position.y,
-            w: isMemo ? MEMO_W_ALL : isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL : sv.pxW * scRatio,
+            w: isMemo ? MEMO_W_ALL : isDec ? DECISION_W_ALL : isL5 ? L5_FIXED_W_ALL * cs : sv.pxW * scRatio,
             h: isMemo ? MEMO_H_ALL : isDec ? DECISION_H_ALL : isL5 ? L5_FIXED_H_ALL : sv.pxH * scRatio,
+            colSpan: cs,
           };
         }
 
@@ -2091,6 +2118,8 @@ export default function ExportToolbar({
           label?: string;
           srcHandle?: string;
           tgtHandle?: string;
+          srcColSpan: number;
+          tgtColSpan: number;
         }
 
         const sheetNodeLevelMap: Record<string, string> = {};
@@ -2222,13 +2251,15 @@ export default function ExportToolbar({
               shapeList.push({ x: box.x, y: box.y, w: MEMO_W_ALL, h: MEMO_H_ALL });
             } else if (level === "L5") {
               const ROLE_BAR_H_S = 0.142;
+              // box.w 는 Phase 1 sRawPos 에서 L5_FIXED_W_ALL * colSpan 으로 설정됨
+              const l5WS = box.w;
               const roleVal = (nd.data as Record<string, string>).role || "";
               const roleBatchDisplay = extractCustomRole(roleVal);
               const hasRB = !!roleBatchDisplay;
               pageNodeHasRoleBar[nd.id] = hasRB;
               if (roleBatchDisplay) {
                 slide.addText(roleBatchDisplay, {
-                  x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S,
+                  x: box.x, y: box.y, w: l5WS, h: ROLE_BAR_H_S,
                   shape: pptx.ShapeType.rect,
                   fill: { color: "DBEAFE" },
                   line: withGhostLine({ color: "93C5FD", width: 0.5 }, isGhost),
@@ -2236,7 +2267,7 @@ export default function ExportToolbar({
                   fontFace: FONT_FACE, valign: "middle", align: "center",
                   objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_rolebar`,
                 });
-                shapeList.push({ x: box.x, y: box.y, w: L5_FIXED_W_ALL, h: ROLE_BAR_H_S });
+                shapeList.push({ x: box.x, y: box.y, w: l5WS, h: ROLE_BAR_H_S });
                 l5YOff = ROLE_BAR_H_S;
               }
               // lane accent: swimlane 에선 노드 y 위치 기반 우선, 그 외엔 role → actors fallback
@@ -2249,7 +2280,7 @@ export default function ExportToolbar({
               const upperBorderS = laneAccentS ? laneAccentS.border : "DEDEDE";
               const upperTextS = laneAccentS ? laneAccentS.text : "000000";
               slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
-                x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL,
+                x: box.x, y: box.y + l5YOff, w: l5WS, h: L5_UPPER_H_ALL,
                 shape: pptx.ShapeType.rect,
                 fill: { color: upperFillS },
                 line: withGhostLine({ color: upperBorderS, width: 0.25 }, isGhost),
@@ -2257,7 +2288,7 @@ export default function ExportToolbar({
                 fontFace: FONT_FACE, valign: "middle", align: "center",
                 objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_upper`,
               });
-              shapeList.push({ x: box.x, y: box.y + l5YOff, w: L5_FIXED_W_ALL, h: L5_UPPER_H_ALL });
+              shapeList.push({ x: box.x, y: box.y + l5YOff, w: l5WS, h: L5_UPPER_H_ALL });
 
               const sysMap = (nd.data as Record<string, unknown>).systems as Record<string, string> | undefined;
               const sysStr = (nd.data as Record<string, string>).system || "";
@@ -2272,7 +2303,7 @@ export default function ExportToolbar({
                 if (active.length > 0) sysName = active.map((k) => sysMap[k.key]!.trim()).join(", ");
               }
               slide.addText(sysName, {
-                x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL,
+                x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: l5WS, h: L5_LOWER_H_ALL,
                 shape: pptx.ShapeType.rect,
                 fill: { color: "DEDEDE" },
                 line: withGhostLine({ width: 0 }, isGhost, true),
@@ -2280,7 +2311,7 @@ export default function ExportToolbar({
                 fontFace: FONT_FACE, valign: "middle", align: "center",
                 objectName: `GRP_p${pageNo}_${nd.id}_${shapeList.length}_lower`,
               });
-              shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: L5_FIXED_W_ALL, h: L5_LOWER_H_ALL });
+              shapeList.push({ x: box.x, y: box.y + l5YOff + L5_UPPER_H_ALL + L5_GAP_ALL, w: l5WS, h: L5_LOWER_H_ALL });
             } else {
               slide.addText(dispLabel ? `${dispId}\n${dispLabel}` : dispId, {
                 x: box.x, y: box.y, w: box.w, h: box.h,
@@ -2367,6 +2398,8 @@ export default function ExportToolbar({
             const sameCol = xOverlap(src, tgt);
             const isStraight = (sameRow && !sameCol) || (sameCol && !sameRow);
             const isHorizontal = sameRow ? true : sameCol ? false : Math.abs(dx) >= Math.abs(dy);
+            const srcNodeE = sheetNodeMap.get(e.source);
+            const tgtNodeE = sheetNodeMap.get(e.target);
             pageConnectors.push({
               srcNodeId: e.source,
               tgtNodeId: e.target,
@@ -2382,6 +2415,8 @@ export default function ExportToolbar({
               label: e.label ? String(e.label) : undefined,
               srcHandle: e.sourceHandle || undefined,
               tgtHandle: e.targetHandle || undefined,
+              srcColSpan: srcNodeE ? getColSpanS(srcNodeE) : 1,
+              tgtColSpan: tgtNodeE ? getColSpanS(tgtNodeE) : 1,
             });
           }
 
@@ -2554,15 +2589,25 @@ export default function ExportToolbar({
           const tgtFullH = c.tgtIsL5 ? tgtRB + L5_FIXED_H_ALL : tgt.h;
 
           // React Flow 원본 핸들 id 우선 — 사용자가 웹에서 지정한 연결점 유지
+          // colSpan>1 wide 노드용 column handle: "top-c{N}" / "bottom-c{N}" → column 중앙 x 반환
           const resolveHandleA = (
             handle: string | undefined,
             bx: { x: number; y: number; w: number; h: number },
             isL5: boolean,
             fullH: number,
             connY: number,
+            colSpan: number = 1,
           ): { idx: number; x: number; y: number } | null => {
             if (!handle) return null;
             const key = handle.startsWith("t-") ? handle.slice(2) : handle;
+            const colMatch = key.match(/^(top|bottom)-c(\d+)$/);
+            if (colMatch) {
+              const side = colMatch[1];
+              const i = Math.min(parseInt(colMatch[2], 10), Math.max(colSpan - 1, 0));
+              const colX = bx.x + ((i + 0.5) / Math.max(colSpan, 1)) * bx.w;
+              if (side === "top")    return { idx: 0, x: colX, y: bx.y };
+              if (side === "bottom") return { idx: 2, x: colX, y: bx.y + fullH };
+            }
             switch (key) {
               case "top":    return { idx: 0, x: bx.x + bx.w / 2, y: bx.y };
               case "right":  return { idx: 1, x: bx.x + bx.w,     y: isL5 ? connY : bx.y + bx.h / 2 };
@@ -2571,8 +2616,8 @@ export default function ExportToolbar({
             }
             return null;
           };
-          const srcExplicit = resolveHandleA(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY2);
-          const tgtExplicit = resolveHandleA(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY2);
+          const srcExplicit = resolveHandleA(c.srcHandle, src, c.srcIsL5, srcFullH, srcConnY2, c.srcColSpan);
+          const tgtExplicit = resolveHandleA(c.tgtHandle, tgt, c.tgtIsL5, tgtFullH, tgtConnY2, c.tgtColSpan);
 
           // 세로 라우팅 fallback: 같은 X 컬럼에 상하 배치 → top/bottom 핸들
           const sameColX = src.x < tgt.x + tgt.w && tgt.x < src.x + src.w;

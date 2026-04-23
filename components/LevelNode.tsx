@@ -1,7 +1,7 @@
 "use client";
 
 import { Handle, Position, useReactFlow } from "@xyflow/react";
-import { memo, useState, useRef, useCallback } from "react";
+import { memo, Fragment, useState, useRef, useCallback } from "react";
 import { displayRole, extractCustomRole, hasCustomRole } from "@/lib/roleDisplay";
 import { getLaneAccent, getLaneAccentFromActors } from "@/lib/laneColors";
 
@@ -165,6 +165,24 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
       <Handle type="source" position={Position.Bottom} id="bottom" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-bottom-2.5 !z-10`} />
       <Handle type="source" position={Position.Left} id="left" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-left-2.5 !z-10`} />
       <Handle type="source" position={Position.Right} id="right" className={`!w-5 !h-5 ${s.handleSource} !border-2 !border-white !-right-2.5 !z-10`} />
+
+      {/* ── Column handles — colSpan>1 일 때 top/bottom 각 column 중앙에 자동 배치 ── */}
+      {/* Handle ID: top-c{i} / t-top-c{i} / bottom-c{i} / t-bottom-c{i} (i=0..colSpan-1) */}
+      {colSpan > 1 && Array.from({ length: colSpan }).map((_, i) => {
+        const leftStyle = { left: `${((i + 0.5) / colSpan) * 100}%` };
+        return (
+          <Fragment key={`col-handles-${i}`}>
+            <Handle type="target" position={Position.Top} id={`t-top-c${i}`} style={leftStyle}
+              className="!w-4 !h-4 !bg-transparent !border-0 !-top-2" />
+            <Handle type="source" position={Position.Top} id={`top-c${i}`} style={leftStyle}
+              className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-top-2 !z-10`} />
+            <Handle type="target" position={Position.Bottom} id={`t-bottom-c${i}`} style={leftStyle}
+              className="!w-4 !h-4 !bg-transparent !border-0 !-bottom-2" />
+            <Handle type="source" position={Position.Bottom} id={`bottom-c${i}`} style={leftStyle}
+              className={`!w-4 !h-4 ${s.handleSource} !border-2 !border-white !-bottom-2 !z-10`} />
+          </Fragment>
+        );
+      })}
 
       {/* ── Custom role bar (그 외:value) — 위에 얹기 (0.36cm × 3.15cm) ── */}
       {extractCustomRole(data.role) && (
