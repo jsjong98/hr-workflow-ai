@@ -461,12 +461,21 @@ export default function ExportToolbar({
       };
 
       // 각 페이지(고스트 포함)의 RF 픽셀 X-폭 중 최대값 — sc 계산용
+      // wide L5 는 페이지 경계 넘어가는 만큼 클리핑해서 extent 계산에 반영 (짜부 방지)
       const prelimChunks = makeChunks(prelimColGrps);
       let maxChunkRfExtent = 0;
       for (let k = 0; k < prelimChunks.length; k++) {
         const base = prelimChunks[k];
         const ghost = k > 0 ? prelimChunks[k - 1][prelimChunks[k - 1].length - 1] : null;
         const effective = ghost ? [ghost, ...base] : base;
+        // chunk 의 오른쪽 끝 rfX — wide L5 클리핑용
+        let chunkMaxColRfX = -Infinity;
+        for (const grp of effective) {
+          for (const id of grp) {
+            const nd = nodeMap.get(id);
+            if (nd) chunkMaxColRfX = Math.max(chunkMaxColRfX, nd.position.x);
+          }
+        }
         let minX = Infinity;
         let maxXEnd = -Infinity;
         for (const grp of effective) {
@@ -475,8 +484,12 @@ export default function ExportToolbar({
             if (!nd) continue;
             const rfX = nd.position.x;
             minX = Math.min(minX, rfX);
-            // wide L5 (colSpan>1) 는 canvasWidthOf 가 확장 폭 반환
-            maxXEnd = Math.max(maxXEnd, rfX + canvasWidthOf(nd));
+            let endX = rfX + canvasWidthOf(nd);
+            // wide L5 extent 는 chunk 의 마지막 컬럼 + narrow L5 폭으로 상한 (페이지 밖으로 삐져나간 부분 무시)
+            if (getLevel(nd) === "L5" && ((nd.data as Record<string, unknown>)?.colSpan as number) > 1) {
+              endX = Math.min(endX, chunkMaxColRfX + CANVAS_L5_W);
+            }
+            maxXEnd = Math.max(maxXEnd, endX);
           }
         }
         if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
@@ -779,23 +792,39 @@ export default function ExportToolbar({
         // continuation: wide L5 가 이 페이지에서 origin 이 아닌 연장 표시로 렌더되는 경우
         const continuationSet = new Set<string>();
 
+        // page 의 컬럼 그룹 인덱스 먼저 계산 — wide L5 클리핑에 사용
+        const pageColIndices: number[] = [];
+        for (const grp of pageColGrps) {
+          const firstId = grp[0];
+          const idx = firstId ? colGrpIdxMap.get(firstId) : undefined;
+          if (idx !== undefined) pageColIndices.push(idx);
+        }
+        const maxPageColIdx = pageColIndices.length > 0 ? Math.max(...pageColIndices) : -1;
+
         for (const grp of pageColGrps) {
           for (const nodeId of grp) {
             if (pageNodeSet.has(nodeId)) continue;
             const gBox = globalNodeBoxes[nodeId];
             if (!gBox) continue;
             pageNodeSet.add(nodeId);
-            pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
+            // wide L5 (origin 페이지): 페이지 경계까지만 렌더 → 다른 페이지 sc 영향 없음
+            const nd = nodeMap.get(nodeId);
+            const cs = nd && getLevel(nd) === "L5" ? getColSpan(nd) : 1;
+            if (cs > 1) {
+              const originColIdx = colGrpIdxMap.get(nodeId) ?? 0;
+              const spanEnd = originColIdx + cs - 1;
+              const clipEnd = Math.min(spanEnd, maxPageColIdx);
+              const clippedW = L5_FIXED_W + Math.max(0, clipEnd - originColIdx) * CANVAS_COL_PITCH * sc;
+              pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: clippedW, h: gBox.h };
+              // 여러 페이지 걸치면 다음 페이지들에서 continuation 으로 이어짐
+              if (spanEnd > maxPageColIdx) {
+                // 이 페이지도 clip 된 상태 — 아래 continuation 루프에서 skip 하도록 mark 하지 않음
+                // (origin 페이지는 이미 pageNodeSet 에 있으므로 continuation 루프가 skip)
+              }
+            } else {
+              pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
+            }
           }
-        }
-
-        // wide L5 continuation: origin 페이지가 아니어도 span 이 이 페이지 걸치면 clipped 렌더
-        // page 의 컬럼 그룹 인덱스 집합
-        const pageColIndices: number[] = [];
-        for (const grp of pageColGrps) {
-          const firstId = grp[0];
-          const idx = firstId ? colGrpIdxMap.get(firstId) : undefined;
-          if (idx !== undefined) pageColIndices.push(idx);
         }
 
         for (const w of wideNodes) {
@@ -1928,12 +1957,20 @@ export default function ExportToolbar({
         };
 
         // 각 페이지(고스트 포함)의 RF 픽셀 X-폭 중 최대값 — scRatio 계산용
+        // wide L5 는 chunk 경계까지만 count (짜부 방지)
         const prelimChunks = makeChunks(prelimColGrps);
         let maxChunkRfExtent = 0;
         for (let k = 0; k < prelimChunks.length; k++) {
           const base = prelimChunks[k];
           const ghost = k > 0 ? prelimChunks[k - 1][prelimChunks[k - 1].length - 1] : null;
           const effective = ghost ? [ghost, ...base] : base;
+          let chunkMaxColRfX = -Infinity;
+          for (const grp of effective) {
+            for (const id of grp) {
+              const nd = sheetNodeMap.get(id);
+              if (nd) chunkMaxColRfX = Math.max(chunkMaxColRfX, nd.position.x);
+            }
+          }
           let minX = Infinity;
           let maxXEnd = -Infinity;
           for (const grp of effective) {
@@ -1942,8 +1979,11 @@ export default function ExportToolbar({
               if (!nd) continue;
               const rfX = nd.position.x;
               minX = Math.min(minX, rfX);
-              // wide L5 (colSpan>1) 는 canvasWidthOfS 가 확장 폭 반환
-              maxXEnd = Math.max(maxXEnd, rfX + canvasWidthOfS(nd));
+              let endX = rfX + canvasWidthOfS(nd);
+              if (getLevel(nd) === "L5" && ((nd.data as Record<string, unknown>)?.colSpan as number) > 1) {
+                endX = Math.min(endX, chunkMaxColRfX + CANVAS_L5_W_S);
+              }
+              maxXEnd = Math.max(maxXEnd, endX);
             }
           }
           if (isFinite(minX)) maxChunkRfExtent = Math.max(maxChunkRfExtent, maxXEnd - minX);
@@ -2300,23 +2340,37 @@ export default function ExportToolbar({
           const pageNodeBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
           const continuationSet = new Set<string>();
 
-          for (const grp of pageColGrps) {
-            for (const nodeId of grp) {
-              if (pageNodeSet.has(nodeId)) continue;
-              const gBox = globalNodeBoxes[nodeId];
-              if (!gBox) continue;
-              pageNodeSet.add(nodeId);
-              pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
-            }
-          }
-
-          // wide L5 continuation: span 이 이 페이지 걸치지만 origin 은 다른 페이지인 경우
+          // page 의 컬럼 그룹 인덱스 먼저 계산 — wide L5 origin 페이지 클리핑에 사용
           const pageColIndices: number[] = [];
           for (const grp of pageColGrps) {
             const firstId = grp[0];
             const idx = firstId ? sColGrpIdxMap.get(firstId) : undefined;
             if (idx !== undefined) pageColIndices.push(idx);
           }
+          const maxPageColIdxS = pageColIndices.length > 0 ? Math.max(...pageColIndices) : -1;
+
+          for (const grp of pageColGrps) {
+            for (const nodeId of grp) {
+              if (pageNodeSet.has(nodeId)) continue;
+              const gBox = globalNodeBoxes[nodeId];
+              if (!gBox) continue;
+              pageNodeSet.add(nodeId);
+              // wide L5 (origin 페이지): 페이지 경계까지 클리핑 → 다른 페이지 sc 영향 없음
+              const nd = sheetNodeMap.get(nodeId);
+              const cs = nd && getLevel(nd) === "L5" ? getColSpanS(nd) : 1;
+              if (cs > 1) {
+                const originColIdx = sColGrpIdxMap.get(nodeId) ?? 0;
+                const spanEnd = originColIdx + cs - 1;
+                const clipEnd = Math.min(spanEnd, maxPageColIdxS);
+                const clippedW = L5_FIXED_W_ALL + Math.max(0, clipEnd - originColIdx) * CANVAS_COL_PITCH_S * scRatio;
+                pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: clippedW, h: gBox.h };
+              } else {
+                pageNodeBoxes[nodeId] = { x: gBox.x + pageDX, y: gBox.y, w: gBox.w, h: gBox.h };
+              }
+            }
+          }
+
+          // wide L5 continuation: span 이 이 페이지 걸치지만 origin 은 다른 페이지인 경우
           for (const w of sWideNodes) {
             if (pageNodeSet.has(w.id)) continue;
             const spanStart = w.originGrpIdx;
