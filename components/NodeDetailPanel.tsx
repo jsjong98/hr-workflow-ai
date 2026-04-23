@@ -292,11 +292,11 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           )}
         </fieldset>
 
-        {/* 확장 폭 (colSpan) — Senior AI 오케스트레이터 전용 */}
-        {level === "L5" && /senior\s*ai|senior/i.test(meta.role || "") && (
+        {/* 확장 폭 (colSpan) — 모든 L5 노드에 노출, 기본 1 (오케스트레이터 같은 경우만 조정) */}
+        {level === "L5" && (
           <fieldset>
             <legend className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1">
-              ↔️ 확장 폭 <span className="text-[10px] font-normal text-gray-400">(Senior AI 오케스트레이터: 아래 Junior 여러 개 덮기)</span>
+              ↔️ 확장 폭 <span className="text-[10px] font-normal text-gray-400">(오케스트레이터가 여러 Junior 덮을 때만 2 이상)</span>
             </legend>
             <div className="flex items-center gap-2">
               <input
@@ -311,7 +311,7 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
                 }}
                 className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
-              <span className="text-[11px] text-gray-500">컬럼 (1 = 기본 폭, 2 이상 = Junior {`{N}`}개 너비)</span>
+              <span className="text-[11px] text-gray-500">컬럼 (1 = 기본 폭, N 이상 = Junior N개 너비)</span>
             </div>
           </fieldset>
         )}
