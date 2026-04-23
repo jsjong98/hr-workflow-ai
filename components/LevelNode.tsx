@@ -85,6 +85,8 @@ interface NodeData {
   inputData?: string;
   outputData?: string;
   system?: string;
+  /** L5 가변 폭 — 기본 1, Senior AI 같은 오케스트레이터는 여러 컬럼 덮기 (예: colSpan=3) */
+  colSpan?: number;
   /* ── CSV-parsed systems (L5) ── */
   systems?: {
     hr: string;
@@ -135,12 +137,20 @@ function L5NodeBase({ data, selected }: { data: NodeData; selected?: boolean }) 
     : accent
     ? 'border'
     : 'border border-[#BFBFBF]';
-  const containerInlineStyle: React.CSSProperties =
-    !selected && accent ? { borderColor: `#${accent.border}` } : {};
+  // colSpan: 오케스트레이터 노드 가변 폭 (기본 1). 컬럼 피치 440px(Junior AI 간격과 동일) 기준.
+  const colSpan = Math.max(1, Math.round(data.colSpan || 1));
+  const L5_COL_PITCH = 440; // canvas px — Junior AI x 간격과 동일
+  const L5_BASE_W = 380;   // colSpan=1 일 때 현재 max-width 와 동일
+  const wideWidth = colSpan > 1 ? L5_BASE_W + (colSpan - 1) * L5_COL_PITCH : undefined;
+
+  const containerInlineStyle: React.CSSProperties = {
+    ...(wideWidth ? { width: wideWidth, minWidth: wideWidth, maxWidth: wideWidth } : {}),
+    ...(!selected && accent ? { borderColor: `#${accent.border}` } : {}),
+  };
 
   return (
     <div
-      className={`min-w-[300px] max-w-[380px] select-none relative shadow-md transition-all hover:shadow-lg rounded-sm ${containerClass}`}
+      className={`${wideWidth ? '' : 'min-w-[300px] max-w-[380px]'} select-none relative shadow-md transition-all hover:shadow-lg rounded-sm ${containerClass}`}
       style={containerInlineStyle}
     >
       {selected && <div className="absolute inset-0 bg-blue-400/10 pointer-events-none z-20 rounded-sm" />}

@@ -25,6 +25,8 @@ export interface NodeMeta {
   mainPerson?: string;
   avgTime?: string;
   freqCount?: string;
+  /** L5 가변 폭 (Senior AI 오케스트레이터 전용, 기본 1) */
+  colSpan?: number;
 }
 
 /* ── L5 확장 메타 (CSV에서 자동 파싱된 읽기전용 데이터) ── */
@@ -122,6 +124,7 @@ function getNodeMeta(node: Node): NodeMeta {
     mainPerson: (d.mainPerson as string) || "",
     avgTime: (d.avgTime as string) || "",
     freqCount: (d.freqCount as string) || "",
+    colSpan: typeof d.colSpan === "number" ? d.colSpan : 1,
   };
 }
 
@@ -288,6 +291,30 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
             </div>
           )}
         </fieldset>
+
+        {/* 확장 폭 (colSpan) — Senior AI 오케스트레이터 전용 */}
+        {level === "L5" && /senior\s*ai|senior/i.test(meta.role || "") && (
+          <fieldset>
+            <legend className="text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1">
+              ↔️ 확장 폭 <span className="text-[10px] font-normal text-gray-400">(Senior AI 오케스트레이터: 아래 Junior 여러 개 덮기)</span>
+            </legend>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={meta.colSpan ?? 1}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(20, Math.round(Number(e.target.value) || 1)));
+                  setMeta({ ...meta, colSpan: n });
+                }}
+                className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <span className="text-[11px] text-gray-500">컬럼 (1 = 기본 폭, 2 이상 = Junior {`{N}`}개 너비)</span>
+            </div>
+          </fieldset>
+        )}
 
         {/* Input Data */}
         <fieldset>
