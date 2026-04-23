@@ -19,7 +19,7 @@ export interface LaneAccent {
 }
 
 /** AI 오케스트레이션용 진한 블루 */
-const SENIOR_AI: LaneAccent = { bodyBg: "649EE2", border: "3A7BC8", text: "FFFFFF", accent: "1E5A9E" };
+const SENIOR_AI: LaneAccent = { bodyBg: "649EE2", border: "3A7BC8", text: "000000", accent: "1E5A9E" };
 /** AI 실행용 연한 블루 */
 const JUNIOR_AI: LaneAccent = { bodyBg: "98BEEC", border: "649EE2", text: "000000", accent: "3A7BC8" };
 /** 사람 역할 — 옅은 회색 계열 (상위/하위 2단계) */
