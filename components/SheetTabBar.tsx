@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, useRef, useEffect } from "react";
+import type { CsvVariant } from "@/lib/csvToFlow";
 
 export type SheetType = "blank" | "swimlane";
 
@@ -10,13 +11,16 @@ export interface Sheet {
   type: SheetType;
   lanes?: string[];
   laneHeights?: number[];
+  /** CSV 스키마 variant — actor / system / role 라벨을 결정. 미지정 시 doosan-hr-4 */
+  variant?: CsvVariant;
 }
 
 interface Props {
   sheets: Sheet[];
   activeSheetId: string;
   onSelect: (id: string) => void;
-  onAdd: (type: SheetType, lanes?: string[]) => void;
+  /** swimlane 추가 시 lanes 와 함께 variant 도 전달 (없으면 doosan-hr-4) */
+  onAdd: (type: SheetType, lanes?: string[], variant?: CsvVariant) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
@@ -182,6 +186,43 @@ export default function SheetTabBar({
                   onClick={() => { onAdd("swimlane", ["현업 임원", "현업 팀장", "HR 임원", "HR 담당자", "현업 구성원", "그 외"]); setAddMenuOpen(false); }}>
                   <span>🏊</span>
                   <div><div className="font-semibold text-gray-700">6분할 시트</div><div className="text-[9px] text-gray-400">현업 임원 · 현업 팀장 · HR 임원 · HR 담당자 · 현업 구성원 · 그 외</div></div>
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-emerald-50 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    onAdd(
+                      "swimlane",
+                      [
+                        "큐벡스 총무/복리후생 담당자",
+                        "큐벡스 구매 담당자",
+                        "큐벡스 급여 담당자",
+                        "큐벡스 관리자(중역)",
+                        "계열사 주관부서(현업 포함)",
+                      ],
+                      "qvex-welfare-5",
+                    );
+                    setAddMenuOpen(false);
+                  }}>
+                  <span>🟢</span>
+                  <div><div className="font-semibold text-gray-700">5분할 시트 (복리후생)</div><div className="text-[9px] text-gray-400">큐벡스 총무·구매·급여·관리자 + 계열사 주관부서</div></div>
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-emerald-50 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    onAdd(
+                      "swimlane",
+                      [
+                        "큐벡스 총무/복리후생 담당자",
+                        "큐벡스 구매 담당자",
+                        "큐벡스 급여 담당자",
+                        "큐벡스 관리자(중역)",
+                        "계열사 임직원",
+                        "계열사 주관부서(현업 포함)",
+                      ],
+                      "qvex-affairs-6",
+                    );
+                    setAddMenuOpen(false);
+                  }}>
+                  <span>🟢</span>
+                  <div><div className="font-semibold text-gray-700">6분할 시트 (총무)</div><div className="text-[9px] text-gray-400">큐벡스 총무·구매·급여·관리자 + 계열사 임직원·주관부서</div></div>
                 </button>
                 <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
                   onClick={() => { setCustomInputs(["", "", "", ""]); setShowCustomDialog(true); setAddMenuOpen(false); }}>

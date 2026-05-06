@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { type CsvVariant, getRoleOptionsForVariant } from "@/lib/csvToFlow";
 
 /* ── 레벨 스타일 정보 ── */
 const LEVEL_OPTIONS = [
@@ -9,11 +10,6 @@ const LEVEL_OPTIONS = [
   { value: "L4", label: "L4 — Task", color: "#DEDEDE", textColor: "black" },
   { value: "L5", label: "L5 — Activity", color: "#FFFFFF", textColor: "black" },
 ] as const;
-
-/* ── 수행 주체 선택지 ── */
-const ROLE_OPTIONS = [
-  "", "임원 (=현업 임원)", "HR", "현업 팀장", "현업 구성원", "그 외",
-];
 
 export interface NewNodeData {
   level: "L2" | "L3" | "L4" | "L5";
@@ -26,11 +22,15 @@ export interface NewNodeData {
 
 interface AddNodeModalProps {
   isOpen: boolean;
+  /** 활성 시트의 CSV variant — role 선택지 결정 */
+  variant?: CsvVariant;
   onClose: () => void;
   onAdd: (data: NewNodeData) => void;
 }
 
-export default function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
+export default function AddNodeModal({ isOpen, variant = "doosan-hr-4", onClose, onAdd }: AddNodeModalProps) {
+  /* variant 의 역할 라벨 + 빈값/그 외 */
+  const ROLE_OPTIONS = ["", ...getRoleOptionsForVariant(variant), "그 외"];
   const [level, setLevel] = useState<"L2" | "L3" | "L4" | "L5">("L4");
   const [nodeId, setNodeId] = useState("");
   const [name, setName] = useState("");

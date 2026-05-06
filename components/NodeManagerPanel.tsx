@@ -2,7 +2,13 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Node } from "@xyflow/react";
-import { buildTemplateCsvString } from "@/lib/csvToFlow";
+import {
+  buildTemplateCsvString,
+  type CsvVariant,
+  getRoleOptionsForVariant,
+  getActorDefsForVariant,
+  getSystemDefsForVariant,
+} from "@/lib/csvToFlow";
 import { displayRole } from "@/lib/roleDisplay";
 
 /* ═══ 타입 ═══ */
@@ -22,6 +28,8 @@ interface Props {
   onClose: () => void;
   nodes: Node[];
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+  /** 활성 시트의 CSV variant — role 라벨, 확장 메타 요약 라벨 결정 */
+  variant?: CsvVariant;
 }
 
 /* ═══ 레벨 색상 ═══ */
@@ -33,10 +41,6 @@ const LEVEL_COLORS: Record<string, { bg: string; text: string; border: string }>
 };
 
 const LEVEL_OPTIONS = ["L2", "L3", "L4", "L5"] as const;
-
-const ROLE_OPTIONS = [
-  "", "임원 (=현업 임원)", "HR", "현업 팀장", "현업 구성원", "그 외",
-];
 
 /* ═══ 유틸 ═══ */
 function getNodeData(n: Node): Record<string, unknown> {
@@ -117,17 +121,17 @@ function renumberIds(nodes: Node[], setNodes: React.Dispatch<React.SetStateActio
   );
 }
 
-/* ═══ 확장 메타 요약 ═══ */
-function getExtMetaSummary(n: Node): string {
+/* ═══ 확장 메타 요약 (variant 별 actor / system 키 사용) ═══ */
+function getExtMetaSummary(n: Node, variant: CsvVariant): string {
   const d = getNodeData(n);
   const parts: string[] = [];
   const actors = d.actors as Record<string, string> | undefined;
   if (actors) {
     const ap: string[] = [];
-    if (actors.exec) ap.push("임원:" + actors.exec);
-    if (actors.hr) ap.push("HR:" + actors.hr);
-    if (actors.teamlead) ap.push("팀장:" + actors.teamlead);
-    if (actors.member) ap.push("구성원:" + actors.member);
+    for (const def of getActorDefsForVariant(variant)) {
+      const v = actors[def.key];
+      if (v) ap.push(`${def.laneLabel}:${v}`);
+    }
     if (ap.length) parts.push("수행(" + ap.join(",") + ")");
   }
   if (d.mainPerson) parts.push("주담당:" + d.mainPerson);
@@ -135,11 +139,9 @@ function getExtMetaSummary(n: Node): string {
   const sys = d.systems as Record<string, string> | undefined;
   if (sys) {
     const sp: string[] = [];
-    if (sys.hr) sp.push("HR");
-    if (sys.groupware) sp.push("GW");
-    if (sys.office) sp.push("Office");
-    if (sys.manual) sp.push("수작업");
-    if (sys.etc) sp.push("기타");
+    for (const def of getSystemDefsForVariant(variant)) {
+      if (sys[def.key]?.trim()) sp.push(def.displayLabel);
+    }
     if (sp.length) parts.push("시스템(" + sp.join(",") + ")");
   }
   const pp = d.painPoints as Record<string, string> | undefined;
@@ -151,7 +153,12 @@ function getExtMetaSummary(n: Node): string {
 }
 
 /* ═══ 메인 컴포넌트 ═══ */
-export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: Props) {
+export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes, variant = "doosan-hr-4" }: Props) {
+  /* variant 의 역할 라벨 + 빈값/그 외 */
+  const ROLE_OPTIONS = useMemo(
+    () => ["", ...getRoleOptionsForVariant(variant), "그 외"],
+    [variant],
+  );
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<RowData | null>(null);
   const [addMode, setAddMode] = useState(false);
@@ -474,7 +481,7 @@ export default function NodeManagerPanel({ isOpen, onClose, nodes, setNodes }: P
                   const isDragOver = dragOverIdx === idx;
                   const indentLevel = { L2: 0, L3: 1, L4: 2, L5: 3 }[row.level] || 0;
                   const nd = nodes.find(n => n.id === row.nodeId);
-                  const extSummary = nd ? getExtMetaSummary(nd) : "";
+                  const extSummary = nd ? getExtMetaSummary(nd, variant) : "";
 
                   return (
                     <tr

@@ -42,7 +42,10 @@ import {
   extractL4ByL3,
   extractL5ByL4,
   createNodeFromItem,
+  getCsvVariantFromRows,
+  getDefaultLanesForVariant,
   type CsvRow,
+  type CsvVariant,
   type L2Item,
   type L3Item,
   type L4Item,
@@ -303,14 +306,17 @@ export default function Home() {
 
   /* Add a new sheet */
   const handleAddSheet = useCallback(
-    (type: SheetType, customLanes?: string[]) => {
+    (type: SheetType, customLanes?: string[], variant?: CsvVariant) => {
       // Save current sheet first
       sheetDataRef.current[activeSheetId] = { nodes, edges };
       // Create new
       sheetCountRef.current++;
       const newId = `sheet-${Date.now()}`;
-      const DEFAULT_4_LANES = ["현업 임원", "팀장", "HR 담당자", "구성원"];
-      const lanes = type === "swimlane" ? (customLanes || DEFAULT_4_LANES) : undefined;
+      /* variant 가 명시되면 해당 variant 의 기본 lane 라벨 사용, 아니면 doosan-hr-4 4분할 */
+      const defaultLanes = variant
+        ? getDefaultLanesForVariant(variant)
+        : ["현업 임원", "팀장", "HR 담당자", "구성원"];
+      const lanes = type === "swimlane" ? (customLanes || defaultLanes) : undefined;
       const label = type === "swimlane"
         ? `${lanes?.length ?? 4}분할 시트`
         : "빈 시트";
@@ -319,6 +325,7 @@ export default function Home() {
         name: `${label} ${sheetCountRef.current}`,
         type,
         ...(lanes ? { lanes } : {}),
+        ...(variant ? { variant } : {}),
       };
       setSheets((prev) => [...prev, newSheet]);
       sheetDataRef.current[newId] = { nodes: [], edges: [] };
@@ -812,6 +819,23 @@ export default function Home() {
       const rows = parseCsv(text);
       setCsvRows(rows);
       setFileName(name);
+      /* CSV variant 자동 감지 → 활성 시트의 variant 와 lanes 동기화 */
+      const detectedVariant = getCsvVariantFromRows(rows);
+      setSheets((prev) =>
+        prev.map((s) =>
+          s.id === activeSheetId
+            ? {
+                ...s,
+                variant: detectedVariant,
+                /* swimlane 시트에서 lanes 가 비어있으면 기본 lane 라벨로 채움 */
+                lanes:
+                  s.type === "swimlane" && (!s.lanes || s.lanes.length === 0)
+                    ? getDefaultLanesForVariant(detectedVariant)
+                    : s.lanes,
+              }
+            : s,
+        ),
+      );
       const l2s = extractL2List(rows);
       setL2List(l2s);
       const m: Record<string, L3Item[]> = {};
@@ -827,7 +851,7 @@ export default function Home() {
       setNodes([]);
       setEdges([]);
     },
-    [setNodes, setEdges]
+    [setNodes, setEdges, activeSheetId],
   );
 
   /* CSV 자동 로드 제거 — 사용자가 직접 업로드해야 함 */
@@ -1171,12 +1195,13 @@ export default function Home() {
       const detail = (e as CustomEvent).detail;
       if (detail?.sheets && Array.isArray(detail.sheets)) {
         /* ── Multi-sheet JSON format ── */
-        const loadedSheets: Sheet[] = detail.sheets.map((s: { id: string; name: string; type: SheetType; lanes?: string[]; laneHeights?: number[] }) => ({
+        const loadedSheets: Sheet[] = detail.sheets.map((s: { id: string; name: string; type: SheetType; lanes?: string[]; laneHeights?: number[]; variant?: CsvVariant }) => ({
           id: s.id,
           name: s.name,
           type: s.type || "blank",
           lanes: s.lanes,
           laneHeights: s.laneHeights,
+          variant: s.variant,
         }));
         // 1) sheetDataRef 멃저 채우기 (ref는 동기)
         for (const sd of detail.sheets as { id: string; nodes: Node[]; edges: Edge[] }[]) {
@@ -1990,6 +2015,7 @@ export default function Home() {
               {selectedNode && (
                 <NodeDetailPanel
                   node={selectedNode}
+                  variant={activeSheet.variant ?? csvRows[0]?._variant ?? "doosan-hr-4"}
                   onClose={() => setSelectedNode(null)}
                   onUpdate={updateNodeMeta}
                 />

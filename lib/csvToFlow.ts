@@ -1,9 +1,224 @@
 /* ─────────────────────────────────────────────
  * CSV → React Flow Nodes & Edges 변환 유틸리티
+ *
+ * 3개의 CSV 스키마 variant 지원:
+ *  - doosan-hr-4   : 기존 두산 HR (4 actor + 6 system)
+ *  - qvex-welfare-5: 큐벡스 복리후생 (5 actor + 10 system)
+ *  - qvex-affairs-6: 큐벡스 총무   (6 actor + 10 system)
+ *
+ * variant 는 CSV 헤더에서 자동 감지(parseCsv) 또는 시트 프리셋에서 명시 설정.
+ * actor/system 구조가 variant 마다 다르므로 VARIANT_CONFIG 를 단일 진실 원천(SoT)으로 사용.
  * ───────────────────────────────────────────── */
 
 import { MarkerType, type Node, type Edge } from "@xyflow/react";
 
+export type CsvVariant = "doosan-hr-4" | "qvex-welfare-5" | "qvex-affairs-6";
+
+/** 각 variant 의 actor 키 목록 (= 노드 actors 객체의 키) */
+export type DoosanHrActorKey = "exec" | "hr" | "teamlead" | "member";
+export type QvexActorKey =
+  | "qvex_welfare"
+  | "qvex_purchase"
+  | "qvex_payroll"
+  | "qvex_manager"
+  | "affiliate_employee"
+  | "affiliate_dept";
+export type AnyActorKey = DoosanHrActorKey | QvexActorKey;
+
+/** 각 variant 의 system 키 목록 (= 노드 systems 객체의 키) */
+export type DoosanHrSystemKey = "hr" | "groupware" | "office" | "external" | "manual" | "etc";
+export type QvexSystemKey =
+  | "pnbs"
+  | "doobuy"
+  | "portal"
+  | "eapproval"
+  | "accounting"
+  | "ildong"
+  | "qvex_manual"
+  | "ms_office"
+  | "email_phone"
+  | "pro_tool";
+export type AnySystemKey = DoosanHrSystemKey | QvexSystemKey;
+
+/** variant 별 actor 정의 — key, CSV 헤더, 화면/스왑레인 라벨, NodeDetailPanel 역할 라벨 */
+interface ActorDef<K extends string> {
+  key: K;
+  csvHeader: string;          // CSV 컬럼 헤더 텍스트
+  laneLabel: string;          // SwimLane 표시 라벨
+  roleLabel: string;          // NodeDetailPanel/AddNodeModal 의 토글 라벨 (저장 포맷 = 라벨 자체)
+}
+
+/** variant 별 system 정의 — key, CSV 헤더, 화면 라벨 */
+interface SystemDef<K extends string> {
+  key: K;
+  csvHeader: string;
+  displayLabel: string;
+}
+
+/** variant 별 메타데이터(공통) — meta/PP/Input/Output/Logic 은 모든 variant 동일 */
+const COMMON_META_HEADERS = [
+  "관리주체", "담당자 수", "주 담당자", "평균 건당 소요시간", "발생 빈도_건수",
+] as const;
+const COMMON_PP_HEADERS = [
+  "Pain Point_시간_속도", "Pain Point_정확성", "Pain Point_반복/수작업",
+  "Pain Point_정보_데이터", "Pain Point_시스템_도구", "Pain Point_의사소통_협업", "Pain Point_기타",
+] as const;
+const COMMON_INPUT_HEADERS = [
+  "Input_시스템 데이터", "Input_문서_서류", "Input_외부 정보", "Input_구두_메일 요청", "Input_기타",
+] as const;
+const COMMON_OUTPUT_HEADERS = [
+  "Output_시스템 반영", "Output_문서_보고서", "Output_커뮤니케이션", "Output_의사결정", "Output_기타",
+] as const;
+const COMMON_LOGIC_HEADERS = [
+  "업무 판단 로직_Rule_based", "업무 판단 로직_사람 판단", "업무 판단 로직_혼합",
+] as const;
+
+/** 모든 variant 가 공유하는 hierarchy(L2/L3/L4/L5) 헤더 */
+const HIERARCHY_HEADERS = [
+  "ID", "두산 L2", "ID", "Name", "ID", "Name", "Description",
+  "ID", "Name", "Description",
+] as const;
+
+/* ── variant 별 actor/system 정의 ── */
+const DOOSAN_HR_ACTORS: ActorDef<DoosanHrActorKey>[] = [
+  { key: "exec",     csvHeader: "수행주체_임원",       laneLabel: "현업 임원",   roleLabel: "임원 (=현업 임원)" },
+  { key: "hr",       csvHeader: "수행주체_HR",          laneLabel: "HR 담당자",   roleLabel: "HR" },
+  { key: "teamlead", csvHeader: "수행주체_현업 팀장",   laneLabel: "팀장",        roleLabel: "현업 팀장" },
+  { key: "member",   csvHeader: "수행주체_현업 구성원", laneLabel: "구성원",      roleLabel: "현업 구성원" },
+];
+
+const DOOSAN_HR_SYSTEMS: SystemDef<DoosanHrSystemKey>[] = [
+  { key: "hr",        csvHeader: "사용 시스템_HR 전용시스템",  displayLabel: "HR" },
+  { key: "groupware", csvHeader: "사용 시스템_그룹웨어_협업툴", displayLabel: "그룹웨어" },
+  { key: "office",    csvHeader: "사용 시스템_오피스_문서도구", displayLabel: "오피스" },
+  { key: "external",  csvHeader: "사용 시스템_외부_연동시스템", displayLabel: "외부 연동" },
+  { key: "manual",    csvHeader: "사용 시스템_수작업_오프라인", displayLabel: "수작업" },
+  { key: "etc",       csvHeader: "사용 시스템_기타 전문 Tool",  displayLabel: "기타" },
+];
+
+const QVEX_ACTORS_BASE: ActorDef<QvexActorKey>[] = [
+  { key: "qvex_welfare",  csvHeader: "수행주체_큐벡스_총무/복리후생_담당자", laneLabel: "큐벡스 총무/복리후생 담당자", roleLabel: "큐벡스 총무/복리후생 담당자" },
+  { key: "qvex_purchase", csvHeader: "수행주체_큐벡스_구매_담당자",          laneLabel: "큐벡스 구매 담당자",          roleLabel: "큐벡스 구매 담당자" },
+  { key: "qvex_payroll",  csvHeader: "수행주체_큐벡스_급여_담당자",          laneLabel: "큐벡스 급여 담당자",          roleLabel: "큐벡스 급여 담당자" },
+  { key: "qvex_manager",  csvHeader: "수행주체_큐벡스_관리자(중역)",         laneLabel: "큐벡스 관리자(중역)",         roleLabel: "큐벡스 관리자(중역)" },
+];
+
+const QVEX_WELFARE_ACTORS: ActorDef<QvexActorKey>[] = [
+  ...QVEX_ACTORS_BASE,
+  { key: "affiliate_dept",     csvHeader: "수행주체_계열사_주관부서(현업부서 포함)", laneLabel: "계열사 주관부서(현업 포함)", roleLabel: "계열사 주관부서(현업 포함)" },
+];
+
+const QVEX_AFFAIRS_ACTORS: ActorDef<QvexActorKey>[] = [
+  ...QVEX_ACTORS_BASE,
+  { key: "affiliate_employee", csvHeader: "수행주체_계열사_임직원",                   laneLabel: "계열사 임직원",              roleLabel: "계열사 임직원" },
+  { key: "affiliate_dept",     csvHeader: "수행주체_계열사_주관부서(현업부서_포함)", laneLabel: "계열사 주관부서(현업 포함)", roleLabel: "계열사 주관부서(현업 포함)" },
+];
+
+/** 큐벡스 복리후생/총무 둘 다 동일한 10개 system 컬럼 사용 */
+const QVEX_SYSTEMS: SystemDef<QvexSystemKey>[] = [
+  { key: "pnbs",        csvHeader: "사용 시스템_PnBS",                 displayLabel: "PnBS" },
+  { key: "doobuy",      csvHeader: "사용 시스템_구매시스템(DooBuy)",   displayLabel: "구매시스템(DooBuy)" },
+  { key: "portal",      csvHeader: "사용 시스템_포탈(공지용)",         displayLabel: "포탈(공지용)" },
+  { key: "eapproval",   csvHeader: "사용 시스템_전자결재",             displayLabel: "전자결재" },
+  { key: "accounting",  csvHeader: "사용 시스템_회계시스템",           displayLabel: "회계시스템" },
+  { key: "ildong",      csvHeader: "사용 시스템_외부/연동시스템(일동)", displayLabel: "외부/연동시스템(일동)" },
+  { key: "qvex_manual", csvHeader: "사용 시스템_수기작업",             displayLabel: "수기작업" },
+  { key: "ms_office",   csvHeader: "사용 시스템_MS(워드_엑셀_등)",     displayLabel: "MS(워드,엑셀 등)" },
+  { key: "email_phone", csvHeader: "사용 시스템_이메일_유선전화_등",   displayLabel: "이메일, 유선전화 등" },
+  { key: "pro_tool",    csvHeader: "사용 시스템_기타_전문_Tool",       displayLabel: "기타 전문 Tool" },
+];
+
+export interface VariantConfig {
+  variant: CsvVariant;
+  actors: ActorDef<AnyActorKey>[];
+  systems: SystemDef<AnySystemKey>[];
+  /** 기본 SwimLane 레인 라벨 — actors.laneLabel 순서와 동일 */
+  defaultLanes: string[];
+}
+
+export const VARIANT_CONFIG: Record<CsvVariant, VariantConfig> = {
+  "doosan-hr-4": {
+    variant: "doosan-hr-4",
+    actors: DOOSAN_HR_ACTORS as ActorDef<AnyActorKey>[],
+    systems: DOOSAN_HR_SYSTEMS as SystemDef<AnySystemKey>[],
+    defaultLanes: DOOSAN_HR_ACTORS.map((a) => a.laneLabel),
+  },
+  "qvex-welfare-5": {
+    variant: "qvex-welfare-5",
+    actors: QVEX_WELFARE_ACTORS as ActorDef<AnyActorKey>[],
+    systems: QVEX_SYSTEMS as SystemDef<AnySystemKey>[],
+    defaultLanes: QVEX_WELFARE_ACTORS.map((a) => a.laneLabel),
+  },
+  "qvex-affairs-6": {
+    variant: "qvex-affairs-6",
+    actors: QVEX_AFFAIRS_ACTORS as ActorDef<AnyActorKey>[],
+    systems: QVEX_SYSTEMS as SystemDef<AnySystemKey>[],
+    defaultLanes: QVEX_AFFAIRS_ACTORS.map((a) => a.laneLabel),
+  },
+};
+
+/** variant 의 NodeDetailPanel 역할 토글 라벨 목록 (선택지). "그 외" 는 모든 variant 공통으로 추가됨 */
+export function getRoleOptionsForVariant(variant: CsvVariant): string[] {
+  return VARIANT_CONFIG[variant].actors.map((a) => a.roleLabel);
+}
+
+/** variant 의 system 표시 정보 */
+export function getSystemDefsForVariant(variant: CsvVariant): SystemDef<AnySystemKey>[] {
+  return VARIANT_CONFIG[variant].systems;
+}
+
+/** variant 의 actor 표시 정보 */
+export function getActorDefsForVariant(variant: CsvVariant): ActorDef<AnyActorKey>[] {
+  return VARIANT_CONFIG[variant].actors;
+}
+
+/** variant 의 기본 SwimLane 레인 라벨 */
+export function getDefaultLanesForVariant(variant: CsvVariant): string[] {
+  return VARIANT_CONFIG[variant].defaultLanes;
+}
+
+/** roleLabel → actor key 역매핑 (NodeDetailPanel 에서 role 문자열 → actors 객체 변환 시 사용) */
+export function actorKeyByRoleLabel(variant: CsvVariant, roleLabel: string): AnyActorKey | undefined {
+  return VARIANT_CONFIG[variant].actors.find((a) => a.roleLabel === roleLabel)?.key;
+}
+
+/** variant 별 (TEMPLATE 헤더용) 컬럼 헤더 배열 — hierarchy + actors + meta + systems + PP + IO + logic */
+function templateHeadersForVariant(variant: CsvVariant): string[] {
+  const cfg = VARIANT_CONFIG[variant];
+  return [
+    ...HIERARCHY_HEADERS,
+    ...cfg.actors.map((a) => a.csvHeader),
+    ...COMMON_META_HEADERS,
+    ...cfg.systems.map((s) => s.csvHeader),
+    ...COMMON_PP_HEADERS,
+    ...COMMON_INPUT_HEADERS,
+    ...COMMON_OUTPUT_HEADERS,
+    ...COMMON_LOGIC_HEADERS,
+  ];
+}
+
+/** CSV 헤더 라인을 검사하여 variant 자동 감지. 인덱스 10 이후의 actor 컬럼 텍스트로 판별. */
+export function detectCsvVariant(headerCells: string[]): CsvVariant {
+  // 헤더가 짧으면 기본값
+  if (headerCells.length <= 10) return "doosan-hr-4";
+  const norm = (s: string) => (s || "").trim();
+  /* 모든 헤더 셀을 합쳐서 큐벡스 마커 검사 */
+  const joined = headerCells.map(norm).join("|");
+  const isQvex = /큐벡스/.test(joined);
+  if (!isQvex) return "doosan-hr-4";
+  /* 큐벡스 → 계열사_임직원 헤더가 있으면 affairs(6), 아니면 welfare(5) */
+  if (/계열사_임직원/.test(joined)) return "qvex-affairs-6";
+  return "qvex-welfare-5";
+}
+
+/** rows[0]._variant 으로부터 variant 추출. 비어있으면 기본값. */
+export function getCsvVariantFromRows(rows: CsvRow[]): CsvVariant {
+  return rows[0]?._variant || "doosan-hr-4";
+}
+
+/* ── CsvRow: 모든 variant 의 필드를 optional 로 포함 ──
+ *   parser 가 variant 에 해당하는 필드만 채우고 나머지는 빈 문자열.
+ *   _variant 디스크리미네이터로 어떤 variant 인지 식별. */
 export interface CsvRow {
   L2_ID: string;
   "두산 L2": string;
@@ -15,42 +230,65 @@ export interface CsvRow {
   L5_ID: string;
   L5_Name: string;
   L5_Description: string;
-  /* ── 새 열 (index 10~43) ── */
-  actor_exec: string;       // 수행주체_임원
-  actor_hr: string;         // 수행주체_HR
-  actor_teamlead: string;   // 수행주체_현업 팀장
-  actor_member: string;     // 수행주체_현업 구성원
-  mgr_body: string;         // 관리주체
-  staff_count: string;      // 담당자 수
-  main_person: string;      // 주 담당자
-  avg_time: string;         // 평균 건당 소요시간
-  freq_count: string;       // 발생 빈도_건수
-  sys_hr: string;           // 사용 시스템_HR 전용시스템
-  sys_groupware: string;    // 사용 시스템_그룹웨어_협업툴
-  sys_office: string;       // 사용 시스템_오피스_문서도구
-  sys_external: string;     // 사용 시스템_외부_연동시스템
-  sys_manual: string;       // 사용 시스템_수작업_오프라인
-  sys_etc: string;          // 사용 시스템_기타 전문 Tool
-  pp_speed: string;         // Pain Point_시간_속도
-  pp_accuracy: string;      // Pain Point_정확성
-  pp_repeat: string;        // Pain Point_반복/수작업
-  pp_data: string;          // Pain Point_정보_데이터
-  pp_system: string;        // Pain Point_시스템_도구
-  pp_comm: string;          // Pain Point_의사소통_협업
-  pp_etc: string;           // Pain Point_기타
-  in_system: string;        // Input_시스템 데이터
-  in_doc: string;           // Input_문서_서류
-  in_external: string;      // Input_외부 정보
-  in_request: string;       // Input_구두_메일 요청
-  in_etc: string;           // Input_기타
-  out_system: string;       // Output_시스템 반영
-  out_doc: string;          // Output_문서_보고서
-  out_comm: string;         // Output_커뮤니케이션
-  out_decision: string;     // Output_의사결정
-  out_etc: string;          // Output_기타
-  logic_rule: string;       // 업무 판단 로직_Rule_based
-  logic_human: string;      // 업무 판단 로직_사람 판단
-  logic_mixed: string;      // 업무 판단 로직_혼합
+  /** variant 디스크리미네이터 (parseCsv 가 설정) */
+  _variant: CsvVariant;
+  /* doosan-hr-4 actors */
+  actor_exec: string;
+  actor_hr: string;
+  actor_teamlead: string;
+  actor_member: string;
+  /* qvex actors */
+  actor_qvex_welfare: string;
+  actor_qvex_purchase: string;
+  actor_qvex_payroll: string;
+  actor_qvex_manager: string;
+  actor_affiliate_employee: string;
+  actor_affiliate_dept: string;
+  /* common meta */
+  mgr_body: string;
+  staff_count: string;
+  main_person: string;
+  avg_time: string;
+  freq_count: string;
+  /* doosan-hr-4 systems */
+  sys_hr: string;
+  sys_groupware: string;
+  sys_office: string;
+  sys_external: string;
+  sys_manual: string;
+  sys_etc: string;
+  /* qvex systems (동그라미 "O" 또는 빈값) */
+  sys_pnbs: string;
+  sys_doobuy: string;
+  sys_portal: string;
+  sys_eapproval: string;
+  sys_accounting: string;
+  sys_ildong: string;
+  sys_qvex_manual: string;
+  sys_ms_office: string;
+  sys_email_phone: string;
+  sys_pro_tool: string;
+  /* common PP / IO / Logic */
+  pp_speed: string;
+  pp_accuracy: string;
+  pp_repeat: string;
+  pp_data: string;
+  pp_system: string;
+  pp_comm: string;
+  pp_etc: string;
+  in_system: string;
+  in_doc: string;
+  in_external: string;
+  in_request: string;
+  in_etc: string;
+  out_system: string;
+  out_doc: string;
+  out_comm: string;
+  out_decision: string;
+  out_etc: string;
+  logic_rule: string;
+  logic_human: string;
+  logic_mixed: string;
 }
 
 /* ═══════════════════════════════════════════════
@@ -84,14 +322,18 @@ export interface L5Item {
   l3Name?: string;
   l2Name?: string;
   isManual?: boolean;
-  /* ── extended metadata ── */
-  actors?: { exec: string; hr: string; teamlead: string; member: string };
+  /** CSV 출처의 variant — 노드 직렬화 시 variant 보존용 */
+  variant?: CsvVariant;
+  /* ── extended metadata ──
+   * actors / systems 키는 variant 마다 다르므로 Record 로 느슨하게 둠.
+   * variant 와 함께 보면 어떤 키가 유효한지 판별 가능 (VARIANT_CONFIG 참고). */
+  actors?: Record<string, string>;
   mgrBody?: string;
   staffCount?: string;
   mainPerson?: string;
   avgTime?: string;
   freqCount?: string;
-  systems?: { hr: string; groupware: string; office: string; external: string; manual: string; etc: string };
+  systems?: Record<string, string>;
   painPoints?: { speed: string; accuracy: string; repeat: string; data: string; system: string; comm: string; etc: string };
   inputs?: { system: string; doc: string; external: string; request: string; etc: string };
   outputs?: { system: string; doc: string; comm: string; decision: string; etc: string };
@@ -158,8 +400,69 @@ export function extractL5ByL4(rows: CsvRow[], l4Id: string): L5Item[] {
   );
 }
 
-/** CsvRow → L5Item (모든 메타데이터 포함) */
+/* ── CsvRow 의 actor / system 셀 → variant 별 actors / systems 객체로 변환 ── */
+
+/** CSV 컬럼명 (예: "actor_exec") 으로 row 에서 값 읽기 */
+function readCsvCell(r: CsvRow, fieldKey: keyof CsvRow): string {
+  const v = r[fieldKey];
+  return typeof v === "string" ? v : "";
+}
+
+/** variant 별 actor key → CsvRow 의 컬럼명 매핑 */
+const ACTOR_KEY_TO_CSV_FIELD: Record<AnyActorKey, keyof CsvRow> = {
+  exec: "actor_exec",
+  hr: "actor_hr",
+  teamlead: "actor_teamlead",
+  member: "actor_member",
+  qvex_welfare: "actor_qvex_welfare",
+  qvex_purchase: "actor_qvex_purchase",
+  qvex_payroll: "actor_qvex_payroll",
+  qvex_manager: "actor_qvex_manager",
+  affiliate_employee: "actor_affiliate_employee",
+  affiliate_dept: "actor_affiliate_dept",
+};
+
+/** variant 별 system key → CsvRow 의 컬럼명 매핑 */
+const SYSTEM_KEY_TO_CSV_FIELD: Record<AnySystemKey, keyof CsvRow> = {
+  hr: "sys_hr",
+  groupware: "sys_groupware",
+  office: "sys_office",
+  external: "sys_external",
+  manual: "sys_manual",
+  etc: "sys_etc",
+  pnbs: "sys_pnbs",
+  doobuy: "sys_doobuy",
+  portal: "sys_portal",
+  eapproval: "sys_eapproval",
+  accounting: "sys_accounting",
+  ildong: "sys_ildong",
+  qvex_manual: "sys_qvex_manual",
+  ms_office: "sys_ms_office",
+  email_phone: "sys_email_phone",
+  pro_tool: "sys_pro_tool",
+};
+
+/** variant 의 actor 키 전체에 대해 CsvRow 에서 값을 읽어 actors 객체 생성 */
+function actorsFromRow(r: CsvRow, variant: CsvVariant): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const def of VARIANT_CONFIG[variant].actors) {
+    out[def.key] = readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[def.key]);
+  }
+  return out;
+}
+
+/** variant 의 system 키 전체에 대해 CsvRow 에서 값을 읽어 systems 객체 생성 */
+function systemsFromRow(r: CsvRow, variant: CsvVariant): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const def of VARIANT_CONFIG[variant].systems) {
+    out[def.key] = readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[def.key]);
+  }
+  return out;
+}
+
+/** CsvRow → L5Item (모든 메타데이터 포함, variant 자동 적용) */
 function buildL5Item(r: CsvRow): L5Item {
+  const variant = r._variant || "doosan-hr-4";
   return {
     id: r.L5_ID,
     name: r.L5_Name,
@@ -169,13 +472,14 @@ function buildL5Item(r: CsvRow): L5Item {
     l2Id: r.L2_ID,
     l3Name: r.L3_Name,
     l2Name: r["두산 L2"],
-    actors: { exec: r.actor_exec || "", hr: r.actor_hr || "", teamlead: r.actor_teamlead || "", member: r.actor_member || "" },
+    variant,
+    actors: actorsFromRow(r, variant),
     mgrBody: r.mgr_body || "",
     staffCount: r.staff_count || "",
     mainPerson: r.main_person || "",
     avgTime: r.avg_time || "",
     freqCount: r.freq_count || "",
-    systems: { hr: r.sys_hr || "", groupware: r.sys_groupware || "", office: r.sys_office || "", external: r.sys_external || "", manual: r.sys_manual || "", etc: r.sys_etc || "" },
+    systems: systemsFromRow(r, variant),
     painPoints: { speed: r.pp_speed || "", accuracy: r.pp_accuracy || "", repeat: r.pp_repeat || "", data: r.pp_data || "", system: r.pp_system || "", comm: r.pp_comm || "", etc: r.pp_etc || "" },
     inputs: { system: r.in_system || "", doc: r.in_doc || "", external: r.in_external || "", request: r.in_request || "", etc: r.in_etc || "" },
     outputs: { system: r.out_system || "", doc: r.out_doc || "", comm: r.out_comm || "", decision: r.out_decision || "", etc: r.out_etc || "" },
@@ -250,12 +554,13 @@ export function summarizeL3ForAI(rows: CsvRow[], l3Id: string): string {
     for (const l5 of l5s) {
       text += `    L5: ${l5.name} (${l5.id})`;
       if (l5.description) text += ` — ${l5.description}`;
-      // 수행주체 요약
+      // 수행주체 요약 (variant 별 actor key 순회)
+      const variant = l5.variant || "doosan-hr-4";
       const actorParts: string[] = [];
-      if (l5.actors?.exec) actorParts.push(`임원: ${l5.actors.exec}`);
-      if (l5.actors?.hr) actorParts.push(`HR: ${l5.actors.hr}`);
-      if (l5.actors?.teamlead) actorParts.push(`팀장: ${l5.actors.teamlead}`);
-      if (l5.actors?.member) actorParts.push(`구성원: ${l5.actors.member}`);
+      for (const def of VARIANT_CONFIG[variant].actors) {
+        const v = l5.actors?.[def.key];
+        if (v && v.trim()) actorParts.push(`${def.laneLabel}: ${v}`);
+      }
       if (actorParts.length > 0) text += ` [수행주체: ${actorParts.join(", ")}]`;
       if (l5.mainPerson) text += ` [주담당: ${l5.mainPerson}]`;
       if (l5.avgTime) text += ` [소요시간: ${l5.avgTime}]`;
@@ -446,21 +751,21 @@ export function buildFlowFromL3(
 /* ═══════════════════════════════════════════════
  * 4-b) SwimLane 자동 배치 — 수행주체 기반
  *
- * 레인 순서 (SwimLaneOverlay와 동일):
- *   0: 임원     (actor_exec)
- *   1: 팀장     (actor_teamlead)
- *   2: HR 담당자 (actor_hr)
- *   3: 구성원    (actor_member)
+ * variant 별 레인 순서:
+ *   doosan-hr-4    : 임원(0) → HR 담당자(1) → 팀장(2) → 구성원(3) — DOOSAN_HR_ACTORS 순서
+ *      ※ 단, 4분할 시트 (현업 임원 / 팀장 / HR 담당자 / 구성원) 와 6분할 (현업 임원 / 현업 팀장 / HR 임원 / HR 담당자 / 현업 구성원 / 그 외) 같은
+ *        커스텀 lanes 가 들어오는 경우는 별도 라벨 매핑(determineLaneLegacy) 으로 처리.
+ *   qvex-welfare-5 : QVEX_WELFARE_ACTORS 순서대로 lane 0~4
+ *   qvex-affairs-6 : QVEX_AFFAIRS_ACTORS 순서대로 lane 0~5
  *
- * 수행주체 열이 비어있지 않으면 해당 레인,
- * 여러 레인에 해당하면 가장 높은(우선순위 작은) 레인 사용,
- * 모두 비어있으면 HR 담당자 레인(2)에 기본 배치.
+ * 수행주체 열이 비어있지 않으면 해당 레인, 여러 레인에 해당하면 정의 순서상 첫 매칭.
+ * 모두 비어있으면 기본 레인(HR 또는 마지막 레인).
  * ═══════════════════════════════════════════════ */
 
 const SWIM_LANE_HEIGHT = 2400;
 
-/** 수행주체 열에서 레인 인덱스를 결정 (4레인) */
-function determineLane4(r: CsvRow): number {
+/** 두산 HR 4레인 (커스텀 라벨 lanes 가 없는 기본 시트) */
+function determineLaneDoosan4(r: CsvRow): number {
   if (r.actor_exec && r.actor_exec.trim()) return 0;
   if (r.actor_teamlead && r.actor_teamlead.trim()) return 1;
   if (r.actor_hr && r.actor_hr.trim()) return 2;
@@ -468,9 +773,8 @@ function determineLane4(r: CsvRow): number {
   return 2; // 기본: HR 담당자
 }
 
-/** 수행주체 열에서 레인 인덱스를 결정 (6레인) */
-function determineLane6(r: CsvRow): number {
-  // 임원(0), 현업 팀장(1), HR 임원(2), HR 담당자(3), 현업 구성원(4), 그 외(5)
+/** 두산 HR 6레인 (현업 임원 / 현업 팀장 / HR 임원 / HR 담당자 / 현업 구성원 / 그 외) */
+function determineLaneDoosan6(r: CsvRow): number {
   if (r.actor_exec && r.actor_exec.trim()) return 0;
   if (r.actor_teamlead && r.actor_teamlead.trim()) return 1;
   if (r.actor_hr && r.actor_hr.trim()) return 3;
@@ -478,7 +782,24 @@ function determineLane6(r: CsvRow): number {
   return 5; // 기본: 그 외
 }
 
-/** SwimLane에 맞춰 L5 노드를 배치하는 빌더 */
+/** variant 의 actor 순서로 lane 결정. 모두 비면 마지막 lane 으로 폴백 */
+function determineLaneByVariant(r: CsvRow, variant: CsvVariant): number {
+  const defs = VARIANT_CONFIG[variant].actors;
+  for (let i = 0; i < defs.length; i++) {
+    const v = readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[defs[i].key]);
+    if (v && v.trim()) return i;
+  }
+  // 폴백: HR 담당자(doosan) 또는 마지막 lane
+  return variant === "doosan-hr-4" ? Math.min(2, defs.length - 1) : defs.length - 1;
+}
+
+/** SwimLane에 맞춰 L5 노드를 배치하는 빌더
+ *
+ * 레인 매핑 우선순위:
+ *   1) row 의 _variant 가 qvex-* 이면 → variant 의 actor 순서대로 매핑
+ *   2) lanes 배열 길이로 추정 (4 = doosan-hr-4, 6 = doosan-hr-6 레인 라벨)
+ *   3) 폴백: doosan-hr-4
+ */
 export function buildSwimLaneFlowFromL3(
   rows: CsvRow[],
   selectedL3Id: string,
@@ -489,8 +810,26 @@ export function buildSwimLaneFlowFromL3(
 
   const laneCount = lanes?.length ?? 4;
   const SWIM_LANE_H = SWIM_LANE_HEIGHT / laneCount;
-  const determineLane = laneCount <= 4 ? determineLane4 : determineLane6;
-  const defaultL4Lane = laneCount <= 4 ? 2 : 3; // HR 담당자 레인
+
+  /* row 단위로 lane 결정 (variant 우선, fallback = laneCount 기반) */
+  const determineLane = (r: CsvRow): number => {
+    const v = r._variant || "doosan-hr-4";
+    if (v === "qvex-welfare-5" || v === "qvex-affairs-6") {
+      return determineLaneByVariant(r, v);
+    }
+    // doosan-hr-4: 화면 lane 수에 따라 4분할/6분할 라벨 매핑
+    return laneCount <= 4 ? determineLaneDoosan4(r) : determineLaneDoosan6(r);
+  };
+
+  /* L4 노드를 배치할 기본 레인 — 변형별 차이를 흡수 */
+  const sampleVariant = rows.find((r) => r.L3_ID === selectedL3Id)?._variant || "doosan-hr-4";
+  const defaultL4Lane = (() => {
+    if (sampleVariant === "qvex-welfare-5" || sampleVariant === "qvex-affairs-6") {
+      // 큐벡스: 첫 번째 lane(큐벡스 총무/복리후생 담당자) 아래에 L4 배치
+      return 0;
+    }
+    return laneCount <= 4 ? 2 : 3; // doosan: HR 담당자 레인
+  })();
 
   const l3Rows = rows.filter((r) => r.L3_ID === selectedL3Id);
   if (l3Rows.length === 0) return { nodes, edges };
@@ -633,18 +972,53 @@ export function buildSwimLaneFlowFromL3(
  *   4: L4_ID, 5: L4_Name, 6: L4_Description,
  *   7: L5_ID, 8: L5_Name, 9: L5_Description
  */
-const FIELD_KEYS: (keyof CsvRow)[] = [
+const HIERARCHY_KEYS: (keyof CsvRow)[] = [
   "L2_ID", "두산 L2", "L3_ID", "L3_Name",
   "L4_ID", "L4_Name", "L4_Description",
   "L5_ID", "L5_Name", "L5_Description",
-  /* index 10~43: 새 열 */
-  "actor_exec", "actor_hr", "actor_teamlead", "actor_member",
+];
+
+const COMMON_META_KEYS: (keyof CsvRow)[] = [
   "mgr_body", "staff_count", "main_person", "avg_time", "freq_count",
-  "sys_hr", "sys_groupware", "sys_office", "sys_external", "sys_manual", "sys_etc",
+];
+const COMMON_PP_KEYS: (keyof CsvRow)[] = [
   "pp_speed", "pp_accuracy", "pp_repeat", "pp_data", "pp_system", "pp_comm", "pp_etc",
+];
+const COMMON_INPUT_KEYS: (keyof CsvRow)[] = [
   "in_system", "in_doc", "in_external", "in_request", "in_etc",
+];
+const COMMON_OUTPUT_KEYS: (keyof CsvRow)[] = [
   "out_system", "out_doc", "out_comm", "out_decision", "out_etc",
+];
+const COMMON_LOGIC_KEYS: (keyof CsvRow)[] = [
   "logic_rule", "logic_human", "logic_mixed",
+];
+
+/** variant 별 actor + system FIELD_KEYS — VARIANT_CONFIG 의 키 순서대로 CsvRow 컬럼명 생성 */
+function fieldKeysForVariant(variant: CsvVariant): (keyof CsvRow)[] {
+  const cfg = VARIANT_CONFIG[variant];
+  return [
+    ...HIERARCHY_KEYS,
+    ...cfg.actors.map((a) => ACTOR_KEY_TO_CSV_FIELD[a.key]),
+    ...COMMON_META_KEYS,
+    ...cfg.systems.map((s) => SYSTEM_KEY_TO_CSV_FIELD[s.key]),
+    ...COMMON_PP_KEYS,
+    ...COMMON_INPUT_KEYS,
+    ...COMMON_OUTPUT_KEYS,
+    ...COMMON_LOGIC_KEYS,
+  ];
+}
+
+/** CsvRow 의 모든 string 필드 키 — 미초기화 필드를 빈 문자열로 채울 때 사용 */
+const ALL_CSV_ROW_STRING_KEYS: (keyof CsvRow)[] = [
+  ...HIERARCHY_KEYS,
+  ...(Object.values(ACTOR_KEY_TO_CSV_FIELD) as (keyof CsvRow)[]),
+  ...COMMON_META_KEYS,
+  ...(Object.values(SYSTEM_KEY_TO_CSV_FIELD) as (keyof CsvRow)[]),
+  ...COMMON_PP_KEYS,
+  ...COMMON_INPUT_KEYS,
+  ...COMMON_OUTPUT_KEYS,
+  ...COMMON_LOGIC_KEYS,
 ];
 
 export function parseCsv(text: string): CsvRow[] {
@@ -656,7 +1030,11 @@ export function parseCsv(text: string): CsvRow[] {
   const lines = clean.split("\n");
   if (lines.length < 2) return [];
 
-  // 헤더 라인 파싱 (실제 헤더 이름은 무시하고, 인덱스 순서로 매핑)
+  // 헤더 라인 → variant 자동 감지 + variant 별 fieldKeys 결정
+  const headerCells = parseCSVLine(lines[0]).map((s) => s.trim());
+  const variant = detectCsvVariant(headerCells);
+  const fieldKeys = fieldKeysForVariant(variant);
+
   const rows: CsvRow[] = [];
 
   // Multi-line CSV 처리
@@ -673,15 +1051,18 @@ export function parseCsv(text: string): CsvRow[] {
     if (line.trim() === "") continue;
 
     const values = parseCSVLine(line);
+    /* 모든 가능한 CsvRow 컬럼을 빈 문자열로 초기화 (variant 외 필드도 안전한 기본값) */
     const row: Record<string, string> = {};
-    const len = Math.min(values.length, FIELD_KEYS.length);
+    for (const k of ALL_CSV_ROW_STRING_KEYS) {
+      row[k as string] = "";
+    }
+    /* variant 의 fieldKeys 순서대로 값 채우기 */
+    const len = Math.min(values.length, fieldKeys.length);
     for (let h = 0; h < len; h++) {
-      row[FIELD_KEYS[h]] = (values[h] ?? "").trim();
+      row[fieldKeys[h] as string] = (values[h] ?? "").trim();
     }
-    // 부족한 필드는 빈 문자열로 채움
-    for (let h = len; h < FIELD_KEYS.length; h++) {
-      row[FIELD_KEYS[h]] = "";
-    }
+    /* variant 디스크리미네이터 */
+    (row as unknown as CsvRow)._variant = variant;
     rows.push(row as unknown as CsvRow);
   }
 
@@ -728,33 +1109,84 @@ function parseCSVLine(line: string): string[] {
 }
 
 /* ═══════════════════════════════════════════════
- * 캔버스 노드 → 원본 PwC 템플릿 44-컬럼 CSV 문자열 생성
+ * 캔버스 노드 → 원본 PwC 템플릿 (variant별 컬럼) CSV 문자열 생성
  * ═══════════════════════════════════════════════ */
-
-const TEMPLATE_HEADER = [
-  "ID", "두산 L2", "ID", "Name", "ID", "Name", "Description",
-  "ID", "Name", "Description",
-  "수행주체_임원", "수행주체_HR", "수행주체_현업 팀장", "수행주체_현업 구성원",
-  "관리주체", "담당자 수", "주 담당자", "평균 건당 소요시간", "발생 빈도_건수",
-  "사용 시스템_HR 전용시스템", "사용 시스템_그룹웨어_협업툴", "사용 시스템_오피스_문서도구",
-  "사용 시스템_외부_연동시스템", "사용 시스템_수작업_오프라인", "사용 시스템_기타 전문 Tool",
-  "Pain Point_시간_속도", "Pain Point_정확성", "Pain Point_반복/수작업",
-  "Pain Point_정보_데이터", "Pain Point_시스템_도구", "Pain Point_의사소통_협업", "Pain Point_기타",
-  "Input_시스템 데이터", "Input_문서_서류", "Input_외부 정보", "Input_구두_메일 요청", "Input_기타",
-  "Output_시스템 반영", "Output_문서_보고서", "Output_커뮤니케이션", "Output_의사결정", "Output_기타",
-  "업무 판단 로직_Rule_based", "업무 판단 로직_사람 판단", "업무 판단 로직_혼합",
-];
 
 function nd(n: Node): Record<string, unknown> {
   return (n.data || {}) as Record<string, unknown>;
 }
 
+/** csvRows / nodes 로부터 export 시 사용할 variant 추정 (없으면 doosan-hr-4) */
+function inferExportVariant(csvRows?: CsvRow[], nodes?: Node[]): CsvVariant {
+  const fromRows = csvRows && csvRows.length > 0 ? csvRows[0]._variant : undefined;
+  if (fromRows) return fromRows;
+  if (nodes) {
+    for (const n of nodes) {
+      const v = (nd(n)._variant as CsvVariant | undefined);
+      if (v) return v;
+    }
+  }
+  return "doosan-hr-4";
+}
+
+/** variant 별 컬럼 순서대로 actor 값 배열 생성 */
+function actorColumnsByVariant(variant: CsvVariant, actors?: Record<string, string>): string[] {
+  return VARIANT_CONFIG[variant].actors.map((a) => actors?.[a.key] || "");
+}
+
+/** variant 별 컬럼 순서대로 system 값 배열 생성 */
+function systemColumnsByVariant(variant: CsvVariant, systems?: Record<string, string>): string[] {
+  return VARIANT_CONFIG[variant].systems.map((s) => systems?.[s.key] || "");
+}
+
+/** roleStr (콤마 구분 라벨) → variant 별 actor 컬럼 값 배열.
+ *  라벨이 매칭되면 기존 actors 값(있으면) 또는 "O" 로 채움. */
+function actorColumnsFromRole(
+  variant: CsvVariant,
+  roleStr: string,
+  actors?: Record<string, string>,
+): string[] {
+  const parts = roleStr.split(",").map((s) => s.trim());
+  return VARIANT_CONFIG[variant].actors.map((a) => {
+    if (parts.includes(a.roleLabel)) {
+      return actors?.[a.key] || "O";
+    }
+    return "";
+  });
+}
+
+/** CsvRow → variant 컬럼 순서대로 string[] 데이터 행 (헤더 제외) */
+function originalRowAsCsvCols(r: CsvRow): string[] {
+  const variant = r._variant || "doosan-hr-4";
+  const actorCols = VARIANT_CONFIG[variant].actors.map(
+    (a) => readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[a.key]),
+  );
+  const systemCols = VARIANT_CONFIG[variant].systems.map(
+    (s) => readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[s.key]),
+  );
+  return [
+    r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
+    r.L5_ID, r.L5_Name, r.L5_Description,
+    ...actorCols,
+    r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
+    ...systemCols,
+    r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
+    r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
+    r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
+    r.logic_rule, r.logic_human, r.logic_mixed,
+  ];
+}
+
 /**
- * 캔버스 노드 배열을 원본 PwC 템플릿(44-컬럼) CSV 문자열로 변환.
+ * 캔버스 노드 배열을 원본 PwC 템플릿 CSV 문자열로 변환 (variant 별 컬럼 수 다름).
  * 계층 관계는 (1) 노드에 저장된 명시적 부모 참조(l4Id, l3Id, l2Id)와
  * (2) ID 접두어(예: "1.1.1" → 부모 "1.1")를 함께 활용하여 복원합니다.
  */
 export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): string {
+  const variant = inferExportVariant(csvRows, nodes);
+  const headers = templateHeadersForVariant(variant);
+  const totalCols = headers.length;
+  const cfg = VARIANT_CONFIG[variant];
   /* ── CSV rows lookup (L4_ID → CsvRow) for parent hierarchy fallback ── */
   const csvByL4 = new Map<string, CsvRow>();
   if (csvRows) {
@@ -819,7 +1251,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
 
     /* ── L4 parent ── */
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
-    let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
+    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
     let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
     let l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
 
@@ -859,22 +1291,28 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const d3 = l3Node ? nd(l3Node) : {};
     const d2 = l2Node ? nd(l2Node) : {};
 
+    /* variant 별 actor / system 컬럼 — 노드의 _variant 가 있으면 우선 사용 */
+    const rowVariant = ((d5._variant as CsvVariant | undefined) || variant);
+    const actorCols = actorColumnsByVariant(rowVariant, actors);
+    const systemCols = systemColumnsByVariant(rowVariant, systems);
+
     dataRows.push([
       /* 0-1  L2 */ l2Id, l2Label || (d2.label as string) || "",
       /* 2-3  L3 */ l3Id, l3Label || (d3.label as string) || "",
       /* 4-6  L4 */ l4Id, l4Label || (d4.label as string) || "", l4Desc || (d4.description as string) || "",
       /* 7-9  L5 */ l5Id, (d5.label as string) || "", (d5.description as string) || "",
-      /* 10-13 수행주체 */ actors?.exec || "", actors?.hr || "", actors?.teamlead || "", actors?.member || "",
-      /* 14    관리주체 */ (d5.mgrBody as string) || "",
-      /* 15    담당자수 */ (d5.staffCount as string) || "",
-      /* 16    주담당자 */ (d5.mainPerson as string) || "",
-      /* 17    소요시간 */ (d5.avgTime as string) || "",
-      /* 18    빈도    */ (d5.freqCount as string) || "",
-      /* 19-24 시스템  */ systems?.hr || "", systems?.groupware || "", systems?.office || "", systems?.external || "", systems?.manual || "", systems?.etc || "",
-      /* 24-30 PP     */ pp?.speed || "", pp?.accuracy || "", pp?.repeat || "", pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
-      /* 31-35 Input  */ inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
-      /* 36-40 Output */ out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
-      /* 41-43 Logic  */ logic?.rule || "", logic?.human || "", logic?.mixed || "",
+      /* 수행주체 (variant 별) */ ...actorCols,
+      /* 관리주체/담당자수/주담당자/소요시간/빈도 */
+      (d5.mgrBody as string) || "",
+      (d5.staffCount as string) || "",
+      (d5.mainPerson as string) || "",
+      (d5.avgTime as string) || "",
+      (d5.freqCount as string) || "",
+      /* 사용 시스템 (variant 별) */ ...systemCols,
+      /* PP */     pp?.speed || "", pp?.accuracy || "", pp?.repeat || "", pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
+      /* Input */  inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", inp?.etc || "",
+      /* Output */ out?.system || "", out?.doc || "", out?.comm || "", out?.decision || "", out?.etc || "",
+      /* Logic */  logic?.rule || "", logic?.human || "", logic?.mixed || "",
     ]);
   }
 
@@ -891,7 +1329,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
     if (l3Id) coveredL3.add(l3Id);
     if (l2Id) coveredL2.add(l2Id);
-    const row: string[] = new Array(45).fill("");
+    const row: string[] = new Array(totalCols).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
     row[4] = l4Id; row[5] = (d4.label as string) || ""; row[6] = (d4.description as string) || "";
@@ -907,7 +1345,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const d2 = l2Node ? nd(l2Node) : {};
     const l2Id = l2Node ? (nd(l2Node).id as string) || "" : "";
     if (l2Id) coveredL2.add(l2Id);
-    const row: string[] = new Array(45).fill("");
+    const row: string[] = new Array(totalCols).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     row[2] = l3Id; row[3] = (d3.label as string) || "";
     dataRows.push(row);
@@ -918,7 +1356,7 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
     if (coveredL2.has(l2Id)) continue;
     const d2 = nd(l2Node);
-    const row: string[] = new Array(45).fill("");
+    const row: string[] = new Array(totalCols).fill("");
     row[0] = l2Id; row[1] = (d2.label as string) || "";
     dataRows.push(row);
   }
@@ -936,9 +1374,10 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
   /* ── BOM + 헤더 + 행 → CSV 문자열 ── */
   const bom = "\uFEFF";
   const lines = [
-    TEMPLATE_HEADER.map(esc).join(","),
+    headers.map(esc).join(","),
     ...dataRows.map((row) => row.map(esc).join(",")),
   ];
+  void cfg; // cfg 는 향후 확장 시 사용 (lint 회피)
   return bom + lines.join("\n");
 }
 
@@ -976,20 +1415,14 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     return prefix ? map.get(prefix) : undefined;
   };
 
-  const colsFromCsvRow = (r: CsvRow): string[] => [
-    r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
-    r.L5_ID, r.L5_Name, r.L5_Description,
-    r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
-    r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
-    r.sys_hr, r.sys_groupware, r.sys_office, r.sys_external, r.sys_manual, r.sys_etc,
-    r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
-    r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
-    r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
-    r.logic_rule, r.logic_human, r.logic_mixed,
-  ];
+  /* 원본 CSV 행을 variant 별 컬럼 순서로 직렬화 */
+  const colsFromCsvRow = (r: CsvRow): string[] => originalRowAsCsvCols(r);
 
+  /* 캔버스 노드 + 원본 CSV 행을 variant 별 컬럼 순서로 머지하여 직렬화 */
   const colsFromNode = (r: CsvRow, n: Node): string[] => {
     const d = nd(n);
+    const variant: CsvVariant = (d._variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
+    const cfg = VARIANT_CONFIG[variant];
     const actors = d.actors as Record<string, string> | undefined;
     const systems = d.systems as Record<string, string> | undefined;
     const pp = d.painPoints as Record<string, string> | undefined;
@@ -1003,38 +1436,36 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const inputStr = d.inputData as string | null | undefined;
     const outputStr = d.outputData as string | null | undefined;
 
-    /* 수행 주체: role이 저장된 경우 역매핑 → actor 열 결정
-       role이 없으면 기존 structured actors 사용 */
-    let actorExec = actors?.exec ?? r.actor_exec;
-    let actorHr = actors?.hr ?? r.actor_hr;
-    let actorTeamlead = actors?.teamlead ?? r.actor_teamlead;
-    let actorMember = actors?.member ?? r.actor_member;
-    if (roleStr != null) {
-      const parts = roleStr.split(",").map((s) => s.trim());
-      actorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
-      actorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
-      actorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
-      actorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
-    }
+    /* 수행 주체 컬럼 (variant 순서):
+       role 문자열이 있으면 라벨 매칭으로 채우고, 없으면 structured actors → 폴백 CSV row 값 */
+    const actorCols: string[] = roleStr != null
+      ? actorColumnsFromRole(variant, roleStr, actors)
+      : cfg.actors.map((a) => actors?.[a.key] ?? readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[a.key]));
 
-    /* 사용 시스템: 사용자가 flat 텍스트로 편집했으면 sys_etc에 기록, 나머지는 structured 유지 */
-    const sysEtc = systemStr != null ? systemStr : (systems?.etc ?? r.sys_etc);
+    /* 사용 시스템 컬럼 (variant 순서):
+       structured systems 우선, 없으면 CSV row 폴백.
+       추가로 사용자가 flat textarea 로 편집한 systemStr 가 있으면, doosan-hr-4 의 etc 컬럼에 기록 */
+    const systemCols: string[] = cfg.systems.map(
+      (s) => systems?.[s.key] ?? readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[s.key]),
+    );
+    if (systemStr != null && variant === "doosan-hr-4") {
+      const etcIdx = cfg.systems.findIndex((s) => s.key === "etc");
+      if (etcIdx >= 0) systemCols[etcIdx] = systemStr;
+    }
 
     /* Input / Output: 사용자가 편집했으면 in_etc / out_etc에 기록 */
     const inEtc = inputStr != null ? inputStr : (inp?.etc ?? r.in_etc);
     const outEtc = outputStr != null ? outputStr : (out?.etc ?? r.out_etc);
 
-    /* 메타데이터 필드는 ?? (nullish) 사용 — 빈 문자열("")도 노드 자신의 값으로 유지.
-       || 사용 시 ID 재번호 후 잘못 매칭된 CSV 행의 값이 오염됨 */
+    /* 메타데이터 필드는 ?? (nullish) 사용 — 빈 문자열("")도 노드 자신의 값으로 유지. */
     return [
       r.L2_ID, r["두산 L2"], r.L3_ID, r.L3_Name, r.L4_ID, r.L4_Name, r.L4_Description,
       r.L5_ID, (d.label as string) || r.L5_Name, (d.description as string) || r.L5_Description,
-      actorExec, actorHr, actorTeamlead, actorMember,
+      ...actorCols,
       (d.mgrBody as string) ?? r.mgr_body, (d.staffCount as string) ?? r.staff_count,
       (d.mainPerson as string) ?? r.main_person, (d.avgTime as string) ?? r.avg_time,
       (d.freqCount as string) ?? r.freq_count,
-      systems?.hr ?? r.sys_hr, systems?.groupware ?? r.sys_groupware,
-      systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, sysEtc,
+      ...systemCols,
       pp?.speed ?? r.pp_speed, pp?.accuracy ?? r.pp_accuracy, pp?.repeat ?? r.pp_repeat,
       pp?.data ?? r.pp_data, pp?.system ?? r.pp_system, pp?.comm ?? r.pp_comm, pp?.etc ?? r.pp_etc,
       inp?.system ?? r.in_system, inp?.doc ?? r.in_doc, inp?.external ?? r.in_external,
@@ -1092,7 +1523,7 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     if (l5Id && outputDisplayIds.has(l5Id)) continue;
     if (l5Id) outputDisplayIds.add(l5Id);
     const l4Node = findParent(l5Id, "L4", d5.l4Id as string);
-    let l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
+    const l4Id = l4Node ? (nd(l4Node).id as string) || "" : (d5.l4Id as string) || "";
     let l4Label = l4Node ? (nd(l4Node).label as string) || "" : (d5.l4Name as string) || "";
     let l4Desc = l4Node ? (nd(l4Node).description as string) || "" : "";
     const l3Node = l4Id ? findParent(l4Id, "L3", d5.l3Id as string) : undefined;
@@ -1125,19 +1556,25 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const inputStr5 = d5.inputData as string | null | undefined;
     const outputStr5 = d5.outputData as string | null | undefined;
 
-    let newActorExec = actors?.exec || "";
-    let newActorHr = actors?.hr || "";
-    let newActorTeamlead = actors?.teamlead || "";
-    let newActorMember = actors?.member || "";
-    if (roleStr5 != null) {
-      const parts = roleStr5.split(",").map((s) => s.trim());
-      newActorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
-      newActorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
-      newActorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
-      newActorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
+    /* variant 우선순위: 노드 _variant > 부모 csvByL4 row variant > 첫 csvRow > doosan-hr-4 */
+    const fallbackVariant: CsvVariant = csvRows[0]?._variant || "doosan-hr-4";
+    const newVariant: CsvVariant = (d5._variant as CsvVariant | undefined)
+      || (l4Id ? csvByL4.get(l4Id)?._variant : undefined)
+      || fallbackVariant;
+    const newCfg = VARIANT_CONFIG[newVariant];
+
+    /* 수행 주체 컬럼: role 라벨 매칭 → variant 별 actor 순서대로 채움 */
+    const newActorCols: string[] = roleStr5 != null
+      ? actorColumnsFromRole(newVariant, roleStr5, actors)
+      : newCfg.actors.map((a) => actors?.[a.key] || "");
+
+    /* 사용 시스템 컬럼: structured systems 우선; flat systemStr5 는 doosan-hr-4 의 etc 에 기록 */
+    const newSystemCols: string[] = newCfg.systems.map((s) => systems?.[s.key] || "");
+    if (systemStr5 != null && newVariant === "doosan-hr-4") {
+      const etcIdx = newCfg.systems.findIndex((s) => s.key === "etc");
+      if (etcIdx >= 0) newSystemCols[etcIdx] = systemStr5;
     }
 
-    const newSysEtc = systemStr5 != null ? systemStr5 : (systems?.etc || "");
     const newInEtc = inputStr5 != null ? inputStr5 : (inp?.etc || "");
     const newOutEtc = outputStr5 != null ? outputStr5 : (out?.etc || "");
 
@@ -1145,11 +1582,10 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
       cols: [
         l2Id, l2Label, l3Id, l3Label, l4Id, l4Label, l4Desc,
         l5Id, (d5.label as string) || "", (d5.description as string) || "",
-        newActorExec, newActorHr, newActorTeamlead, newActorMember,
+        ...newActorCols,
         (d5.mgrBody as string) || "", (d5.staffCount as string) || "",
         (d5.mainPerson as string) || "", (d5.avgTime as string) || "", (d5.freqCount as string) || "",
-        systems?.hr || "", systems?.groupware || "", systems?.office || "",
-        systems?.external || "", systems?.manual || "", newSysEtc,
+        ...newSystemCols,
         pp?.speed || "", pp?.accuracy || "", pp?.repeat || "",
         pp?.data || "", pp?.system || "", pp?.comm || "", pp?.etc || "",
         inp?.system || "", inp?.doc || "", inp?.external || "", inp?.request || "", newInEtc,
@@ -1217,6 +1653,9 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
  * 캔버스에 없는 L5도 원본 CSV 그대로 포함
  * ═══════════════════════════════════════════════ */
 export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
+  const variant = inferExportVariant(csvRows, nodes);
+  const headers = templateHeadersForVariant(variant);
+
   /* L5_ID → canvas node map (isManual 노드는 제외 — CSV 행과 충돌 방지) */
   const nodeByL5Id = new Map<string, Node>();
   for (const n of nodes) {
@@ -1252,23 +1691,13 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
     if (!node) {
       /* isManual 노드가 같은 ID 점유 → CSV 행 건너뜀 */
       if (r.L5_ID && manualL5IdsCsv.has(r.L5_ID)) continue;
-      /* 캔버스에 없는 행: 원본 CSV 그대로 */
-      dataRows.push([
-        r.L2_ID, r["두산 L2"],
-        r.L3_ID, r.L3_Name,
-        r.L4_ID, r.L4_Name, r.L4_Description,
-        r.L5_ID, r.L5_Name, r.L5_Description,
-        r.actor_exec, r.actor_hr, r.actor_teamlead, r.actor_member,
-        r.mgr_body, r.staff_count, r.main_person, r.avg_time, r.freq_count,
-        r.sys_hr, r.sys_groupware, r.sys_office, r.sys_external, r.sys_manual, r.sys_etc,
-        r.pp_speed, r.pp_accuracy, r.pp_repeat, r.pp_data, r.pp_system, r.pp_comm, r.pp_etc,
-        r.in_system, r.in_doc, r.in_external, r.in_request, r.in_etc,
-        r.out_system, r.out_doc, r.out_comm, r.out_decision, r.out_etc,
-        r.logic_rule, r.logic_human, r.logic_mixed,
-      ]);
+      /* 캔버스에 없는 행: 원본 CSV 그대로 (variant 별 컬럼 순서) */
+      dataRows.push(originalRowAsCsvCols(r));
     } else {
-      /* 캔버스 노드가 있는 행: 캔버스 값 우선, 없으면 원본 CSV 폴백 */
+      /* 캔버스 노드가 있는 행: 캔버스 값 우선, 없으면 원본 CSV 폴백 (variant 별 컬럼 순서) */
       const d = nd(node);
+      const rowVariant: CsvVariant = (d._variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
+      const cfg = VARIANT_CONFIG[rowVariant];
       const actors = d.actors as Record<string, string> | undefined;
       const systems = d.systems as Record<string, string> | undefined;
       const pp = d.painPoints as Record<string, string> | undefined;
@@ -1282,20 +1711,20 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
       const inputStr = d.inputData as string | null | undefined;
       const outputStr = d.outputData as string | null | undefined;
 
-      /* 수행 주체: role이 저장된 경우 역매핑 */
-      let actorExec = actors?.exec ?? r.actor_exec;
-      let actorHr = actors?.hr ?? r.actor_hr;
-      let actorTeamlead = actors?.teamlead ?? r.actor_teamlead;
-      let actorMember = actors?.member ?? r.actor_member;
-      if (roleStr != null) {
-        const parts = roleStr.split(",").map((s) => s.trim());
-        actorExec = parts.includes("임원 (=현업 임원)") ? (actors?.exec || "O") : "";
-        actorHr = parts.includes("HR") ? (actors?.hr || "O") : "";
-        actorTeamlead = parts.includes("현업 팀장") ? (actors?.teamlead || "O") : "";
-        actorMember = parts.includes("현업 구성원") ? (actors?.member || "O") : "";
+      /* 수행 주체 컬럼: role 라벨 매칭 → variant 별 actor 순서 */
+      const actorCols: string[] = roleStr != null
+        ? actorColumnsFromRole(rowVariant, roleStr, actors)
+        : cfg.actors.map((a) => actors?.[a.key] ?? readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[a.key]));
+
+      /* 사용 시스템 컬럼: structured systems 우선; flat systemStr 는 doosan-hr-4 의 etc 에 기록 */
+      const systemCols: string[] = cfg.systems.map(
+        (s) => systems?.[s.key] ?? readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[s.key]),
+      );
+      if (systemStr != null && rowVariant === "doosan-hr-4") {
+        const etcIdx = cfg.systems.findIndex((s) => s.key === "etc");
+        if (etcIdx >= 0) systemCols[etcIdx] = systemStr;
       }
 
-      const sysEtc = systemStr != null ? systemStr : (systems?.etc ?? r.sys_etc);
       const inEtc = inputStr != null ? inputStr : (inp?.etc ?? r.in_etc);
       const outEtc = outputStr != null ? outputStr : (out?.etc ?? r.out_etc);
 
@@ -1306,14 +1735,13 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
         r.L5_ID,
         (d.label as string) || r.L5_Name,
         (d.description as string) || r.L5_Description,
-        actorExec, actorHr, actorTeamlead, actorMember,
+        ...actorCols,
         (d.mgrBody as string) ?? r.mgr_body,
         (d.staffCount as string) ?? r.staff_count,
         (d.mainPerson as string) ?? r.main_person,
         (d.avgTime as string) ?? r.avg_time,
         (d.freqCount as string) ?? r.freq_count,
-        systems?.hr ?? r.sys_hr, systems?.groupware ?? r.sys_groupware,
-        systems?.office ?? r.sys_office, systems?.external ?? r.sys_external, systems?.manual ?? r.sys_manual, sysEtc,
+        ...systemCols,
         pp?.speed ?? r.pp_speed, pp?.accuracy ?? r.pp_accuracy, pp?.repeat ?? r.pp_repeat,
         pp?.data ?? r.pp_data, pp?.system ?? r.pp_system, pp?.comm ?? r.pp_comm, pp?.etc ?? r.pp_etc,
         inp?.system ?? r.in_system, inp?.doc ?? r.in_doc, inp?.external ?? r.in_external,
@@ -1327,7 +1755,7 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
 
   const bom = "\uFEFF";
   const lines = [
-    TEMPLATE_HEADER.map(esc).join(","),
+    headers.map(esc).join(","),
     ...dataRows.map((row) => row.map(esc).join(",")),
   ];
   return bom + lines.join("\n");

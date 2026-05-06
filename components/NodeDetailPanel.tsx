@@ -3,15 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Node } from "@xyflow/react";
 import { displayRole } from "@/lib/roleDisplay";
-
-/* ── 수행 주체 선택지 ── */
-const ROLE_OPTIONS = [
-  "임원 (=현업 임원)",
-  "HR",
-  "현업 팀장",
-  "현업 구성원",
-  "그 외",
-] as const;
+import {
+  type CsvVariant,
+  getRoleOptionsForVariant,
+  getActorDefsForVariant,
+  getSystemDefsForVariant,
+} from "@/lib/csvToFlow";
 
 export interface NodeMeta {
   memo?: string;
@@ -29,15 +26,16 @@ export interface NodeMeta {
   colSpan?: number;
 }
 
-/* ── L5 확장 메타 (CSV에서 자동 파싱된 읽기전용 데이터) ── */
+/* ── L5 확장 메타 (CSV에서 자동 파싱된 읽기전용 데이터) ──
+ * actors / systems 키 셋은 variant 마다 다르므로 Record 로 보관 */
 interface L5ExtMeta {
-  actors?: { exec: string; hr: string; teamlead: string; member: string };
+  actors?: Record<string, string>;
   mgrBody?: string;
   staffCount?: string;
   mainPerson?: string;
   avgTime?: string;
   freqCount?: string;
-  systems?: { hr: string; groupware: string; office: string; external: string; manual: string; etc: string };
+  systems?: Record<string, string>;
   painPoints?: { speed: string; accuracy: string; repeat: string; data: string; system: string; comm: string; etc: string };
   inputs?: { system: string; doc: string; external: string; request: string; etc: string };
   outputs?: { system: string; doc: string; comm: string; decision: string; etc: string };
@@ -46,6 +44,8 @@ interface L5ExtMeta {
 
 interface NodeDetailPanelProps {
   node: Node | null;
+  /** 활성 시트의 CSV variant — role / actor / system 라벨을 결정 */
+  variant?: CsvVariant;
   onClose: () => void;
   onUpdate: (nodeId: string, meta: NodeMeta) => void;
 }
@@ -78,20 +78,18 @@ function buildMetaString(data: unknown, labelMap: { key: string; label: string }
   return parts.join(" / ");
 }
 
-function getNodeMeta(node: Node): NodeMeta {
+function getNodeMeta(node: Node, variant: CsvVariant): NodeMeta {
   const d = node.data as Record<string, unknown>;
 
-  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 CSV systems 에서 실제 값 조합 */
+  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 variant 의 system 키 순서로 값 조합 */
   const sysObj = d.systems as Record<string, string> | undefined;
   let systemVal = (d.system as string) || "";
   if (!systemVal && sysObj) {
     const parts: string[] = [];
-    if (sysObj.hr?.trim()) parts.push(sysObj.hr.trim());
-    if (sysObj.groupware?.trim()) parts.push(sysObj.groupware.trim());
-    if (sysObj.office?.trim()) parts.push(sysObj.office.trim());
-    if (sysObj.external?.trim()) parts.push(sysObj.external.trim());
-    if (sysObj.manual?.trim()) parts.push(sysObj.manual.trim());
-    if (sysObj.etc?.trim()) parts.push(sysObj.etc.trim());
+    for (const def of getSystemDefsForVariant(variant)) {
+      const v = sysObj[def.key]?.trim();
+      if (v) parts.push(v);
+    }
     systemVal = parts.join(" / ");
   }
 
@@ -99,16 +97,15 @@ function getNodeMeta(node: Node): NodeMeta {
   const inputVal = (d.inputData as string) || buildMetaString(d.inputs, INPUT_LABEL_MAP);
   const outputVal = (d.outputData as string) || buildMetaString(d.outputs, OUTPUT_LABEL_MAP);
 
-  /* 수행주체: 명시적 role이 없으면 CSV actors에서 자동 맵핑 */
+  /* 수행주체: 명시적 role이 없으면 variant 의 actor 라벨로 자동 맵핑 */
   let roleVal = (d.role as string) || "";
   if (!roleVal) {
     const actors = d.actors as Record<string, string> | undefined;
     if (actors) {
       const parts: string[] = [];
-      if (actors.exec?.trim()) parts.push("임원 (=현업 임원)");
-      if (actors.hr?.trim()) parts.push("HR");
-      if (actors.teamlead?.trim()) parts.push("현업 팀장");
-      if (actors.member?.trim()) parts.push("현업 구성원");
+      for (const def of getActorDefsForVariant(variant)) {
+        if (actors[def.key]?.trim()) parts.push(def.roleLabel);
+      }
       roleVal = parts.join(", ");
     }
   }
@@ -128,12 +125,15 @@ function getNodeMeta(node: Node): NodeMeta {
   };
 }
 
-export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailPanelProps) {
+export default function NodeDetailPanel({ node, variant = "doosan-hr-4", onClose, onUpdate }: NodeDetailPanelProps) {
   const [meta, setMeta] = useState<NodeMeta>({});
 
+  /* variant 의 역할 토글 라벨 + "그 외" — variant 가 바뀌면 재계산 */
+  const ROLE_OPTIONS = [...getRoleOptionsForVariant(variant), "그 외"] as const;
+
   useEffect(() => {
-    if (node) setMeta(getNodeMeta(node));
-  }, [node]);
+    if (node) setMeta(getNodeMeta(node, variant));
+  }, [node, variant]);
 
   const handleSave = useCallback(() => {
     if (!node) return;
@@ -164,11 +164,17 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
     logic: d.logic as L5ExtMeta["logic"],
   } : null;
 
+  /* variant 별 actor/system 정의 */
+  const actorDefs = getActorDefsForVariant(variant);
+  const systemDefs = getSystemDefsForVariant(variant);
+  const hasAnyActor = !!actorDefs.find((a) => ext?.actors?.[a.key]?.trim());
+  const hasAnySystem = !!systemDefs.find((s) => ext?.systems?.[s.key]?.trim());
+
   /* 확장 메타 중 데이터가 하나라도 있는지 */
   const hasExt = ext && (
-    ext.actors?.exec || ext.actors?.hr || ext.actors?.teamlead || ext.actors?.member ||
+    hasAnyActor ||
     ext.mgrBody || ext.staffCount || ext.mainPerson || ext.avgTime || ext.freqCount ||
-    ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.external || ext.systems?.manual || ext.systems?.etc ||
+    hasAnySystem ||
     ext.painPoints?.speed || ext.painPoints?.accuracy || ext.painPoints?.repeat || ext.painPoints?.data || ext.painPoints?.system || ext.painPoints?.comm || ext.painPoints?.etc ||
     ext.inputs?.system || ext.inputs?.doc || ext.inputs?.external || ext.inputs?.request || ext.inputs?.etc ||
     ext.outputs?.system || ext.outputs?.doc || ext.outputs?.comm || ext.outputs?.decision || ext.outputs?.etc ||
@@ -419,15 +425,20 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
           <div className="border-t border-gray-200 pt-4 mt-2 space-y-3">
             <h4 className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">📋 CSV 자동 파싱 정보</h4>
 
-            {/* 수행주체 */}
-            {(ext.actors?.exec || ext.actors?.hr || ext.actors?.teamlead || ext.actors?.member) && (
+            {/* 수행주체 (variant 별) */}
+            {hasAnyActor && (
               <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
                 <div className="text-[10px] font-bold text-gray-500 uppercase">수행주체</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {ext.actors?.exec && <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">임원: {ext.actors.exec}</span>}
-                  {ext.actors?.hr && <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">HR: {ext.actors.hr}</span>}
-                  {ext.actors?.teamlead && <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">팀장: {ext.actors.teamlead}</span>}
-                  {ext.actors?.member && <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">구성원: {ext.actors.member}</span>}
+                  {actorDefs.map((def) => {
+                    const v = ext.actors?.[def.key]?.trim();
+                    if (!v) return null;
+                    return (
+                      <span key={def.key} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {def.laneLabel}: {v}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -449,16 +460,22 @@ export default function NodeDetailPanel({ node, onClose, onUpdate }: NodeDetailP
               </div>
             )}
 
-            {/* 사용 시스템 */}
-            {(ext.systems?.hr || ext.systems?.groupware || ext.systems?.office || ext.systems?.manual || ext.systems?.etc) && (
+            {/* 사용 시스템 (variant 별) — qvex 변형은 동그라미("O") 마크, doosan-hr-4 는 텍스트 */}
+            {hasAnySystem && (
               <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
                 <div className="text-[10px] font-bold text-gray-500 uppercase">사용 시스템</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {ext.systems?.hr && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">HR: {ext.systems.hr}</span>}
-                  {ext.systems?.groupware && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">그룹웨어: {ext.systems.groupware}</span>}
-                  {ext.systems?.office && <span className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">오피스: {ext.systems.office}</span>}
-                  {ext.systems?.manual && <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700">수작업: {ext.systems.manual}</span>}
-                  {ext.systems?.etc && <span className="text-[10px] px-2 py-0.5 rounded bg-gray-200 text-gray-700">기타: {ext.systems.etc}</span>}
+                  {systemDefs.map((def) => {
+                    const v = ext.systems?.[def.key]?.trim();
+                    if (!v) return null;
+                    /* qvex 변형은 값이 "O" 등 마커이므로 라벨만 강조, doosan-hr-4 는 "라벨: 값" 형태 */
+                    const isMarker = variant !== "doosan-hr-4";
+                    return (
+                      <span key={def.key} className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">
+                        {isMarker ? def.displayLabel : `${def.displayLabel}: ${v}`}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
