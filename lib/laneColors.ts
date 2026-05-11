@@ -57,6 +57,12 @@ const PALETTE: Record<string, LaneAccent> = {
   "계열사 주관부서(현업 포함)": HUMAN,
   "계열사 주관부서(현업부서 포함)": HUMAN,
   "계열사 주관부서(현업부서_포함)": HUMAN,
+  // 큐벡스 급여 variant lane (qvex-payroll-7) — "팀장"·"계열사 임직원"은 위에 이미 있어 생략
+  "큐벡스ps 실무담당자": HUMAN,
+  "큐벡스bs": HUMAN,
+  "계열사 hr/er": HUMAN,
+  "계열사 회계/세무/재무": HUMAN,
+  "대외 담당자": HUMAN,
 };
 
 /**

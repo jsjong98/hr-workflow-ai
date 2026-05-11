@@ -1,10 +1,11 @@
 /* ─────────────────────────────────────────────
  * CSV → React Flow Nodes & Edges 변환 유틸리티
  *
- * 3개의 CSV 스키마 variant 지원:
+ * 4개의 CSV 스키마 variant 지원:
  *  - doosan-hr-4   : 기존 두산 HR (4 actor + 6 system)
  *  - qvex-welfare-5: 큐벡스 복리후생 (5 actor + 10 system)
  *  - qvex-affairs-6: 큐벡스 총무   (6 actor + 10 system)
+ *  - qvex-payroll-7: 큐벡스 급여   (7 actor + 10 system)
  *
  * variant 는 CSV 헤더에서 자동 감지(parseCsv) 또는 시트 프리셋에서 명시 설정.
  * actor/system 구조가 variant 마다 다르므로 VARIANT_CONFIG 를 단일 진실 원천(SoT)으로 사용.
@@ -12,17 +13,25 @@
 
 import { MarkerType, type Node, type Edge } from "@xyflow/react";
 
-export type CsvVariant = "doosan-hr-4" | "qvex-welfare-5" | "qvex-affairs-6";
+export type CsvVariant = "doosan-hr-4" | "qvex-welfare-5" | "qvex-affairs-6" | "qvex-payroll-7";
 
 /** 각 variant 의 actor 키 목록 (= 노드 actors 객체의 키) */
 export type DoosanHrActorKey = "exec" | "hr" | "teamlead" | "member";
 export type QvexActorKey =
+  // welfare-5 / affairs-6
   | "qvex_welfare"
   | "qvex_purchase"
   | "qvex_payroll"
   | "qvex_manager"
   | "affiliate_employee"
-  | "affiliate_dept";
+  | "affiliate_dept"
+  // payroll-7
+  | "qvex_ps"
+  | "payroll_teamlead"
+  | "qvex_bs"
+  | "affiliate_hr_er"
+  | "affiliate_finance"
+  | "external_partner";
 export type AnyActorKey = DoosanHrActorKey | QvexActorKey;
 
 /** 각 variant 의 system 키 목록 (= 노드 systems 객체의 키) */
@@ -114,6 +123,27 @@ const QVEX_AFFAIRS_ACTORS: ActorDef<QvexActorKey>[] = [
   { key: "affiliate_dept",     csvHeader: "수행주체_계열사_주관부서(현업부서_포함)", laneLabel: "계열사 주관부서(현업 포함)", roleLabel: "계열사 주관부서(현업 포함)" },
 ];
 
+/** 큐벡스 급여 — 7 actor (큐벡스PS/팀장/큐벡스BS/계열사 HR·ER/계열사 회계·세무·재무/계열사 임직원/대외 담당자) */
+const QVEX_PAYROLL_ACTORS: ActorDef<QvexActorKey>[] = [
+  { key: "qvex_ps",            csvHeader: "수행주체_실무담당자(큐벡스PS)",  laneLabel: "큐벡스PS 실무담당자",       roleLabel: "큐벡스PS 실무담당자" },
+  { key: "payroll_teamlead",   csvHeader: "수행주체_팀장",                    laneLabel: "팀장",                        roleLabel: "팀장" },
+  { key: "qvex_bs",            csvHeader: "수행주체_큐벡스BS",                laneLabel: "큐벡스BS",                    roleLabel: "큐벡스BS" },
+  { key: "affiliate_hr_er",    csvHeader: "수행주체_계열사_HR_ER",            laneLabel: "계열사 HR/ER",               roleLabel: "계열사 HR/ER" },
+  { key: "affiliate_finance",  csvHeader: "수행주체_계열사_회계사_세무_재무", laneLabel: "계열사 회계/세무/재무",       roleLabel: "계열사 회계/세무/재무" },
+  { key: "affiliate_employee", csvHeader: "수행주체_계열사_임직원",            laneLabel: "계열사 임직원",              roleLabel: "계열사 임직원" },
+  { key: "external_partner",   csvHeader: "수행주체_대외_담당자",             laneLabel: "대외 담당자",                roleLabel: "대외 담당자" },
+];
+
+/** 큐벡스 급여 — doosan 과 같은 텍스트 시스템이지만 외부_연동시스템 컬럼이 빠진 5종.
+ *  키는 doosan-hr-4 와 재사용(같은 의미·같은 CsvRow 필드). */
+const QVEX_PAYROLL_SYSTEMS: SystemDef<DoosanHrSystemKey>[] = [
+  { key: "hr",        csvHeader: "사용 시스템_HR 전용시스템",  displayLabel: "HR" },
+  { key: "groupware", csvHeader: "사용 시스템_그룹웨어_협업툴", displayLabel: "그룹웨어" },
+  { key: "office",    csvHeader: "사용 시스템_오피스_문서도구", displayLabel: "오피스" },
+  { key: "manual",    csvHeader: "사용 시스템_수작업_오프라인", displayLabel: "수작업" },
+  { key: "etc",       csvHeader: "사용 시스템_기타 전문 Tool",  displayLabel: "기타" },
+];
+
 /** 큐벡스 복리후생/총무 둘 다 동일한 10개 system 컬럼 사용 */
 const QVEX_SYSTEMS: SystemDef<QvexSystemKey>[] = [
   { key: "pnbs",        csvHeader: "사용 시스템_PnBS",                 displayLabel: "PnBS" },
@@ -154,6 +184,13 @@ export const VARIANT_CONFIG: Record<CsvVariant, VariantConfig> = {
     actors: QVEX_AFFAIRS_ACTORS as ActorDef<AnyActorKey>[],
     systems: QVEX_SYSTEMS as SystemDef<AnySystemKey>[],
     defaultLanes: QVEX_AFFAIRS_ACTORS.map((a) => a.laneLabel),
+  },
+  "qvex-payroll-7": {
+    variant: "qvex-payroll-7",
+    actors: QVEX_PAYROLL_ACTORS as ActorDef<AnyActorKey>[],
+    /* 급여는 텍스트 시스템 5종 — doosan-hr-4 와 동일한 키, 단 external 컬럼 없음 */
+    systems: QVEX_PAYROLL_SYSTEMS as SystemDef<AnySystemKey>[],
+    defaultLanes: QVEX_PAYROLL_ACTORS.map((a) => a.laneLabel),
   },
 };
 
@@ -202,11 +239,12 @@ export function detectCsvVariant(headerCells: string[]): CsvVariant {
   // 헤더가 짧으면 기본값
   if (headerCells.length <= 10) return "doosan-hr-4";
   const norm = (s: string) => (s || "").trim();
-  /* 모든 헤더 셀을 합쳐서 큐벡스 마커 검사 */
   const joined = headerCells.map(norm).join("|");
+  /* 1) 큐벡스PS / 큐벡스BS 마커 → 급여(payroll-7) — 다른 큐벡스 variant 보다 먼저 검사 */
+  if (/큐벡스PS|큐벡스BS/.test(joined)) return "qvex-payroll-7";
   const isQvex = /큐벡스/.test(joined);
   if (!isQvex) return "doosan-hr-4";
-  /* 큐벡스 → 계열사_임직원 헤더가 있으면 affairs(6), 아니면 welfare(5) */
+  /* 2) 큐벡스 + 계열사_임직원 → 총무(affairs-6), 그 외 → 복리후생(welfare-5) */
   if (/계열사_임직원/.test(joined)) return "qvex-affairs-6";
   return "qvex-welfare-5";
 }
@@ -237,13 +275,20 @@ export interface CsvRow {
   actor_hr: string;
   actor_teamlead: string;
   actor_member: string;
-  /* qvex actors */
+  /* qvex actors (welfare-5 / affairs-6) */
   actor_qvex_welfare: string;
   actor_qvex_purchase: string;
   actor_qvex_payroll: string;
   actor_qvex_manager: string;
   actor_affiliate_employee: string;
   actor_affiliate_dept: string;
+  /* qvex actors (payroll-7) */
+  actor_qvex_ps: string;
+  actor_payroll_teamlead: string;
+  actor_qvex_bs: string;
+  actor_affiliate_hr_er: string;
+  actor_affiliate_finance: string;
+  actor_external_partner: string;
   /* common meta */
   mgr_body: string;
   staff_count: string;
@@ -420,6 +465,13 @@ const ACTOR_KEY_TO_CSV_FIELD: Record<AnyActorKey, keyof CsvRow> = {
   qvex_manager: "actor_qvex_manager",
   affiliate_employee: "actor_affiliate_employee",
   affiliate_dept: "actor_affiliate_dept",
+  // payroll-7 keys
+  qvex_ps: "actor_qvex_ps",
+  payroll_teamlead: "actor_payroll_teamlead",
+  qvex_bs: "actor_qvex_bs",
+  affiliate_hr_er: "actor_affiliate_hr_er",
+  affiliate_finance: "actor_affiliate_finance",
+  external_partner: "actor_external_partner",
 };
 
 /** variant 별 system key → CsvRow 의 컬럼명 매핑 */
@@ -814,7 +866,7 @@ export function buildSwimLaneFlowFromL3(
   /* row 단위로 lane 결정 (variant 우선, fallback = laneCount 기반) */
   const determineLane = (r: CsvRow): number => {
     const v = r._variant || "doosan-hr-4";
-    if (v === "qvex-welfare-5" || v === "qvex-affairs-6") {
+    if (v === "qvex-welfare-5" || v === "qvex-affairs-6" || v === "qvex-payroll-7") {
       return determineLaneByVariant(r, v);
     }
     // doosan-hr-4: 화면 lane 수에 따라 4분할/6분할 라벨 매핑
@@ -824,8 +876,8 @@ export function buildSwimLaneFlowFromL3(
   /* L4 노드를 배치할 기본 레인 — 변형별 차이를 흡수 */
   const sampleVariant = rows.find((r) => r.L3_ID === selectedL3Id)?._variant || "doosan-hr-4";
   const defaultL4Lane = (() => {
-    if (sampleVariant === "qvex-welfare-5" || sampleVariant === "qvex-affairs-6") {
-      // 큐벡스: 첫 번째 lane(큐벡스 총무/복리후생 담당자) 아래에 L4 배치
+    if (sampleVariant === "qvex-welfare-5" || sampleVariant === "qvex-affairs-6" || sampleVariant === "qvex-payroll-7") {
+      // 큐벡스 변형: 첫 번째 lane 아래에 L4 배치
       return 0;
     }
     return laneCount <= 4 ? 2 : 3; // doosan: HR 담당자 레인
@@ -1444,11 +1496,12 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
 
     /* 사용 시스템 컬럼 (variant 순서):
        structured systems 우선, 없으면 CSV row 폴백.
-       추가로 사용자가 flat textarea 로 편집한 systemStr 가 있으면, doosan-hr-4 의 etc 컬럼에 기록 */
+       추가로 사용자가 flat textarea 로 편집한 systemStr 가 있으면, 텍스트 variant 의 etc 컬럼에 기록
+       (doosan-hr-4 / qvex-payroll-7 만 텍스트 모드) */
     const systemCols: string[] = cfg.systems.map(
       (s) => systems?.[s.key] ?? readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[s.key]),
     );
-    if (systemStr != null && variant === "doosan-hr-4") {
+    if (systemStr != null && (variant === "doosan-hr-4" || variant === "qvex-payroll-7")) {
       const etcIdx = cfg.systems.findIndex((s) => s.key === "etc");
       if (etcIdx >= 0) systemCols[etcIdx] = systemStr;
     }
@@ -1568,9 +1621,9 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
       ? actorColumnsFromRole(newVariant, roleStr5, actors)
       : newCfg.actors.map((a) => actors?.[a.key] || "");
 
-    /* 사용 시스템 컬럼: structured systems 우선; flat systemStr5 는 doosan-hr-4 의 etc 에 기록 */
+    /* 사용 시스템 컬럼: structured systems 우선; flat systemStr5 는 텍스트 variant 의 etc 에 기록 */
     const newSystemCols: string[] = newCfg.systems.map((s) => systems?.[s.key] || "");
-    if (systemStr5 != null && newVariant === "doosan-hr-4") {
+    if (systemStr5 != null && (newVariant === "doosan-hr-4" || newVariant === "qvex-payroll-7")) {
       const etcIdx = newCfg.systems.findIndex((s) => s.key === "etc");
       if (etcIdx >= 0) newSystemCols[etcIdx] = systemStr5;
     }
@@ -1716,11 +1769,11 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
         ? actorColumnsFromRole(rowVariant, roleStr, actors)
         : cfg.actors.map((a) => actors?.[a.key] ?? readCsvCell(r, ACTOR_KEY_TO_CSV_FIELD[a.key]));
 
-      /* 사용 시스템 컬럼: structured systems 우선; flat systemStr 는 doosan-hr-4 의 etc 에 기록 */
+      /* 사용 시스템 컬럼: structured systems 우선; flat systemStr 는 텍스트 variant 의 etc 에 기록 */
       const systemCols: string[] = cfg.systems.map(
         (s) => systems?.[s.key] ?? readCsvCell(r, SYSTEM_KEY_TO_CSV_FIELD[s.key]),
       );
-      if (systemStr != null && rowVariant === "doosan-hr-4") {
+      if (systemStr != null && (rowVariant === "doosan-hr-4" || rowVariant === "qvex-payroll-7")) {
         const etcIdx = cfg.systems.findIndex((s) => s.key === "etc");
         if (etcIdx >= 0) systemCols[etcIdx] = systemStr;
       }

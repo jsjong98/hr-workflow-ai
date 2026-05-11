@@ -224,6 +224,26 @@ export default function SheetTabBar({
                   <span>🟢</span>
                   <div><div className="font-semibold text-gray-700">6분할 시트 (총무)</div><div className="text-[9px] text-gray-400">큐벡스 총무·구매·급여·관리자 + 계열사 임직원·주관부서</div></div>
                 </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-emerald-50 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    onAdd(
+                      "swimlane",
+                      [
+                        "큐벡스PS 실무담당자",
+                        "팀장",
+                        "큐벡스BS",
+                        "계열사 HR/ER",
+                        "계열사 회계/세무/재무",
+                        "계열사 임직원",
+                        "대외 담당자",
+                      ],
+                      "qvex-payroll-7",
+                    );
+                    setAddMenuOpen(false);
+                  }}>
+                  <span>🟢</span>
+                  <div><div className="font-semibold text-gray-700">7분할 시트 (급여)</div><div className="text-[9px] text-gray-400">큐벡스PS·팀장·BS + 계열사 HR/ER·회계·임직원 + 대외</div></div>
+                </button>
                 <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 transition-colors flex items-center gap-2"
                   onClick={() => { setCustomInputs(["", "", "", ""]); setShowCustomDialog(true); setAddMenuOpen(false); }}>
                   <span>✏️</span>

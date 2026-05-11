@@ -468,8 +468,9 @@ export default function NodeDetailPanel({ node, variant = "doosan-hr-4", onClose
                   {systemDefs.map((def) => {
                     const v = ext.systems?.[def.key]?.trim();
                     if (!v) return null;
-                    /* qvex 변형은 값이 "O" 등 마커이므로 라벨만 강조, doosan-hr-4 는 "라벨: 값" 형태 */
-                    const isMarker = variant !== "doosan-hr-4";
+                    /* welfare-5 / affairs-6 는 동그라미 마커이므로 라벨만 강조,
+                       doosan-hr-4 와 payroll-7 은 텍스트라서 "라벨: 값" 형태 */
+                    const isMarker = variant === "qvex-welfare-5" || variant === "qvex-affairs-6";
                     return (
                       <span key={def.key} className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">
                         {isMarker ? def.displayLabel : `${def.displayLabel}: ${v}`}
