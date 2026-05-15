@@ -10,6 +10,12 @@ import {
   getSystemDefsForVariant,
 } from "@/lib/csvToFlow";
 
+/** 사용 시스템 셀 값이 마커("⬤", "O" 등 단일 동그라미 기호)인지 판별.
+ *  마커면 컬럼 라벨로 표시, 텍스트면 텍스트 값 그대로 표시. */
+function isMarkerValue(v: string): boolean {
+  return /^[O○●⬤◯o]$/.test(v.trim());
+}
+
 export interface NodeMeta {
   memo?: string;
   role?: string;       // 수행 주체 (콤마 구분 다중선택)
@@ -81,14 +87,16 @@ function buildMetaString(data: unknown, labelMap: { key: string; label: string }
 function getNodeMeta(node: Node, variant: CsvVariant): NodeMeta {
   const d = node.data as Record<string, unknown>;
 
-  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 variant 의 system 키 순서로 값 조합 */
+  /* system 필드: 사용자가 직접 입력한 값이 있으면 우선, 없으면 variant 의 system 키 순서로 값 조합.
+     셀 값이 마커(⬤/O 등)면 컬럼 라벨로, 자유 텍스트(예: "Teams, Outlook")면 텍스트 그대로. */
   const sysObj = d.systems as Record<string, string> | undefined;
   let systemVal = (d.system as string) || "";
   if (!systemVal && sysObj) {
     const parts: string[] = [];
     for (const def of getSystemDefsForVariant(variant)) {
       const v = sysObj[def.key]?.trim();
-      if (v) parts.push(v);
+      if (!v) continue;
+      parts.push(isMarkerValue(v) ? def.displayLabel : v);
     }
     systemVal = parts.join(" / ");
   }
@@ -468,12 +476,11 @@ export default function NodeDetailPanel({ node, variant = "doosan-hr-4", onClose
                   {systemDefs.map((def) => {
                     const v = ext.systems?.[def.key]?.trim();
                     if (!v) return null;
-                    /* welfare-5 / affairs-6 는 동그라미 마커이므로 라벨만 강조,
-                       doosan-hr-4 와 payroll-7 은 텍스트라서 "라벨: 값" 형태 */
-                    const isMarker = variant === "qvex-welfare-5" || variant === "qvex-affairs-6";
+                    /* 셀 단위로 마커/텍스트 판별 — 마커면 라벨만, 텍스트면 "라벨: 값" */
+                    const marker = isMarkerValue(v);
                     return (
                       <span key={def.key} className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-700">
-                        {isMarker ? def.displayLabel : `${def.displayLabel}: ${v}`}
+                        {marker ? def.displayLabel : `${def.displayLabel}: ${v}`}
                       </span>
                     );
                   })}

@@ -134,14 +134,16 @@ const QVEX_PAYROLL_ACTORS: ActorDef<QvexActorKey>[] = [
   { key: "external_partner",   csvHeader: "수행주체_대외_담당자",             laneLabel: "대외 담당자",                roleLabel: "대외 담당자" },
 ];
 
-/** 큐벡스 급여 — doosan 과 같은 텍스트 시스템이지만 외부_연동시스템 컬럼이 빠진 5종.
- *  키는 doosan-hr-4 와 재사용(같은 의미·같은 CsvRow 필드). */
-const QVEX_PAYROLL_SYSTEMS: SystemDef<DoosanHrSystemKey>[] = [
-  { key: "hr",        csvHeader: "사용 시스템_HR 전용시스템",  displayLabel: "HR" },
-  { key: "groupware", csvHeader: "사용 시스템_그룹웨어_협업툴", displayLabel: "그룹웨어" },
-  { key: "office",    csvHeader: "사용 시스템_오피스_문서도구", displayLabel: "오피스" },
+/** 큐벡스 급여 — 6종 시스템. PnBS 는 welfare/affairs 와 키 공유, 나머지는 doosan-hr-4 와 키 공유.
+ *  셀 값은 마커(⬤/O 등)일 수도, 자유 텍스트("Teams, Outlook")일 수도 있는 hybrid.
+ *  NodeDetailPanel 에서 셀 단위로 마커/텍스트를 판별해 표시 (isMarkerValue). */
+const QVEX_PAYROLL_SYSTEMS: SystemDef<AnySystemKey>[] = [
+  { key: "pnbs",      csvHeader: "사용 시스템_PnBS",            displayLabel: "PnBS" },
+  { key: "groupware", csvHeader: "사용 시스템_그룹웨어_협업툴", displayLabel: "그룹웨어 협업툴" },
+  { key: "office",    csvHeader: "사용 시스템_오피스_문서도구", displayLabel: "오피스 문서도구" },
+  { key: "external",  csvHeader: "사용 시스템_외부_연동시스템", displayLabel: "외부 연동시스템" },
   { key: "manual",    csvHeader: "사용 시스템_수작업_오프라인", displayLabel: "수작업" },
-  { key: "etc",       csvHeader: "사용 시스템_기타 전문 Tool",  displayLabel: "기타" },
+  { key: "etc",       csvHeader: "사용 시스템_기타 전문 Tool",  displayLabel: "기타 전문 Tool" },
 ];
 
 /** 큐벡스 복리후생/총무 둘 다 동일한 10개 system 컬럼 사용 */
