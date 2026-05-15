@@ -754,6 +754,8 @@ export function buildFlowFromL3(
           l3Name: first.L3_Name,
           l2Id: first.L2_ID,
           l2Name: first["두산 L2"],
+          /* variant — LevelNode 시스템 바 / export 가 노드 자체에서 variant 알 수 있게 */
+          variant: l5Item.variant,
           /* extended L5 metadata */
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
@@ -964,6 +966,8 @@ export function buildSwimLaneFlowFromL3(
           l3Name: first.L3_Name,
           l2Id: first.L2_ID,
           l2Name: first["두산 L2"],
+          /* variant — LevelNode 시스템 바 / export 가 노드 자체에서 variant 알 수 있게 */
+          variant: l5Item.variant,
           actors: l5Item.actors,
           mgrBody: l5Item.mgrBody,
           staffCount: l5Item.staffCount,
@@ -1176,7 +1180,7 @@ function inferExportVariant(csvRows?: CsvRow[], nodes?: Node[]): CsvVariant {
   if (fromRows) return fromRows;
   if (nodes) {
     for (const n of nodes) {
-      const v = (nd(n)._variant as CsvVariant | undefined);
+      const v = (nd(n).variant as CsvVariant | undefined);
       if (v) return v;
     }
   }
@@ -1345,8 +1349,8 @@ export function buildTemplateCsvString(nodes: Node[], csvRows?: CsvRow[]): strin
     const d3 = l3Node ? nd(l3Node) : {};
     const d2 = l2Node ? nd(l2Node) : {};
 
-    /* variant 별 actor / system 컬럼 — 노드의 _variant 가 있으면 우선 사용 */
-    const rowVariant = ((d5._variant as CsvVariant | undefined) || variant);
+    /* variant 별 actor / system 컬럼 — 노드의 variant 가 있으면 우선 사용 */
+    const rowVariant = ((d5.variant as CsvVariant | undefined) || variant);
     const actorCols = actorColumnsByVariant(rowVariant, actors);
     const systemCols = systemColumnsByVariant(rowVariant, systems);
 
@@ -1475,7 +1479,7 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
   /* 캔버스 노드 + 원본 CSV 행을 variant 별 컬럼 순서로 머지하여 직렬화 */
   const colsFromNode = (r: CsvRow, n: Node): string[] => {
     const d = nd(n);
-    const variant: CsvVariant = (d._variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
+    const variant: CsvVariant = (d.variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
     const cfg = VARIANT_CONFIG[variant];
     const actors = d.actors as Record<string, string> | undefined;
     const systems = d.systems as Record<string, string> | undefined;
@@ -1611,9 +1615,9 @@ export function buildMergedRows(csvRows: CsvRow[], nodes: Node[]): MergedRow[] {
     const inputStr5 = d5.inputData as string | null | undefined;
     const outputStr5 = d5.outputData as string | null | undefined;
 
-    /* variant 우선순위: 노드 _variant > 부모 csvByL4 row variant > 첫 csvRow > doosan-hr-4 */
+    /* variant 우선순위: 노드 variant > 부모 csvByL4 row variant > 첫 csvRow > doosan-hr-4 */
     const fallbackVariant: CsvVariant = csvRows[0]?._variant || "doosan-hr-4";
-    const newVariant: CsvVariant = (d5._variant as CsvVariant | undefined)
+    const newVariant: CsvVariant = (d5.variant as CsvVariant | undefined)
       || (l4Id ? csvByL4.get(l4Id)?._variant : undefined)
       || fallbackVariant;
     const newCfg = VARIANT_CONFIG[newVariant];
@@ -1751,7 +1755,7 @@ export function buildMergedCsvString(csvRows: CsvRow[], nodes: Node[]): string {
     } else {
       /* 캔버스 노드가 있는 행: 캔버스 값 우선, 없으면 원본 CSV 폴백 (variant 별 컬럼 순서) */
       const d = nd(node);
-      const rowVariant: CsvVariant = (d._variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
+      const rowVariant: CsvVariant = (d.variant as CsvVariant | undefined) || r._variant || "doosan-hr-4";
       const cfg = VARIANT_CONFIG[rowVariant];
       const actors = d.actors as Record<string, string> | undefined;
       const systems = d.systems as Record<string, string> | undefined;

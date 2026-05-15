@@ -4,6 +4,7 @@ import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { memo, Fragment, useState, useRef, useCallback } from "react";
 import { displayRole, extractCustomRole, hasCustomRole } from "@/lib/roleDisplay";
 import { getLaneAccent, getLaneAccentFromActors } from "@/lib/laneColors";
+import { type CsvVariant, VARIANT_CONFIG } from "@/lib/csvToFlow";
 
 /* ─────────────────────────────────────────────
  * 레벨별 차별화 디자인 시스템 (진한→연한 그라디언트)
@@ -87,15 +88,10 @@ interface NodeData {
   system?: string;
   /** L5 가변 폭 — 기본 1, Senior AI 같은 오케스트레이터는 여러 컬럼 덮기 (예: colSpan=3) */
   colSpan?: number;
-  /* ── CSV-parsed systems (L5) ── */
-  systems?: {
-    hr: string;
-    groupware: string;
-    office: string;
-    external: string;
-    manual: string;
-    etc: string;
-  };
+  /** CSV 출처의 variant — getL5SystemName 이 variant 별 system 키/라벨 매핑에 사용 */
+  variant?: CsvVariant;
+  /* ── CSV-parsed systems (L5) — 키 셋은 variant 마다 다름 (Record 로 보관) ── */
+  systems?: Record<string, string>;
 }
 
 /* extractCustomRole / hasCustomRole / displayRole 은 @/lib/roleDisplay 참조 */
@@ -105,17 +101,34 @@ function hasMeta(d: NodeData): boolean {
   return !!(d.memo || d.role || d.inputData || d.outputData || d.system);
 }
 
-/* ─── Helper: get system display name for L5 ── */
+/** 사용 시스템 셀 값이 마커("⬤", "O" 등 단일 동그라미 기호)인지 판별. */
+function isMarkerValue(v: string): boolean {
+  return /^[O○●⬤◯o]$/.test(v.trim());
+}
+
+/** data.systems 에서 어느 variant 인지 추정 — variant 가 노드에 명시 안 됐을 때 키 셋으로 판별 */
+function detectVariantFromSystems(sys: Record<string, string>): CsvVariant {
+  // welfare/affairs 고유 키
+  if ("doobuy" in sys || "portal" in sys || "qvex_manual" in sys || "ms_office" in sys) {
+    return "qvex-welfare-5"; // welfare/affairs 둘 다 시스템 라벨 동일, display 면에선 무관
+  }
+  // payroll: pnbs + doosan 키 혼합
+  if ("pnbs" in sys) return "qvex-payroll-7";
+  return "doosan-hr-4";
+}
+
+/* ─── Helper: get system display name for L5 (variant-aware + per-cell marker) ── */
 function getL5SystemName(data: NodeData): string {
   if (data.system) return data.system;
   if (data.systems) {
+    const variant: CsvVariant = data.variant ?? detectVariantFromSystems(data.systems);
+    const defs = VARIANT_CONFIG[variant].systems;
     const parts: string[] = [];
-    if (data.systems.hr?.trim()) parts.push(data.systems.hr.trim());
-    if (data.systems.groupware?.trim()) parts.push(data.systems.groupware.trim());
-    if (data.systems.office?.trim()) parts.push(data.systems.office.trim());
-    if (data.systems.external?.trim()) parts.push(data.systems.external.trim());
-    if (data.systems.manual?.trim()) parts.push(data.systems.manual.trim());
-    if (data.systems.etc?.trim()) parts.push(data.systems.etc.trim());
+    for (const def of defs) {
+      const v = data.systems[def.key]?.trim();
+      if (!v) continue;
+      parts.push(isMarkerValue(v) ? def.displayLabel : v);
+    }
     if (parts.length > 0) return parts.join(" / ");
   }
   return ""; // 시스템 데이터 없으면 공란

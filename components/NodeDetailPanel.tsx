@@ -133,8 +133,15 @@ function getNodeMeta(node: Node, variant: CsvVariant): NodeMeta {
   };
 }
 
-export default function NodeDetailPanel({ node, variant = "doosan-hr-4", onClose, onUpdate }: NodeDetailPanelProps) {
+export default function NodeDetailPanel({ node, variant: propVariant = "doosan-hr-4", onClose, onUpdate }: NodeDetailPanelProps) {
   const [meta, setMeta] = useState<NodeMeta>({});
+
+  /* variant 우선순위: 노드 자체에 저장된 variant > 부모가 넘긴 prop variant.
+     (CSV 로드 후 시트 variant 가 prop 으로 들어오지만, 노드가 다른 variant 출처일 수도 있어서) */
+  const nodeDataVariant = (node?.data as Record<string, unknown> | undefined)?.variant as
+    | CsvVariant
+    | undefined;
+  const variant: CsvVariant = nodeDataVariant ?? propVariant;
 
   /* variant 의 역할 토글 라벨 + "그 외" — variant 가 바뀌면 재계산 */
   const ROLE_OPTIONS = [...getRoleOptionsForVariant(variant), "그 외"] as const;
