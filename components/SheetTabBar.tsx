@@ -196,14 +196,15 @@ export default function SheetTabBar({
                         "큐벡스 구매 담당자",
                         "큐벡스 급여 담당자",
                         "큐벡스 관리자(중역)",
+                        "계열사 임직원",
                         "계열사 주관부서(현업 포함)",
                       ],
-                      "qvex-welfare-5",
+                      "qvex-affairs-6",
                     );
                     setAddMenuOpen(false);
                   }}>
                   <span>🟢</span>
-                  <div><div className="font-semibold text-gray-700">5분할 시트 (복리후생)</div><div className="text-[9px] text-gray-400">큐벡스 총무·구매·급여·관리자 + 계열사 주관부서</div></div>
+                  <div><div className="font-semibold text-gray-700">6분할 시트 (복리후생)</div><div className="text-[9px] text-gray-400">큐벡스 총무·구매·급여·관리자 + 계열사 임직원·주관부서</div></div>
                 </button>
                 <button className="w-full text-left px-3 py-2 text-[11px] hover:bg-emerald-50 transition-colors flex items-center gap-2"
                   onClick={() => {

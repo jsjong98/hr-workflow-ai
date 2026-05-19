@@ -1,14 +1,17 @@
 /* ─────────────────────────────────────────────
  * CSV → React Flow Nodes & Edges 변환 유틸리티
  *
- * 4개의 CSV 스키마 variant 지원:
- *  - doosan-hr-4   : 기존 두산 HR (4 actor + 6 system)
- *  - qvex-welfare-5: 큐벡스 복리후생 (5 actor + 10 system)
- *  - qvex-affairs-6: 큐벡스 총무   (6 actor + 10 system)
- *  - qvex-payroll-7: 큐벡스 급여   (7 actor + 10 system)
+ * CSV 스키마 variant:
+ *  - doosan-hr-4    : 두산 HR (4 actor + 6 system)
+ *  - qvex-affairs-6 : 큐벡스 복리후생/총무 공통 (6 actor + 10 system)
+ *  - qvex-payroll-7 : 큐벡스 급여 (7 actor + 6 system)
+ *
+ * 과거에는 복리후생을 별도 5-actor variant("qvex-welfare-5")로 다뤘으나,
+ * 실제 CSV 구조가 총무와 동일(계열사_임직원 포함 6 actor)이라 affairs-6 로 통합.
+ * 기존에 저장된 JSON 의 "qvex-welfare-5" 도 동일 config 로 매핑되어 호환 유지.
  *
  * variant 는 CSV 헤더에서 자동 감지(parseCsv) 또는 시트 프리셋에서 명시 설정.
- * actor/system 구조가 variant 마다 다르므로 VARIANT_CONFIG 를 단일 진실 원천(SoT)으로 사용.
+ * VARIANT_CONFIG 를 단일 진실 원천(SoT)으로 사용.
  * ───────────────────────────────────────────── */
 
 import { MarkerType, type Node, type Edge } from "@xyflow/react";
@@ -112,11 +115,7 @@ const QVEX_ACTORS_BASE: ActorDef<QvexActorKey>[] = [
   { key: "qvex_manager",  csvHeader: "수행주체_큐벡스_관리자(중역)",         laneLabel: "큐벡스 관리자(중역)",         roleLabel: "큐벡스 관리자(중역)" },
 ];
 
-const QVEX_WELFARE_ACTORS: ActorDef<QvexActorKey>[] = [
-  ...QVEX_ACTORS_BASE,
-  { key: "affiliate_dept",     csvHeader: "수행주체_계열사_주관부서(현업부서 포함)", laneLabel: "계열사 주관부서(현업 포함)", roleLabel: "계열사 주관부서(현업 포함)" },
-];
-
+/** 큐벡스 복리후생 + 총무 공통 — 6 actor (welfare 와 affairs 가 동일한 수행주체 구성을 사용) */
 const QVEX_AFFAIRS_ACTORS: ActorDef<QvexActorKey>[] = [
   ...QVEX_ACTORS_BASE,
   { key: "affiliate_employee", csvHeader: "수행주체_계열사_임직원",                   laneLabel: "계열사 임직원",              roleLabel: "계열사 임직원" },
@@ -175,11 +174,12 @@ export const VARIANT_CONFIG: Record<CsvVariant, VariantConfig> = {
     systems: DOOSAN_HR_SYSTEMS as SystemDef<AnySystemKey>[],
     defaultLanes: DOOSAN_HR_ACTORS.map((a) => a.laneLabel),
   },
+  /* welfare-5 는 affairs-6 와 동일한 6-actor / 10-system 구조 (legacy variant 명만 보존). */
   "qvex-welfare-5": {
     variant: "qvex-welfare-5",
-    actors: QVEX_WELFARE_ACTORS as ActorDef<AnyActorKey>[],
+    actors: QVEX_AFFAIRS_ACTORS as ActorDef<AnyActorKey>[],
     systems: QVEX_SYSTEMS as SystemDef<AnySystemKey>[],
-    defaultLanes: QVEX_WELFARE_ACTORS.map((a) => a.laneLabel),
+    defaultLanes: QVEX_AFFAIRS_ACTORS.map((a) => a.laneLabel),
   },
   "qvex-affairs-6": {
     variant: "qvex-affairs-6",
@@ -244,11 +244,9 @@ export function detectCsvVariant(headerCells: string[]): CsvVariant {
   const joined = headerCells.map(norm).join("|");
   /* 1) 큐벡스PS / 큐벡스BS 마커 → 급여(payroll-7) — 다른 큐벡스 variant 보다 먼저 검사 */
   if (/큐벡스PS|큐벡스BS/.test(joined)) return "qvex-payroll-7";
-  const isQvex = /큐벡스/.test(joined);
-  if (!isQvex) return "doosan-hr-4";
-  /* 2) 큐벡스 + 계열사_임직원 → 총무(affairs-6), 그 외 → 복리후생(welfare-5) */
-  if (/계열사_임직원/.test(joined)) return "qvex-affairs-6";
-  return "qvex-welfare-5";
+  /* 2) 그 외 큐벡스 헤더 → 복리후생/총무 공통 (affairs-6 로 단일화) */
+  if (/큐벡스/.test(joined)) return "qvex-affairs-6";
+  return "doosan-hr-4";
 }
 
 /** rows[0]._variant 으로부터 variant 추출. 비어있으면 기본값. */
@@ -811,8 +809,8 @@ export function buildFlowFromL3(
  *   doosan-hr-4    : 임원(0) → HR 담당자(1) → 팀장(2) → 구성원(3) — DOOSAN_HR_ACTORS 순서
  *      ※ 단, 4분할 시트 (현업 임원 / 팀장 / HR 담당자 / 구성원) 와 6분할 (현업 임원 / 현업 팀장 / HR 임원 / HR 담당자 / 현업 구성원 / 그 외) 같은
  *        커스텀 lanes 가 들어오는 경우는 별도 라벨 매핑(determineLaneLegacy) 으로 처리.
- *   qvex-welfare-5 : QVEX_WELFARE_ACTORS 순서대로 lane 0~4
- *   qvex-affairs-6 : QVEX_AFFAIRS_ACTORS 순서대로 lane 0~5
+ *   qvex-welfare-5 / qvex-affairs-6 : QVEX_AFFAIRS_ACTORS 순서대로 lane 0~5 (공통)
+ *   qvex-payroll-7 : QVEX_PAYROLL_ACTORS 순서대로 lane 0~6
  *
  * 수행주체 열이 비어있지 않으면 해당 레인, 여러 레인에 해당하면 정의 순서상 첫 매칭.
  * 모두 비어있으면 기본 레인(HR 또는 마지막 레인).

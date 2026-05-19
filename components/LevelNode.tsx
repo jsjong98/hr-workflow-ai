@@ -108,9 +108,9 @@ function isMarkerValue(v: string): boolean {
 
 /** data.systems 에서 어느 variant 인지 추정 — variant 가 노드에 명시 안 됐을 때 키 셋으로 판별 */
 function detectVariantFromSystems(sys: Record<string, string>): CsvVariant {
-  // welfare/affairs 고유 키
+  // 복리후생/총무 고유 키 (둘 다 동일한 6-actor / 10-system 구조라 affairs-6 로 통합)
   if ("doobuy" in sys || "portal" in sys || "qvex_manual" in sys || "ms_office" in sys) {
-    return "qvex-welfare-5"; // welfare/affairs 둘 다 시스템 라벨 동일, display 면에선 무관
+    return "qvex-affairs-6";
   }
   // payroll: pnbs + doosan 키 혼합
   if ("pnbs" in sys) return "qvex-payroll-7";

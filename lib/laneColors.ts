@@ -48,7 +48,7 @@ const PALETTE: Record<string, LaneAccent> = {
   // 그 외 lane (6분할 시트)
   "그 외": HUMAN,
   "기타": HUMAN,
-  // 큐벡스 variant lane (qvex-welfare-5 / qvex-affairs-6)
+  // 큐벡스 variant lane (qvex-affairs-6: 복리후생 + 총무 공통 6 actor)
   "큐벡스 총무/복리후생 담당자": HUMAN,
   "큐벡스 구매 담당자": HUMAN,
   "큐벡스 급여 담당자": HUMAN,
